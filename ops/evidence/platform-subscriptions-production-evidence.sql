@@ -15,7 +15,7 @@
 \echo ' 5 PlatformSubscription: exactly its three policies (tenant read, control-plane add, control-plane change)'
 \echo ' 6 PlatformSubscriptionEvent: exactly its one policy (control-plane add)'
 \echo ' 7 app_runtime holds exactly r (read) on PlatformSubscription'
-\echo ' 8 app_runtime holds nothing on PlatformSubscriptionEvent'
+\echo ' 8 app_runtime holds exactly r on PlatformSubscriptionEvent, and no policy names it (it sees zero rows)'
 \echo ' 9 app_ctlplane holds exactly ar (read, add) at table level on PlatformSubscription'
 \echo '10 app_ctlplane may change exactly the 12 lifecycle columns of PlatformSubscription (not businessId, not createdAt)'
 \echo '11 app_ctlplane holds exactly a (add) on PlatformSubscriptionEvent: it may not read back the log it writes'
@@ -46,7 +46,9 @@ c AS (
   UNION ALL SELECT 5, (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'PlatformSubscription'), 3
   UNION ALL SELECT 6, (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'PlatformSubscriptionEvent'), 1
   UNION ALL SELECT 7, (SELECT count(*) FROM acl1 WHERE split_part(entry, '/', 1) = 'app_runtime=r'), 1
-  UNION ALL SELECT 8, (SELECT count(*) FROM acl2 WHERE entry LIKE 'app\_runtime=%'), 0
+  UNION ALL SELECT 8, (SELECT count(*) FROM acl2 WHERE split_part(entry, '/', 1) = 'app_runtime=r')
+                       - (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'PlatformSubscriptionEvent'
+                            AND ('app_runtime' = ANY (roles) OR 'public' = ANY (roles))), 1
   UNION ALL SELECT 9, (SELECT count(*) FROM acl1 WHERE split_part(entry, '/', 1) = 'app_ctlplane=ar'), 1
   UNION ALL SELECT 10, (SELECT count(*) FROM pg_attribute a CROSS JOIN LATERAL unnest(a.attacl) x
                          WHERE a.attrelid = (SELECT oid FROM t1) AND a.attnum > 0 AND NOT a.attisdropped

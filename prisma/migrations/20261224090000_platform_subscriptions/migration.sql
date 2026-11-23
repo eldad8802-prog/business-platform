@@ -15,8 +15,10 @@
 --      event — owner decision 5 (2026-11-20): all existing accounts are testers. The platform system business
 --      (__PLATFORM_SYSTEM__) is INTERNAL. Nobody starts a trial; nobody is limited.
 --   4. FORCE RLS on both tables, by business:
---        app_runtime   SELECT own business's subscription row only (a business can never change its own plan);
---                      nothing on the event log.
+--        app_runtime   SELECT own business's subscription row only (a business can never change its own plan).
+--                      On the event log: an explicit SELECT grant (the tenant-table guard requires every new tenant
+--                      table to name its runtime privilege) with NO runtime policy — under FORCE RLS it sees zero
+--                      rows. Whether a business may read its own history is a stage-C decision (a policy, not a grant).
 --        app_ctlplane  the admin write path (control-plane transaction, GUC-scoped): subscription SELECT / INSERT /
 --                      UPDATE of the lifecycle columns; event log INSERT only — like PlatformAuditEvent, the writer
 --                      may not read back what it wrote. No DELETE for anyone, no UPDATE on the log (a trigger
@@ -186,6 +188,8 @@ BEGIN
 END
 $do$;
 GRANT SELECT ON "PlatformSubscription" TO app_runtime;
+-- Named, not inherited: no policy exists for app_runtime on the log, so FORCE RLS shows it zero rows.
+GRANT SELECT ON "PlatformSubscriptionEvent" TO app_runtime;
 GRANT SELECT, INSERT ON "PlatformSubscription" TO app_ctlplane;
 GRANT UPDATE ("accountType", "status", "plan", "catalogVersion", "trialStartedAt", "trialEndsAt", "currentPeriodStart",
               "currentPeriodEnd", "cancelAtPeriodEnd", "source", "updatedByUserId", "updatedAt")
