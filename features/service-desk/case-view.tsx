@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import type { CaseActionDef } from "./case-actions-model";
 import {
   attentionReason, caseNoun, caseSections, formatShortDate, mergedHistory, nextActionLabel, statusLabel, statusTone,
-  type CaseCardData, type JournalItem, type NextActionContext, type SectionKey, type SideHistoryItem,
+  type CaseCardData, type HistoryNames, type JournalItem, type NextActionContext, type SectionKey, type SideHistoryItem,
 } from "./cases-model";
 import s from "./cases.module.css";
 
@@ -21,6 +21,8 @@ export type CaseViewProps = {
   events: readonly JournalItem[];
   /** Records kept outside the journal (loans, pickup calls), with their own stored times — merged into the history. */
   sideHistory?: readonly SideHistoryItem[];
+  /** Names for ids the journal stores (loans, tasks), from what the screen already read. */
+  historyNames?: HistoryNames;
   /** What is already done, so the "next action" never names a finished step. */
   nextCtx?: NextActionContext;
   now: Date;
@@ -54,7 +56,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalItem[], now: Date, side: readonly SideHistoryItem[] = []): { hint?: string; body: ReactNode } {
+function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalItem[], now: Date, side: readonly SideHistoryItem[] = [], names: HistoryNames = {}): { hint?: string; body: ReactNode } {
   const held = c.kind === "IN_SHOP";
   switch (key) {
     case "details":
@@ -94,7 +96,7 @@ function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalI
         ? { hint: "מוכן", body: <p className={s.muted}>המסירה נרשמת עם המועד ואישור בעל העסק, אחרי שנקבע חיוב לתיק (סכום או &quot;ללא חיוב&quot;).</p> }
         : { body: <p className={s.muted}>{c.stamps.deliveredAt ? `נמסר ב־${formatShortDate(c.stamps.deliveredAt, now)}` : "עוד לא נמסר."}</p> };
     case "history": {
-      const items = mergedHistory(events, side);
+      const items = mergedHistory(events, side, names);
       return {
         hint: items.length ? `${items.length} עדכונים` : undefined,
         body: items.length ? (
@@ -113,7 +115,7 @@ function sectionBody(key: SectionKey, c: CaseCardData, events: readonly JournalI
   }
 }
 
-export function CaseView({ card, events, sideHistory = [], nextCtx = {}, now, back, actions = [], onAction, busyId = null, message = null, notes = [], extraMain = null, extraSide = null }: CaseViewProps) {
+export function CaseView({ card, events, sideHistory = [], historyNames = {}, nextCtx = {}, now, back, actions = [], onAction, busyId = null, message = null, notes = [], extraMain = null, extraSide = null }: CaseViewProps) {
   const noun = caseNoun(card.kind);
   const tone = statusTone(card.status, card.holdReason);
   const next = nextActionLabel(card.status, card.kind, card.holdReason, nextCtx);
@@ -195,7 +197,7 @@ export function CaseView({ card, events, sideHistory = [], nextCtx = {}, now, ba
               </div>
             ) : null}
             {history ? (() => {
-              const { hint, body } = sectionBody("history", card, events, now, sideHistory);
+              const { hint, body } = sectionBody("history", card, events, now, sideHistory, historyNames);
               return (
                 <details className={s.section} open>
                   <summary>

@@ -292,7 +292,16 @@ const EVENT_LABEL: Readonly<Record<string, string>> = {
   "billing.linked": "קושר מסמך חיוב",
   "billing.unlinked": "הוסר קישור למסמך חיוב",
   "case.cancellation_requested": "התבקש ביטול",
+  // migration 20261222090000 (once applied): the light case work, with who acted
+  "case.work_details_recorded": "פרטי העבודה עודכנו",
+  "loan.lent": "ניתן ציוד חלופי",
+  "loan.returned": "הוחזר ציוד חלופי",
+  "task.linked": "קושרה משימה",
+  "task.unlinked": "הוסר קישור למשימה",
 };
+
+/** Names the screen already holds for ids the journal stores (a loan's item, a task's title) — never stored in the journal. */
+export type HistoryNames = { loans?: Readonly<Record<number, string>>; tasks?: Readonly<Record<number, string>> };
 
 const ACTOR_LABEL: Readonly<Record<string, string>> = { OWNER_USER: "בעל העסק", CUSTOMER_LINK: "הלקוח", SYSTEM: "המערכת" };
 
@@ -309,7 +318,7 @@ const num = (v: unknown): number | null => (typeof v === "number" && Number.isFi
  * tokens and numbers) — the detail that matters: the QA counts, a handover with an open balance, the charge, the way
  * the customer answered a quote. Nothing is inferred; a reason text is never in the journal, so it is never shown here.
  */
-export function eventLabel(e: Pick<JournalItem, "eventType" | "toStatus"> & { payload?: unknown }): string {
+export function eventLabel(e: Pick<JournalItem, "eventType" | "toStatus"> & { payload?: unknown }, names: HistoryNames = {}): string {
   const base = EVENT_LABEL[e.eventType] ?? "עדכון בתיק";
   const p = (e.payload && typeof e.payload === "object" ? e.payload : {}) as Record<string, unknown>;
   switch (e.eventType) {
@@ -327,6 +336,25 @@ export function eventLabel(e: Pick<JournalItem, "eventType" | "toStatus"> & { pa
     case "quote.approved":
     case "quote.rejected":
       return p.method === "PHONE" ? `${base} · בטלפון` : p.method === "IN_PERSON" ? `${base} · פנים אל פנים` : base;
+    case "case.work_details_recorded": {
+      const parts: string[] = [];
+      if (p.locationChanged === true) parts.push(p.locationSet === true ? "מיקום הפריט עודכן" : "מיקום הפריט נמחק");
+      if (p.estimatedChanged === true) {
+        const d = typeof p.estimatedReadyOn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.estimatedReadyOn) ? p.estimatedReadyOn : null;
+        parts.push(d ? `סיום משוער: ${Number(d.slice(8, 10))}.${Number(d.slice(5, 7))}` : "תאריך הסיום המשוער הוסר");
+      }
+      return parts.length ? parts.join(" · ") : base;
+    }
+    case "loan.lent":
+    case "loan.returned": {
+      const n = num(p.loanId) !== null ? names.loans?.[num(p.loanId)!] : undefined;
+      return n ? `${base}: ${n}` : base;
+    }
+    case "task.linked":
+    case "task.unlinked": {
+      const n = num(p.taskId) !== null ? names.tasks?.[num(p.taskId)!] : undefined;
+      return n ? `${base}: ${n}` : base;
+    }
     default:
       return base;
   }
@@ -335,10 +363,21 @@ export function eventLabel(e: Pick<JournalItem, "eventType" | "toStatus"> & { pa
 /** A history line from a record kept outside the journal (a loan, a pickup call): real stored times only. */
 export type SideHistoryItem = { key: string; text: string; occurredAt: string };
 
+/** The loans the journal already records (migration 20261222090000): their side lines are not repeated. */
+export function journaledLoanIds(events: readonly JournalItem[]): Set<number> {
+  const out = new Set<number>();
+  for (const e of events) {
+    if (e.eventType !== "loan.lent" && e.eventType !== "loan.returned") continue;
+    const id = (e.payload as { loanId?: unknown } | undefined)?.loanId;
+    if (typeof id === "number") out.add(id);
+  }
+  return out;
+}
+
 /** The journal and the side records, newest first, as one list for the history section. */
-export function mergedHistory(events: readonly JournalItem[], side: readonly SideHistoryItem[]): { key: string; text: string; occurredAt: string; actor: string | null }[] {
+export function mergedHistory(events: readonly JournalItem[], side: readonly SideHistoryItem[], names: HistoryNames = {}): { key: string; text: string; occurredAt: string; actor: string | null }[] {
   const rows = [
-    ...events.map((e) => ({ key: `e${e.seq}`, text: eventLabel(e), occurredAt: e.occurredAt, actor: actorLabel(e.actor), order: e.seq })),
+    ...events.map((e) => ({ key: `e${e.seq}`, text: eventLabel(e, names), occurredAt: e.occurredAt, actor: actorLabel(e.actor), order: e.seq })),
     ...side.map((x) => ({ key: x.key, text: x.text, occurredAt: x.occurredAt, actor: null as string | null, order: 0 })),
   ];
   return rows.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt) || b.order - a.order).map((r) => ({ key: r.key, text: r.text, occurredAt: r.occurredAt, actor: r.actor }));

@@ -3,7 +3,7 @@
  */
 import {
   attentionReason, buildListSections, caseNoun, caseSections, eventLabel, historyItems, isClosed, matchesQuery,
-  mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
+  journaledLoanIds, mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
 } from "./cases-model";
 
 let passed = 0;
@@ -99,6 +99,14 @@ ok("E9 a record names what was recorded; an unknown event is a plain update", ev
     mergedHistory([{ seq: 1, eventType: "case.opened", toStatus: "OPEN", occurredAt: "2026-11-20T10:00:00.000Z", actor: "OWNER_USER" }],
       [{ key: "l", text: "ניתן ציוד חלופי: מטען", occurredAt: "2026-11-21T09:00:00.000Z" }]).map((x) => x.key).join(",") === "l,e1");
 }
+
+// ── Migration 20261222090000 (once applied): the light case work in the history ──
+ok("J1 work details read from flags and the date token only", eventLabel({ eventType: "case.work_details_recorded", toStatus: "IN_REPAIR", payload: { locationChanged: true, locationSet: true, estimatedChanged: true, estimatedReadyOn: "2026-12-01" } }) === "מיקום הפריט עודכן · סיום משוער: 1.12"
+  && eventLabel({ eventType: "case.work_details_recorded", toStatus: "IN_REPAIR", payload: { locationChanged: true, locationSet: false, estimatedChanged: false } }) === "מיקום הפריט נמחק"
+  && eventLabel({ eventType: "case.work_details_recorded", toStatus: "IN_REPAIR", payload: { locationChanged: false, estimatedChanged: true, estimatedReadyOn: null } }) === "תאריך הסיום המשוער הוסר");
+ok("J2 a loan / task line takes its name from what the screen holds; without it, the plain label", eventLabel({ eventType: "loan.lent", toStatus: "READY", payload: { loanId: 7 } }, { loans: { 7: "מטען" } }) === "ניתן ציוד חלופי: מטען"
+  && eventLabel({ eventType: "task.unlinked", toStatus: "READY", payload: { taskId: 3 } }) === "הוסר קישור למשימה");
+ok("J3 journaled loans are known, so their side lines are not repeated", [...journaledLoanIds([{ seq: 4, eventType: "loan.lent", toStatus: "READY", occurredAt: "2026-11-22T10:00:00.000Z", actor: "OWNER_USER", payload: { loanId: 7 } }])].join(",") === "7");
 
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
