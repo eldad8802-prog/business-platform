@@ -824,7 +824,7 @@ async function main() {
      VALUES ('activity_packs',false,false,CURRENT_TIMESTAMP) ON CONFLICT ("featureKey") DO NOTHING`
   );
   // The isolation witness: a business that is not 9 (bizA unless it happens to be 9).
-  const otherBiz = otherBiz.id !== 9 ? bizA : bizB;
+  const otherBiz = bizA.id !== 9 ? bizA : bizB;
   const b9 = (await owner.business.findUnique({ where: { id: 9 }, select: { id: true } }))
     ?? (await owner.business.create({ data: { id: 9, name: `${MARK}P9ap` }, select: { id: true } }));
   await owner.$executeRawUnsafe(`SELECT setval(pg_get_serial_sequence('"Business"', 'id'), GREATEST((SELECT max(id) FROM "Business"), 9))`);
