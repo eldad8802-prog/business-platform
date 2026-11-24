@@ -13,8 +13,10 @@
  *   K3  every refusal writes NOTHING (profile and history unchanged): not exempt, invalid / different VAT number,
  *       future / missing / pre-2000 effective date, stale / future / unknown re-auth, stale statement, incomplete
  *       identity, no tenant context, a user of another business, a business being deleted, several users,
- *       a live issuer declaration
- *   K4  an anonymised (erased) issuer declaration does not block; the status start date may be earlier than today
+ *       a live issuer declaration (20261221090000 alone); wired (20261225090000): the writer's refusal
+ *       (declaration not yet effective), and the transition's own refusals before the writer (several users, stale)
+ *   K4  an anonymised (erased) issuer declaration does not block; the status start date may be earlier than today;
+ *       wired: a live declaration → TRANSITIONED with declaration v2 (STATUS_CHANGE) carrying the same digest
  *   K5  a second transition → NOT_EXEMPT_DEALER (one per business; the reverse has no path)
  *   K6  after the transition the signup lock still holds: kind back to exempt, legal name, id number → DZL04
  *   K7  the runtime cannot write the history table (no INSERT / UPDATE / DELETE); app_auth executes nothing;
@@ -124,19 +126,28 @@ const profileOf = async (businessId: number) =>
   ((await owner.$queryRawUnsafe(`SELECT * FROM "BusinessProfile" WHERE "businessId" = $1`, businessId)) as Rows)[0];
 const historyOf = async (businessId: number) =>
   (await owner.$queryRawUnsafe(`SELECT * FROM "BusinessKindTransition" WHERE "businessId" = $1 ORDER BY id`, businessId)) as Rows;
-const snap = async (businessId: number) => JSON.stringify({ p: await profileOf(businessId), h: await historyOf(businessId) });
+const declarationsOf = async (businessId: number) =>
+  (await owner.$queryRawUnsafe(`SELECT * FROM "BusinessIssuerDeclaration" WHERE "businessId" = $1 ORDER BY "version"`, businessId)) as Rows;
+const snap = async (businessId: number) =>
+  JSON.stringify({ p: await profileOf(businessId), h: await historyOf(businessId), d: await declarationsOf(businessId) });
 
-async function declaration(businessId: number, userId: number, anonymised: boolean) {
+/** An exempt declaration v1 as the emailed-link flow records it. effectiveFrom: an SQL expression (default now()). */
+async function declaration(businessId: number, userId: number, anonymised: boolean, effectiveFrom = "now()") {
   await owner.$executeRawUnsafe(
     `INSERT INTO "BusinessIssuerDeclaration" ("businessId","version","kind","track","legalForm","vatStatus","legalName","idType","idNumber",
        "address","phone","email","effectiveFrom","authorizedUserId","authorityBasis","declaredByUserId","declarantName","declarantCapacity",
        "statementVersion","statementSha256","reauthMethod","reauthAt","anonymisedAt")
      VALUES ($1, 1, 'INITIAL', 'EXEMPT_DEALER', 'INDIVIDUAL', 'EXEMPT', $2, 'ISRAELI_ID', $3, 'הרצל 1', '0501234567', 'biz@lab.invalid',
-       now(), $4, 'SOLE_USER_VERIFIED', $4, 'דנה', 'בעלים', 'v1', $5, 'EMAIL_LINK', now(), $6)`,
+       ${effectiveFrom}, $4, 'SOLE_USER_VERIFIED', $4, 'דנה', 'בעלים', 'issuer-statement-v1', $5, 'EMAIL_LINK', now(), $6)`,
     businessId, LEGAL_NAME, TAX_A, userId, "a".repeat(64), anonymised ? new Date() : null);
 }
 
+let WIRED = false;
 async function main() {
+  // 20261221090000 alone, or wired to the 4a T1 writer by 20261225090000 (.bkt/lab.sh --with-wiring)?
+  WIRED = ((await owner.$queryRawUnsafe(
+    `SELECT position('issuer_declaration_status_change' IN pg_get_functiondef(p.oid)) > 0 AS w FROM pg_proc p WHERE p.proname = 'business_kind_transition_to_authorized'`)) as Rows)[0]?.w === true;
+  console.log(`lab: ${WIRED ? "WIRED (20261225090000 applied)" : "20261221090000 only (not wired)"}`);
   // ------------------------------------------------------------ K1
   console.log("K1 happy path");
   const today = israelToday();
@@ -200,12 +211,37 @@ async function main() {
     const r = await transition(b, call);
     ok(`K3 ${label} → ${expected}, nothing written`, r === expected && (await snap(b.businessId)) === before, r);
   }
-  {
+  if (!WIRED) {
+    // 20261221090000 alone: a live declaration is refused before anything else is written.
     const b = await business();
     await declaration(b.businessId, b.userId, false);
     const before = await snap(b.businessId);
     const r = await transition(b);
     ok("K3 live issuer declaration → ISSUER_DECLARATION_ACTIVE, nothing written", r === "ISSUER_DECLARATION_ACTIVE" && (await snap(b.businessId)) === before, r);
+  } else {
+    // Wired (20261225090000): a live declaration is no longer a refusal by itself; the 4a writer decides. Its refusals
+    // are returned as ISSUER_DECLARATION_<status> and write nothing — not v2, not the history row, not the profile.
+    const b = await business();
+    await declaration(b.businessId, b.userId, false, "now() + interval '4 minutes'");
+    const before = await snap(b.businessId);
+    const r = await transition(b);
+    ok("K3 live declaration not yet effective → ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE, nothing written",
+      r === "ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE" && (await snap(b.businessId)) === before, r);
+    const two = await business();
+    await declaration(two.businessId, two.userId, false);
+    // the declaration requires a sole user (DZD33): the second user joins afterwards
+    await owner.$executeRawUnsafe(`INSERT INTO "User" ("email","password","name","businessId","updatedAt") VALUES ($1,$2,'בני',$3, now())`,
+      `bkt-${Date.now()}-k3two@lab.invalid`, "$2b$10$" + "A".repeat(53), two.businessId);
+    const twoBefore = await snap(two.businessId);
+    const r2 = await transition(two);
+    ok("K3 live declaration + two users → NOT_SOLE_USER (the transition's own check first), nothing written",
+      r2 === "NOT_SOLE_USER" && (await snap(two.businessId)) === twoBefore, r2);
+    const stale = await business();
+    await declaration(stale.businessId, stale.userId, false);
+    const staleBefore = await snap(stale.businessId);
+    const r3 = await transition(stale, { sha: "0".repeat(64) });
+    ok("K3 live declaration + stale digest → STATEMENT_STALE before the writer, nothing written",
+      r3 === "STATEMENT_STALE" && (await snap(stale.businessId)) === staleBefore, r3);
   }
   {
     // A statement computed for another date (the owner saw one thing, sends another).
@@ -224,6 +260,20 @@ async function main() {
     const g = await business();
     ok("K4 start date = today is accepted", (await transition(g, { date: today, method: "GOOGLE" })) === "TRANSITIONED");
     ok("K4 GOOGLE re-auth recorded", (await historyOf(g.businessId))[0]?.reauthMethod === "GOOGLE");
+    if (WIRED) {
+      const w = await business();
+      await declaration(w.businessId, w.userId, false);
+      const v1 = JSON.stringify((await declarationsOf(w.businessId))[0]);
+      const r = await transition(w, { date: "2026-01-01" });
+      const ds = await declarationsOf(w.businessId);
+      const h = (await historyOf(w.businessId))[0] ?? {};
+      ok("K4 wired: a live declaration → TRANSITIONED; v2 STATUS_CHANGE authorized, v1 byte-identical",
+        r === "TRANSITIONED" && ds.length === 2 && ds[1].kind === "STATUS_CHANGE" && ds[1].vatStatus === "AUTHORIZED"
+          && ds[1].vatRegistrationNumber === TAX_A && JSON.stringify(ds[0]) === v1, r);
+      ok("K4 wired: v2 carries the transition's own digest and re-auth; effectiveFrom = confirmedAt",
+        ds[1]?.statementSha256 === h.statementSha256 && ds[1]?.statementVersion === "kind-transition-exempt-to-authorized-v1"
+          && ds[1]?.reauthMethod === h.reauthMethod && String(ds[1]?.effectiveFrom) === String(h.confirmedAt));
+    }
   }
 
   // ------------------------------------------------------------ K5
