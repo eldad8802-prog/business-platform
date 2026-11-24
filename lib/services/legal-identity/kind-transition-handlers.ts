@@ -8,7 +8,10 @@
  *   POST   .../kind-transition/reauth/password   password re-entry (login's ledger and lock) → proof cookie
  *   POST   .../kind-transition/reauth/google     Google re-auth start → { url } + the re-auth state cookie
  *   POST   .../kind-transition                   the transition: input + digest + a valid proof for THIS user,
- *                                                THIS session, THIS action, by the method the account requires
+ *                                                THIS session, THIS action, by the method the account requires,
+ *                                                + interimDocumentCount (the N the owner saw, 4a T4): counted again
+ *                                                inside the transition's transaction; different → everything rolls
+ *                                                back, 409 { error: "INTERIM_DOCUMENTS_CHANGED", count }
  *
  * The user and business are the verified session's; nothing identifying comes from the body. Every refusal writes
  * nothing; the database function re-checks everything in one transaction anyway.
@@ -42,6 +45,7 @@ import {
 import { safeErrorSummary } from "@/lib/security/log-safe-error";
 import { consumeRateLimit, getClientIp, reserveAttempt } from "@/lib/security/rate-limit";
 import {
+  InterimDocumentsChangedError,
   isBusinessKindTransitionEnabled,
   performKindTransition,
   readKindTransitionSnapshot,
@@ -100,6 +104,12 @@ function inputOf(b: Record<string, unknown>): KindTransitionInput {
     statusEffectiveDate: s(b.statusEffectiveDate),
     acknowledged: Array.isArray(b.acknowledged) ? b.acknowledged.filter((x): x is string => typeof x === "string").slice(0, 20) : [],
   };
+}
+
+/** 4a T4: the number of interim documents the owner saw — a whole number, required on confirm. */
+export function interimDocumentCountOf(b: Record<string, unknown>): number | null {
+  const v = b.interimDocumentCount;
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 10_000_000 ? v : null;
 }
 
 function readProofCookie(req: Request): string | null {
@@ -193,6 +203,10 @@ export async function handleKindTransitionConfirm(req: Request, deps: KindTransi
     if (typeof body.statementSha256 !== "string" || body.statementSha256 !== r.statementSha256) {
       return json({ code: "STATEMENT_STALE", error: kindTransitionOutcome("STATEMENT_STALE").message }, 409);
     }
+    const interimDocumentCount = interimDocumentCountOf(body);
+    if (interimDocumentCount === null) {
+      return json({ code: "INVALID_INPUT", problems: [{ field: "interimDocumentCount", code: "REQUIRED", message: "חסר מספר המסמכים שהופקו מאז התאריך. יש לרענן את המסך ולנסות שוב." }] }, 400);
+    }
 
     const creds = await deps.credentials(ctx.user.id);
     if (!creds) return authRequiredResponse(req);
@@ -202,13 +216,21 @@ export async function handleKindTransitionConfirm(req: Request, deps: KindTransi
       return json({ code: "REAUTH_REQUIRED", reauthMethod: required, error: kindTransitionOutcome("REAUTH_REQUIRED").message }, 401);
     }
 
-    const db = await deps.perform(ctx.user.businessId, ctx.user.id, {
-      vatNumber: r.v.vatNumber,
-      statusEffectiveDate: r.v.statusEffectiveDate,
-      reauthMethod: proof.method,
-      reauthAt: proof.reauthAt,
-      statementSha256: r.statementSha256,
-    });
+    let db: string;
+    try {
+      db = await deps.perform(ctx.user.businessId, ctx.user.id, {
+        vatNumber: r.v.vatNumber,
+        statusEffectiveDate: r.v.statusEffectiveDate,
+        reauthMethod: proof.method,
+        reauthAt: proof.reauthAt,
+        statementSha256: r.statementSha256,
+        interimDocumentCount,
+      });
+    } catch (error) {
+      // 4a T4 §3.2: rolled back as a whole; the proof is kept so the owner can confirm the new number right away.
+      if (error instanceof InterimDocumentsChangedError) return json({ code: "INTERIM_DOCUMENTS_CHANGED", error: "INTERIM_DOCUMENTS_CHANGED", count: error.count }, 409);
+      throw error;
+    }
     const o = kindTransitionOutcome(db);
     // An answer the route does not expect (e.g. an unreachable ISSUER_DECLARATION_* refusal): nothing was written; log
     // the status code only (a fixed vocabulary, never a value) so it can be traced.

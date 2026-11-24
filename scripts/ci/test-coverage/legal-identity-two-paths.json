@@ -19,12 +19,12 @@
     "lib/services/legal-identity/kind-transition-handlers.test.ts": {
       "class": "SECURITY_REQUIRED",
       "lab": "pure",
-      "reason": "pure (injected deps): OFF → 404 before the session is read; the session decides user and business; confirm needs a proof for this user, session and action by the method the account requires (password account → PASSWORD); stale digest, ineligible business, missing or foreign proof reach no database call; database answers mapped; the proof is cleared only on success"
+      "reason": "pure (injected deps): OFF → 404 before the session is read; the session decides user and business; confirm needs a proof for this user, session and action by the method the account requires (password account → PASSWORD); stale digest, ineligible business, missing or foreign proof reach no database call; database answers mapped; the proof is cleared only on success; 4a T4: confirm requires the interim document count the owner saw (whole, not negative) and passes it to the database call; a count that changed inside the transaction answers 409 INTERIM_DOCUMENTS_CHANGED with the new count and keeps the proof"
     },
     "lib/legal-identity/kind-transition-client.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "lab": "pure",
-      "reason": "pure (no DOM/network): the screen helpers of the transition — date state in Israel time (today / early / future / invalid), display dates, id number hint, Google return reasons, the draft kept across the Google round-trip (date + id digits only, expires in 15 minutes), confirm outcome mapping (success / re-verify / restart / nothing changed)"
+      "reason": "pure (no DOM/network): the screen helpers of the transition — date state in Israel time (today / early / future / invalid), display dates, id number hint, Google return reasons, the draft kept across the Google round-trip (date + id digits only, expires in 15 minutes), confirm outcome mapping (success / re-verify / restart / nothing changed; 4a T4: INTERIM_DOCUMENTS_CHANGED → show the new number, the owner-approved interim sentence (singular / none), the route query, the count sent with the confirmation, list rows and paging)"
     }
   }
 }

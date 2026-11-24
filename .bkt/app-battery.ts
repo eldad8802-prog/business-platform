@@ -35,6 +35,23 @@
  *   A20 (unwired lab: the application deployed before the migration) a declared business: GET eligible, confirm →
  *       409 ISSUER_DECLARATION_ACTIVE with a Hebrew text, nothing written
  *
+ *   4a T4 — the interim documents (contract .billing-4a/T4-INTERIM-DOCUMENTS-CONTRACT.md §3), through the real route
+ *   handlers (theirs: GET interim-documents; ours: confirm) and the real database function + count in one transaction:
+ *   T1  the window: issued TAX_INVOICE / TAX_INVOICE_RECEIPT / RECEIPT / CREDIT_NOTE from the chosen date that froze
+ *       EXEMPT_DEALER; not a QUOTE, a DRAFT, a document before the date, or another business's document (isolation)
+ *   T2  the date changes → the route's count changes; the confirm with the number for that date → 200
+ *   T3  zero documents → 0, confirm with 0 → 200; many documents (120) → the count, the list pages (50+50+20) to the end
+ *   T4  a stale number → 409 { error: INTERIM_DOCUMENTS_CHANGED, count }; profile, history and declarations byte-identical;
+ *       the proof kept; the same proof with the new number → 200
+ *   T5  (wired) a declared business with a stale number → 409 and the declaration v2 rolled back with everything else;
+ *       the right number → 200, v2 written
+ *   T6  an issuance holding the business's key (shared) while the owner confirms: the transition waits, then counts
+ *       the new document inside its own transaction → 409, nothing written; confirm again with the new number → 200
+ *   T7  the real issuance racing the real confirm (both orders possible): 200 → the number sent equals the documents
+ *       counted for the window afterwards; 409 → nothing written, and the new number then succeeds
+ *   T8  after the transition, the route answers from the history row (TRANSITION_RECORD; a date sent is ignored) with
+ *       the number the owner confirmed
+ *
  * env: OWNER_URL, DATABASE_URL (runtime), AUTH_DATABASE_URL, AUTH_TOKEN_SECRET, AUTH_PLANE_ENABLED=true,
  *      RATE_LIMIT_BACKEND=memory.   Synthetic only. ZERO network.
  */
@@ -124,7 +141,8 @@ function proofCookieOf(res: Response): string | null {
   const c = all.find((x) => x.startsWith(`${COOKIE}=`) && !/Max-Age=0/i.test(x));
   return c ? c.split(";")[0] : null;
 }
-const input = (b: Biz, over: Record<string, unknown> = {}) => ({ confirmTaxId: b.taxId, vatNumber: b.taxId, statusEffectiveDate: EARLY, acknowledged: ACKS, ...over });
+/** interimDocumentCount: the number the owner saw (4a T4); 0 unless a case seeds documents in the window. */
+const input = (b: Biz, over: Record<string, unknown> = {}) => ({ confirmTaxId: b.taxId, vatNumber: b.taxId, statusEffectiveDate: EARLY, acknowledged: ACKS, interimDocumentCount: 0, ...over });
 const shaFor = (b: Biz, date = EARLY, vat = b.taxId) => kindTransitionStatementSha256({ businessId: b.businessId, actorUserId: b.userId, legalName: LEGAL, taxId: b.taxId, vatNumber: vat, statusEffectiveDate: date });
 async function passwordProof(b: Biz): Promise<string> {
   const r = await handleKindTransitionReauthPassword(req(b, "/reauth/password", { password: PASSWORD }), deps());
@@ -294,7 +312,7 @@ async function main() {
     const docId = Number(d[0].id);
     const docBefore = JSON.stringify(((await owner.$queryRawUnsafe(`SELECT * FROM "BillingDocument" WHERE id = $1`, docId)) as Rows)[0]);
     const cookie = await passwordProof(b);
-    const r = await handleKindTransitionConfirm(req(b, "", { ...input(b), statementSha256: shaFor(b) }, cookie), deps());
+    const r = await handleKindTransitionConfirm(req(b, "", { ...input(b, { interimDocumentCount: 1 }), statementSha256: shaFor(b) }, cookie), deps());
     const docAfter = JSON.stringify(((await owner.$queryRawUnsafe(`SELECT * FROM "BillingDocument" WHERE id = $1`, docId)) as Rows)[0]);
     ok("A14 transition 200 and the issued receipt is byte-identical (kind EXEMPT in its snapshot)", r.status === 200 && docAfter === docBefore && docAfter.includes("EXEMPT_DEALER"));
   }
@@ -364,7 +382,7 @@ async function main() {
       const cookie = await passwordProof(d);
       const pv = await read(await handleKindTransitionPreview(req(d, "/preview", input(d)), deps()));
       ok("A18 preview digest = the server's statement", pv.status === 200 && pv.body.statementSha256 === shaFor(d), JSON.stringify(pv.body));
-      const res = await handleKindTransitionConfirm(req(d, "", { ...input(d), statementSha256: pv.body.statementSha256 }, cookie), deps());
+      const res = await handleKindTransitionConfirm(req(d, "", { ...input(d, { interimDocumentCount: 1 }), statementSha256: pv.body.statementSha256 }, cookie), deps());
       const r = await read(res.clone());
       const ds = await declarations(d.businessId);
       const h = (await history(d.businessId))[0] ?? {};
@@ -420,6 +438,199 @@ async function main() {
         (g.body.eligibility as { eligible: boolean }).eligible === true && r.status === 409 && r.body.code === "ISSUER_DECLARATION_ACTIVE"
           && /לא נשמר שום שינוי/.test(String(r.body.error)) && (await snap(d.businessId)) === before, JSON.stringify(r.body));
     }
+  }
+
+  // ================================================================== 4a T4: interim documents
+  const { handleInterimDocumentsGet, defaultInterimDocumentsDeps } = await import("@/lib/services/billing/kind-transition/interim-documents-handler");
+  const docNo: Record<string, number> = {};
+  /** An issued (or other status) billing document, as issuance freezes it: the kind in issuedSnapshot.extensions. */
+  async function seedDoc(b: Biz, type: string, issuedAtSql: string, opts: { kind?: string | null; status?: string; total?: string } = {}) {
+    const status = opts.status ?? "ISSUED";
+    const key = `${b.businessId}:${type}`;
+    const n = status === "ISSUED" ? (docNo[key] = (docNo[key] ?? 0) + 1) : null;
+    const kindFrozen = opts.kind === undefined ? "EXEMPT_DEALER" : opts.kind;
+    const snapshot = kindFrozen === null ? null : JSON.stringify({ issuer: { legalName: LEGAL, taxId: b.taxId }, extensions: { billingBusinessKind: kindFrozen } });
+    const r = (await owner.$queryRawUnsafe(
+      `INSERT INTO "BillingDocument" ("businessId","documentType","status","issuedAt","documentNumber","documentNumberFormatted","subtotalAmount","totalAmount","currency","issuedSnapshot","updatedAt")
+       VALUES ($1, $2::"BillingDocumentType", $3::"BillingDocumentStatus", ${issuedAtSql}, $4, $5, $6::numeric, $6::numeric, 'ILS', $7::jsonb, now()) RETURNING id`,
+      b.businessId, type, status, n, n === null ? null : String(n).padStart(6, "0"), opts.total ?? "100.00", snapshot)) as Rows;
+    return Number(r[0].id);
+  }
+  /** issuedAt = a calendar day in Israel at noon, stored as UTC wall clock (as the column holds it). */
+  const onDay = (ymd: string) => `(('${ymd} 12:00'::timestamp AT TIME ZONE 'Asia/Jerusalem') AT TIME ZONE 'UTC')`;
+  const interimDeps = (b: Biz) => ({ ...defaultInterimDocumentsDeps, enabled: () => true, context: async () => ({ user: { id: b.userId, businessId: b.businessId } }) });
+  const interim = async (b: Biz, q: string) => read(await handleInterimDocumentsGet(new Request(`http://lab.invalid/api/billing/kind-transition/interim-documents${q}`), interimDeps(b)));
+  const confirmWith = async (b: Biz, cookie: string, count: number, over: Record<string, unknown> = {}) => {
+    const date = String(over.statusEffectiveDate ?? EARLY);
+    const res = await handleKindTransitionConfirm(req(b, "", { ...input(b, { ...over, interimDocumentCount: count }), statementSha256: shaFor(b, date) }, cookie), deps());
+    return { res, r: await read(res.clone()) };
+  };
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  console.log("T1 the window");
+  const t1 = await business();
+  const other = await business();
+  {
+    await seedDoc(t1, "RECEIPT", onDay(addDays(EARLY, -1)));                       // before the date → out
+    await seedDoc(t1, "RECEIPT", onDay(EARLY));                                    // on the date → in
+    await seedDoc(t1, "TAX_INVOICE", onDay(addDays(EARLY, 3)));                    // in (kind exempt as frozen)
+    await seedDoc(t1, "CREDIT_NOTE", onDay(addDays(EARLY, 4)));                    // in
+    await seedDoc(t1, "QUOTE", onDay(addDays(EARLY, 5)));                          // never
+    await seedDoc(t1, "RECEIPT", "NULL", { status: "DRAFT" });                     // never
+    await seedDoc(other, "RECEIPT", onDay(addDays(EARLY, 6)));                     // another business → never
+    await seedDoc(other, "TAX_INVOICE_RECEIPT", onDay(addDays(EARLY, 7)));
+    const r = await interim(t1, `?from=${EARLY}&list=1`);
+    const types = ((r.body.items ?? []) as { documentType: string }[]).map((i) => i.documentType).sort();
+    ok("T1 the route counts 3 (RECEIPT on the date, TAX_INVOICE, CREDIT_NOTE): not the day before, a QUOTE, a DRAFT, another business",
+      r.status === 200 && r.body.count === 3 && JSON.stringify(types) === JSON.stringify(["CREDIT_NOTE", "RECEIPT", "TAX_INVOICE"]), JSON.stringify(r.body).slice(0, 300));
+    const ro = await interim(other, `?from=${EARLY}`);
+    ok("T1 isolation: the other business sees only its own 2", ro.status === 200 && ro.body.count === 2, JSON.stringify(ro.body));
+  }
+
+  console.log("T2 the date changes");
+  {
+    const later = addDays(EARLY, 2);
+    const a2 = await interim(t1, `?from=${EARLY}`);
+    const b2 = await interim(t1, `?from=${later}`);
+    ok("T2 from the date → 3; two days later → 2 (the receipt on the first date drops out)", a2.body.count === 3 && b2.body.count === 2, `${a2.body.count}/${b2.body.count}`);
+    const cookie = await passwordProof(t1);
+    const before = await snap(t1.businessId);
+    const wrong = await confirmWith(t1, cookie, 3, { statusEffectiveDate: later });
+    ok("T2 the number for the old date with the new date → 409 count 2, nothing written", wrong.r.status === 409 && wrong.r.body.count === 2 && (await snap(t1.businessId)) === before, JSON.stringify(wrong.r.body));
+    const good = await confirmWith(t1, cookie, 2, { statusEffectiveDate: later });
+    const h = await history(t1.businessId);
+    ok("T2 the number for the new date → 200; the history row has the new date", good.r.status === 200 && h.length === 1
+      && (h[0].statusEffectiveDate as Date).toISOString().slice(0, 10) === later, JSON.stringify(good.r.body));
+    const other2 = await interim(other, `?from=${EARLY}`);
+    ok("T2 the other business is untouched (still exempt, still 2)", other2.body.count === 2 && (await profile(other.businessId)).billingBusinessKind === "EXEMPT_DEALER");
+  }
+
+  console.log("T3 zero and many");
+  {
+    const z = await business();
+    const rz = await interim(z, `?from=${EARLY}&list=1`);
+    const cz = await confirmWith(z, await passwordProof(z), 0);
+    ok("T3 zero documents → count 0, an empty list; confirm with 0 → 200", rz.body.count === 0 && (rz.body.items as unknown[]).length === 0 && rz.body.nextCursor === null && cz.r.status === 200, JSON.stringify(cz.r.body));
+    const many = await business();
+    for (let i = 0; i < 120; i++) await seedDoc(many, i % 2 ? "RECEIPT" : "TAX_INVOICE", onDay(addDays(EARLY, 1 + (i % 20))));
+    const seen = new Set<number>();
+    let cursor: string | null = null;
+    let pages = 0;
+    const sizes: number[] = [];
+    do {
+      const pg = await interim(many, `?from=${EARLY}&list=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      const items = (pg.body.items ?? []) as { id: number }[];
+      sizes.push(items.length);
+      for (const it of items) seen.add(it.id);
+      cursor = (pg.body.nextCursor as string | null) ?? null;
+      pages++;
+    } while (cursor && pages < 10);
+    ok("T3 120 documents → count 120; pages 50 + 50 + 20, every document once", seen.size === 120 && sizes.join("+") === "50+50+20", sizes.join("+"));
+    const cm = await confirmWith(many, await passwordProof(many), 120);
+    ok("T3 confirm with 120 → 200", cm.r.status === 200, JSON.stringify(cm.r.body));
+  }
+
+  console.log("T4 a stale number");
+  {
+    const b = await business();
+    await seedDoc(b, "RECEIPT", onDay(addDays(EARLY, 1)));
+    await seedDoc(b, "RECEIPT", onDay(addDays(EARLY, 2)));
+    const cookie = await passwordProof(b);
+    const before = await snap(b.businessId);
+    const stale = await confirmWith(b, cookie, 1);
+    ok("T4 409 { error: INTERIM_DOCUMENTS_CHANGED, count: 2 }", stale.r.status === 409 && stale.r.body.error === "INTERIM_DOCUMENTS_CHANGED" && stale.r.body.count === 2, JSON.stringify(stale.r.body));
+    ok("T4 profile, history and declarations byte-identical (atomic rollback)", (await snap(b.businessId)) === before);
+    ok("T4 the proof is kept (no cookie change)", !anyProofCookie(stale.res));
+    const again = await confirmWith(b, cookie, 2);
+    ok("T4 the same proof with the new number → 200, one history row", again.r.status === 200 && (await history(b.businessId)).length === 1, JSON.stringify(again.r.body));
+  }
+
+  if (WIRED) {
+    console.log("T5 a declared business with a stale number (wired)");
+    const d = await business();
+    await declare(d);
+    await seedDoc(d, "RECEIPT", onDay(addDays(EARLY, 1)));
+    const cookie = await passwordProof(d);
+    const before = await snap(d.businessId);
+    const stale = await confirmWith(d, cookie, 0);
+    ok("T5 409 INTERIM_DOCUMENTS_CHANGED count 1; declaration v2 rolled back with the profile and the history (byte-identical)",
+      stale.r.status === 409 && stale.r.body.count === 1 && (await snap(d.businessId)) === before && (await declarations(d.businessId)).length === 1, JSON.stringify(stale.r.body));
+    const good = await confirmWith(d, cookie, 1);
+    const ds = await declarations(d.businessId);
+    ok("T5 the right number → 200; v2 STATUS_CHANGE written with the history row", good.r.status === 200 && ds.length === 2 && ds[1].kind === "STATUS_CHANGE" && (await history(d.businessId)).length === 1, JSON.stringify(good.r.body));
+  }
+
+  console.log("T6 an issuance holding the key while the owner confirms");
+  {
+    const b = await business();
+    await seedDoc(b, "RECEIPT", onDay(addDays(EARLY, 1)));
+    const cookie = await passwordProof(b);
+    const shown = Number((await interim(b, `?from=${EARLY}`)).body.count);
+    const before = await snap(b.businessId);
+    let committedAt = 0;
+    // As issueBillingDocumentTx: the key shared, then the document, then commit (after 2 s).
+    const issuing = owner.$transaction(async (t) => {
+      await t.$executeRawUnsafe(`SELECT pg_advisory_xact_lock_shared(hashtextextended('legal_identity:' || $1::int, 0))`, b.businessId);
+      await t.$executeRawUnsafe(
+        `INSERT INTO "BillingDocument" ("businessId","documentType","status","issuedAt","documentNumber","documentNumberFormatted","subtotalAmount","totalAmount","currency","issuedSnapshot","updatedAt")
+         VALUES ($1,'RECEIPT','ISSUED', now() AT TIME ZONE 'UTC', 900, '000900', 50, 50, 'ILS', $2::jsonb, now())`,
+        b.businessId, JSON.stringify({ extensions: { billingBusinessKind: "EXEMPT_DEALER" } }));
+      await sleep(2000);
+      committedAt = Date.now();
+    }, { timeout: 30_000, maxWait: 30_000 });
+    await sleep(300);
+    const t0 = Date.now();
+    const raced = await confirmWith(b, cookie, shown);
+    const doneAt = Date.now();
+    await issuing;
+    ok("T6 the transition waited for the issuance (finished after it committed)", committedAt > 0 && doneAt >= committedAt, `waited ${doneAt - t0} ms`);
+    ok("T6 → 409 with the new number (shown + 1), nothing written", raced.r.status === 409 && raced.r.body.count === shown + 1 && (await snap(b.businessId)) === before, JSON.stringify(raced.r.body));
+    const again = await confirmWith(b, cookie, shown + 1);
+    ok("T6 confirm again with the new number → 200", again.r.status === 200, JSON.stringify(again.r.body));
+  }
+
+  console.log("T7 the real issuance racing the real confirm");
+  {
+    process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT ??= "PRODUCTION";
+    const { issueBillingDocument } = await import("@/lib/services/billing/billing-issue.service");
+    const { createReceiptDraft } = await import("@/lib/services/billing/receipt/billing-receipt-draft.service");
+    const issueDeps = { executeApproval: async () => ({ outcome: "completed_approved", billingDocumentId: 0, submissionId: -1, allocationNumber: null, safeToRetry: false }) } as never;
+    const outcomes: string[] = [];
+    let consistent = true;
+    for (let round = 0; round < 4; round++) {
+      const b = await business();
+      const customer = await owner.customer.create({ data: { businessId: b.businessId, name: "לקוח פרטי" } });
+      const draft = (await createReceiptDraft({ businessId: b.businessId, actorUserId: b.userId, documentType: "RECEIPT", customerId: customer.id, currency: "ILS",
+        paymentLines: [{ method: "CASH", amount: "10.00", paymentDate: new Date().toISOString() }] } as never)).id;
+      const cookie = await passwordProof(b);
+      const before = await snap(b.businessId);
+      const [iss, conf] = await Promise.allSettled([
+        round % 2 ? sleep(5).then(() => issueBillingDocument({ businessId: b.businessId, billingDocumentId: draft, actorUserId: b.userId }, issueDeps)) : issueBillingDocument({ businessId: b.businessId, billingDocumentId: draft, actorUserId: b.userId }, issueDeps),
+        confirmWith(b, cookie, 0),
+      ]);
+      const c = conf.status === "fulfilled" ? conf.value.r : { status: -1, body: { error: String(conf.reason) } };
+      const frozen = ((await owner.$queryRawUnsafe(`SELECT "issuedSnapshot"->'extensions'->>'billingBusinessKind' k FROM "BillingDocument" WHERE id = $1 AND status = 'ISSUED'`, draft)) as Rows)[0]?.k ?? "not issued";
+      outcomes.push(`${iss.status === "fulfilled" ? "issued" : "issue-failed"}:${String(frozen)}/${c.status}`);
+      if (c.status === 200) {
+        // the transition went first: the receipt froze AUTHORIZED and is outside the window; the record says 0
+        const after = await interim(b, "");
+        if (!(after.body.count === 0 && frozen !== "EXEMPT_DEALER")) consistent = false;
+      } else if (c.status === 409) {
+        // the receipt went first (froze EXEMPT): nothing written; the new number succeeds
+        if (!(c.body.count === 1 && frozen === "EXEMPT_DEALER" && (await snap(b.businessId)) === before)) consistent = false;
+        const again = await confirmWith(b, cookie, 1);
+        if (again.r.status !== 200) consistent = false;
+      } else consistent = false;
+    }
+    console.log(`  [OBSERVED] T7 rounds (issuance:frozen kind/confirm): ${outcomes.join(" | ")}`);
+    ok("T7 every round consistent: 200 ⇒ the receipt froze AUTHORIZED and the record counts 0; 409 ⇒ froze EXEMPT, nothing written, the new number → 200", consistent);
+  }
+
+  console.log("T8 after the transition: the route answers from the history row");
+  {
+    const r = await interim(t1, `?from=${EARLY}`);
+    const range = r.body.range as { source: string; fromDate: string };
+    ok("T8 TRANSITION_RECORD, the confirmed date (not the one sent), the number confirmed (2)", r.status === 200 && range.source === "TRANSITION_RECORD" && range.fromDate === addDays(EARLY, 2) && r.body.count === 2, JSON.stringify(r.body).slice(0, 240));
   }
 
   console.log(`\n${pass} passed, ${failures.length} failed`);
