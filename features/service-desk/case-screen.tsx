@@ -26,7 +26,7 @@ import {
   sendCaseQuote, ServiceDeskApiError, setCaseFields, setTaskLink,
   type CaseChargeView, type CaseFields, type CaseQa, type CaseTask, type Loan, type PickupCall, type QuoteDoc, type QuoteSummary, type SettlementDoc,
 } from "./service-desk-client";
-import { errorView } from "./service-desk-errors";
+import { errorView, partialFailureReason } from "./service-desk-errors";
 import { LoadError, Loading, NotOpen } from "./ui";
 import { useServiceDeskAccess } from "./use-service-desk-access";
 import s from "./cases.module.css";
@@ -135,7 +135,8 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const fail = useCallback((e: unknown, prefix = "") => {
     const ev = errorView(e);
     if (ev.reload && !prefix) { setConflict(true); setMessage(null); return; }
-    setMessage({ tone: "error", text: prefix + ev.text });
+    // after a partial save (a prefix says what WAS saved) the reason never adds «לא נשמר דבר»
+    setMessage({ tone: "error", text: prefix ? prefix + partialFailureReason(e) : ev.text });
   }, []);
   useEffect(() => { if (access.status === "open") void load(); }, [access.status, load]);
   // A success line does not stay on screen for ever (pilot review 2026-11-21); an error stays until the next action.
