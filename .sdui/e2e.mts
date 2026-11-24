@@ -174,9 +174,10 @@ async function main() {
       const v0 = await versionOf(seed.c1);
       await p.locator("textarea").first().fill("סדק בפינה הימנית העליונה · נבדק בקליטה");
       await p.route("**/api/service-desk/cases/*/intake", (r) => r.request().method() === "PUT" ? failWith500(r) : r.continue());
-      await Promise.all([p.waitForResponse((r) => r.url().includes("/intake") && r.request().method() === "PUT"), confirmBtn().click()]);
-      await confirmBtn().waitFor();
-      await p.unroute("**/api/service-desk/cases/*/intake");
+      try {
+        await Promise.all([p.waitForResponse((r) => r.url().includes("/intake") && r.request().method() === "PUT"), confirmBtn().click()]);
+        await confirmBtn().waitFor();
+      } finally { await p.unroute("**/api/service-desk/cases/*/intake"); } // never leaks into the next checks
       if (await p.getByText(/הקליטה אושרה|פרטי הקליטה נשמרו/).count()) throw new Error("the screen claims a save or a confirmation");
       // what the owner typed is still there after the reload (a failed save wrote nothing; the text must not vanish)
       await p.waitForTimeout(1500);
@@ -186,9 +187,10 @@ async function main() {
     await check("IN2 saved, then the confirmation fails → the screen says the details were saved and the confirmation did not pass; nothing confirmed", async () => {
       const v0 = await versionOf(seed.c1);
       await p.route("**/api/service-desk/cases/*/actions", (r) => failWith500(r));
-      await confirmBtn().click();
-      await p.getByText(/פרטי הקליטה נשמרו, אבל האישור לא עבר/).waitFor({ timeout: 60_000 });
-      await p.unroute("**/api/service-desk/cases/*/actions");
+      try {
+        await confirmBtn().click();
+        await p.getByText(/פרטי הקליטה נשמרו, אבל האישור לא עבר/).waitFor({ timeout: 60_000 });
+      } finally { await p.unroute("**/api/service-desk/cases/*/actions"); }
       await shot(p, "real-intake-partial-failure-phone");
       if ((await statusOf(seed.c1)) !== "OPEN" || (await checkIns(seed.c1)) !== 0) throw new Error("confirmed despite the failure");
       if ((await versionOf(seed.c1)) !== v0 + 1) throw new Error("the details were not saved exactly once");
