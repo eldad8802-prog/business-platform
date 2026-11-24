@@ -224,6 +224,7 @@ on:
           - 'ops/evidence/notification-docs-appointments-production-evidence.sql'
           - 'ops/evidence/notifications-engine-open-all-preflight.sql'
           - 'ops/evidence/notifications-engine-open-all-production-evidence.sql'
+          - 'ops/evidence/quote-render-event-coverage.sql'
 
 permissions:
   contents: read

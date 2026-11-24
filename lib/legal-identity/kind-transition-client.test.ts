@@ -9,6 +9,11 @@
 import assert from "node:assert/strict";
 
 import {
+  confirmableCount, creditStateHe, displayAmount, DOCUMENT_TYPE_HE, interimChangedMessage, interimNone, interimQuery, interimSentence, mergePages,
+  type InterimItem,
+} from "@/lib/legal-identity/kind-transition-interim-client";
+
+import {
   confirmOutcome, dateState, decodeDraft, displayDate, displayInstant, encodeDraft, GOOGLE_RETURN_MESSAGES, googleReturnOf,
   israelTodayClient, kindLabelHe, sameTaxId, startedBeforeConfirmation,
 } from "@/lib/legal-identity/kind-transition-client";
@@ -86,6 +91,41 @@ check("C9 kind labels", () => {
   assert.equal(kindLabelHe("EXEMPT_DEALER"), "עוסק פטור");
   assert.equal(kindLabelHe("AUTHORIZED_DEALER"), "עוסק מורשה");
   assert.equal(kindLabelHe(null), "");
+});
+
+
+// ── 4a T4: the interim documents ──────────────────────────────────────────────────────────────────
+check("T1 confirmOutcome: 409 INTERIM_DOCUMENTS_CHANGED with a count → interimChanged; without a valid count → a plain error", () => {
+  assert.deepEqual(confirmOutcome(409, "INTERIM_DOCUMENTS_CHANGED", "INTERIM_DOCUMENTS_CHANGED", { count: 4 }), { kind: "interimChanged", count: 4 });
+  assert.deepEqual(confirmOutcome(409, "INTERIM_DOCUMENTS_CHANGED", "x", { count: 0 }), { kind: "interimChanged", count: 0 });
+  for (const bad of [undefined, -1, 1.5, "4"]) assert.equal(confirmOutcome(409, "INTERIM_DOCUMENTS_CHANGED", "x", { count: bad }).kind, "error");
+  assert.equal(confirmOutcome(200, undefined, undefined, { count: 4 }).kind, "success");
+});
+check("T2 the owner-approved sentence (N ≥ 2 word for word), the singular for N = 1, nothing to check for N = 0", () => {
+  assert.equal(interimSentence(3, "15.01.2026"), "מאז 15.01.2026 הופקו 3 מסמכים כעוסק פטור. המסמכים יישארו ללא שינוי. מומלץ לבדוק אותם עם רואה החשבון שלך.");
+  assert.equal(interimSentence(1, "15.01.2026"), "מאז 15.01.2026 הופק מסמך אחד כעוסק פטור. המסמך יישאר ללא שינוי. מומלץ לבדוק אותו עם רואה החשבון שלך.");
+  assert.equal(interimNone("15.01.2026"), "מאז 15.01.2026 לא הופקו מסמכים כעוסק פטור.");
+  assert.ok(interimChangedMessage(5, "15.01.2026").includes("הופקו 5 מסמכים") && interimChangedMessage(5, "15.01.2026").includes("שום דבר לא השתנה"));
+  assert.ok(interimChangedMessage(1, "15.01.2026").includes("הופק מסמך אחד"));
+});
+check("T3 the query: from only when given (the success screen asks without it), list=1, the cursor encoded", () => {
+  assert.equal(interimQuery({ from: "2026-01-15" }), "?from=2026-01-15");
+  assert.equal(interimQuery({ from: null }), "");
+  assert.equal(interimQuery({ from: null, list: true, cursor: "2026-01-20T08:00:00.000Z_31" }), "?list=1&cursor=2026-01-20T08%3A00%3A00.000Z_31");
+});
+check("T4 the count sent with the confirmation: whole and not negative only", () => {
+  assert.equal(confirmableCount(0), 0);
+  assert.equal(confirmableCount(12), 12);
+  for (const bad of [-1, 1.5, "3", null, undefined, Number.NaN, 10_000_001]) assert.equal(confirmableCount(bad), null);
+});
+check("T5 list rows: type names, credit state, amounts, pages merged without duplicates", () => {
+  assert.equal(DOCUMENT_TYPE_HE.CREDIT_NOTE, "חשבונית זיכוי");
+  assert.equal(creditStateHe("NONE"), null);
+  assert.equal(creditStateHe("FULL"), "זוכתה במלואה");
+  assert.equal(displayAmount("1234.5", "ILS"), `${new Intl.NumberFormat("he-IL", { minimumFractionDigits: 2 }).format(1234.5)} ₪`);
+  assert.ok(displayAmount("10", "USD").endsWith(" USD"));
+  const it = (id: number) => ({ id } as InterimItem);
+  assert.deepEqual(mergePages([it(1), it(2)], [it(2), it(3)]).map((x) => x.id), [1, 2, 3]);
 });
 
 console.log(`kind-transition-client: ${checks} checks passed`);

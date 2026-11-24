@@ -22,6 +22,7 @@ import { CustomerPicker } from "@/components/billing/CustomerPicker";
 import { IssuerSummaryBadge } from "@/components/billing/IssuerSummaryBadge";
 import { glassActionStyle, primaryActionStyle, TOKEN } from "@/lib/design/billing-theme";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { DraftVatReviewPanel } from "@/components/billing/DraftVatReviewPanel";
 import {
   isPaymentRequestStatus,
   shouldShowCollections,
@@ -1068,6 +1069,9 @@ export default function BillingDocumentWorkspacePage() {
           <ErrorBanner message={state.message} onRetry={() => void load()} />
         ) : null}
         {state.kind === "not-found" ? <NotFoundCard /> : null}
+        {state.kind === "ready" && (state.doc.status === "DRAFT" || state.doc.status === "PENDING_REVIEW") ? (
+          <DraftVatReviewPanel documentId={state.doc.id} authToken={getAuthToken()} contentKey={String(state.doc.updatedAt ?? "")} />
+        ) : null}
         {state.kind === "ready" ? (
           <DocumentBody
             doc={state.doc}

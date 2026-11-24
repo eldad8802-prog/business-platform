@@ -272,3 +272,8 @@
   .nextCard .statusActions { flex-direction: row; flex-wrap: wrap; }
   .nextCard .statusActions .primary, .nextCard .statusActions .secondary { width: auto; }
 }
+
+/* The case changed elsewhere (UX review 2026-11-23): a clear banner with a way to refresh — never a stuck button. */
+.conflict { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 18px; background: var(--sc-attention-tint); border: 1px solid #edd7ae; color: var(--sc-ink); font-size: 14.5px; line-height: 1.5; }
+.conflict strong { font-size: 16px; }
+.conflict .secondary { align-self: flex-start; }
