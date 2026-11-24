@@ -251,7 +251,9 @@ CREATE TRIGGER "PlatformTrialClaim_append_only" BEFORE UPDATE OF "kind", "digest
   FOR EACH ROW EXECUTE FUNCTION public.subscriptions_stage_c_append_only();
 
 -- ── B5 seed. The owner's opening matrix (2026-11-24). Monthly per subscription period; TRIAL = the whole 30-day
---    trial; *_bytes metrics are cumulative and never reset. Video stays 0 everywhere (decision 23). FREE_LIMITED
+--    trial; *_bytes metrics are cumulative and never reset. Video stays 0 everywhere (decision 23). FREE_LIMITED (owner
+--    2026-11-24): 0 for every new upload, scan, document, AI action, video and accountant email — including NEW storage
+--    (files already stored stay available whatever their size); one accountant package a month.
 --    creates nothing new; existing data stays readable, downloadable and exportable (the rights floor is in code). ──
 
 INSERT INTO "PlatformQuotaPolicy" ("metric", "tier", "quota") VALUES
@@ -259,7 +261,7 @@ INSERT INTO "PlatformQuotaPolicy" ("metric", "tier", "quota") VALUES
   ('document_uploads',       'TRIAL', 100),  ('document_uploads',       'BASIC', 200),  ('document_uploads',       'ADVANCED', 600),  ('document_uploads',       'PREMIUM', 2000),  ('document_uploads',       'FREE_LIMITED', 0),
   ('ocr_pages',              'TRIAL', 150),  ('ocr_pages',              'BASIC', 300),  ('ocr_pages',              'ADVANCED', 1000), ('ocr_pages',              'PREMIUM', 3000),  ('ocr_pages',              'FREE_LIMITED', 0),
   ('storage_customer_bytes', 'TRIAL', 1073741824), ('storage_customer_bytes', 'BASIC', 5368709120), ('storage_customer_bytes', 'ADVANCED', 21474836480),
-  ('storage_customer_bytes', 'PREMIUM', 53687091200), ('storage_customer_bytes', 'FREE_LIMITED', 1073741824),
+  ('storage_customer_bytes', 'PREMIUM', 53687091200), ('storage_customer_bytes', 'FREE_LIMITED', 0),
   ('accountant_packages',    'TRIAL', 2),    ('accountant_packages',    'BASIC', 3),    ('accountant_packages',    'ADVANCED', 6),    ('accountant_packages',    'PREMIUM', 12),    ('accountant_packages',    'FREE_LIMITED', 1),
   ('accountant_emails',      'TRIAL', 3),    ('accountant_emails',      'BASIC', 5),    ('accountant_emails',      'ADVANCED', 20),   ('accountant_emails',      'PREMIUM', 50),    ('accountant_emails',      'FREE_LIMITED', 0),
   ('ai_owner_actions',       'TRIAL', 0),    ('ai_owner_actions',       'BASIC', 0),    ('ai_owner_actions',       'ADVANCED', 0),    ('ai_owner_actions',       'PREMIUM', 300),   ('ai_owner_actions',       'FREE_LIMITED', 0),
