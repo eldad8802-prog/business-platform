@@ -85,6 +85,19 @@ for (const status of issueOutcomes) {
 const infra = describeAuthorityIssueOutcome({ status: "infrastructure_failed", submissionId: 1, errorCode: "X", safeToRetry: false } as never);
 ok("issue-time infrastructure_failed says the request was not sent", /לא נשלחה/.test(infra.title) && /לא נשלחה/.test(infra.detail));
 
+// --- the resend action is offered ONLY for a request that provably never left
+ok("resend offered: READY (never sent)", ready.canResend === true);
+ok("resend offered: FAILED not-sent", failedNotSent.canResend === true);
+const failedOther = describeAuthorityDocumentState(state(sub("FAILED", { errorCode: "LEGACY_FAILURE" })));
+const pending = describeAuthorityDocumentState(state(sub("PENDING")));
+for (const [name, d] of [
+  ["SUBMITTED", submitted], ["SUBMITTED + uncertain", uncertain], ["PENDING", pending], ["FAILED (other code)", failedOther],
+  ["HELD", held], ["HELD + Continue", heldContinue], ["REJECTED", rejected], ["APPROVED", approved], ["APPROVED without a number", approvedNoNumber],
+  ["NOT_REQUIRED", notRequired], ["receipt", receipt], ["no submission", missing],
+] as const) {
+  ok(`resend NOT offered: ${name}`, d.canResend === false);
+}
+
 if (failed > 0) {
   console.error(`\n${failed} failed`);
   process.exit(1);

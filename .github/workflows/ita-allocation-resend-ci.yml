@@ -1,0 +1,144 @@
+# Gap A — "שלח שוב": resend an allocation request ONLY when it provably never reached the
+# Tax Authority (READY never reserved, or FAILED[AUTHORITY_NOT_SENT_*]). Every other state is
+# refused before anything runs; every pilot gate (business, operation, N10 document list),
+# the re-entry gate, the payload-hash check and the compare-and-set reserve still apply.
+#
+# Its own job and database on purpose: the DB test replays EVERY RLS / policy statement
+# the migrations ship, which would change the posture for any later step in a shared DB.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+# The authority request is a local stub (or the real egress with no proxy configured,
+# which refuses before any socket); global fetch throws.
+
+name: ita allocation resend (unit + ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/authority/**"
+      - "lib/services/billing/billing-issue.service.ts"
+      - "lib/billing/authority-document-state-display.ts"
+      - "lib/billing/authority-document-state-display.test.ts"
+      - "app/api/billing/documents/*/authority-resend/**"
+      - "lib/tenant/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - ".github/workflows/ita-allocation-resend-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  allocation-resend:
+    name: Allocation resend (rules; PG17 replayed RLS, NOBYPASSRLS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: rs_owner
+          POSTGRES_PASSWORD: rs_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_rs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rs_owner -d dubiz_rs"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://rs_owner:rs_ci_synthetic_owner_pw@localhost:5432/dubiz_rs
+      ADMIN_DB_URL: postgresql://rs_owner:rs_ci_synthetic_owner_pw@localhost:5432/postgres
+      RUNTIME_URL: postgresql://rs_runtime:rs_ci_synthetic_runtime_pw@localhost:5432/dubiz_rs
+      AUTH_TOKEN_SECRET: ita_rs_ci_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Rules and display (no DB)
+        env:
+          DATABASE_URL: postgresql://unused@127.0.0.1:1/unused
+        run: |
+          set -euo pipefail
+          npx tsx lib/services/billing/authority/billing-authority-resend.verify.test.ts
+          npx tsx lib/billing/authority-document-state-display.test.ts
+
+      - name: Install the PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Push schema as the owner
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Create the governed runtime role
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+            -c "CREATE ROLE rs_runtime LOGIN PASSWORD 'rs_ci_synthetic_runtime_pw' NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO rs_runtime;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO rs_runtime;" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO rs_runtime;"
+
+      - name: Resend under replayed RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx lib/services/billing/authority/billing-authority-resend.rls.integration.test.ts
+
+      # Each guard is removed in turn (exactly the defect) on a FRESH database, and the suite
+      # must go red on that guard's own case:
+      #   - the resend eligibility rule admits everything      → RS3 (an uncertain request is offered for resend)
+      #   - the N10 send gate is removed from execution         → RS9 (an unlisted document is sent)
+      - name: Negative proof — each guard removed is caught
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: |
+          set -uo pipefail
+          fresh_db() {
+            psql "$ADMIN_DB_URL" -v ON_ERROR_STOP=1 -q \
+              -c "DROP DATABASE IF EXISTS dubiz_rs WITH (FORCE);" -c "CREATE DATABASE dubiz_rs;" || return 1
+            DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma db push --skip-generate > /dev/null || return 1
+            psql "$OWNER_URL" -v ON_ERROR_STOP=1 -q \
+              -c "GRANT USAGE ON SCHEMA public TO rs_runtime;" \
+              -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO rs_runtime;" \
+              -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO rs_runtime;" || return 1
+          }
+          prove() {
+            local file="$1" pattern="$2" expect="$3"
+            fresh_db || { echo "::error::could not reset the database"; return 1; }
+            cp "$file" "$file.bak"
+            perl -0pi -e "$pattern" "$file"
+            if cmp -s "$file" "$file.bak"; then
+              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply to $file"; return 1
+            fi
+            npx tsx lib/services/billing/authority/billing-authority-resend.rls.integration.test.ts > np.log 2>&1; local status=$?
+            mv "$file.bak" "$file"
+            if [ "$status" -eq 0 ]; then
+              echo "::error::NEGATIVE-PROOF FAIL: $file without its guard and the suite stayed green"; return 1
+            fi
+            if ! grep -q "\[FAIL\] $expect " np.log; then
+              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on $expect"; tail -30 np.log; return 1
+            fi
+            echo "negative proof OK — $file without its guard fails $expect"
+          }
+          prove lib/services/billing/authority/billing-authority-resend.service.ts \
+            's/  const eligibility = evaluateAuthorityResendEligibility\(loaded\);/  const eligibility = { eligible: true as const, basis: "FAILED_NOT_SENT" as const };/' "RS3" || exit 1
+          prove lib/services/billing/authority/billing-authority-submission-execution.service.ts \
+            's/const documentRefusal = resolveAuthorityProductionApprovalDocumentRefusal\(businessId, billingDocumentId, environment\);/const documentRefusal = null as string | null;/' "RS9" || exit 1

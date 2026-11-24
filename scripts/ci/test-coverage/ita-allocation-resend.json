@@ -1,0 +1,15 @@
+{
+  "note": "Gap A — resend an allocation request only when it provably never reached the Tax Authority (READY never reserved, or FAILED[AUTHORITY_NOT_SENT_*]). Run by ita-allocation-resend-ci.yml with a negative proof per guard.",
+  "tests": {
+    "lib/services/billing/authority/billing-authority-resend.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure eligibility rule: only READY never reserved (no hash, no attempt time) or FAILED with an AUTHORITY_NOT_SENT_* code; SUBMITTED/uncertain, PENDING, HELD, REJECTED, APPROVED, NOT_REQUIRED, other FAILED codes, inconsistent READY and drafts refused; the service refuses before executing anything"
+    },
+    "lib/services/billing/authority/billing-authority-resend.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof through real issuance, the resend service, the execution service, transitions, payload and runtime context: replays every repository RLS statement, NOSUPERUSER NOBYPASSRLS login, refuses otherwise; only the authority request stubbed, global fetch throws; READY/FAILED-not-sent resent once with the same payload hash; uncertain, in-flight, HELD, REJECTED, APPROVED, inconsistent rows refused; parallel resends send once; N10 and the pilot stage cannot be bypassed; tenant isolation; another user's payload refused; document, number and sequence byte-identical; real route 401/409/200; removing the eligibility rule fails RS3, the N10 send gate RS9"
+    }
+  }
+}
