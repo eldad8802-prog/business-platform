@@ -116,6 +116,11 @@ async function declare(b: Biz, o: { authorized?: boolean; anonymised?: boolean }
   }
   return Number(r[0].id);
 }
+/** A second user joins AFTER the declaration (the declaration itself requires a sole user, DZD33). */
+async function addUser(b: Biz) {
+  await owner.$executeRawUnsafe(`INSERT INTO "User" ("email","password","name","businessId","updatedAt") VALUES ($1,$2,'בני',$3, now())`,
+    `ktw-${stamp}-${b.businessId}-extra@lab.invalid`, "$2b$10$" + "A".repeat(53), b.businessId);
+}
 let docNo = 500;
 async function issuedDoc(b: Biz, type: string) {
   const snapshot = { issuer: { legalName: LEGAL_NAME, taxId: b.taxId }, extensions: { billingBusinessKind: "EXEMPT_DEALER" }, type };
@@ -212,10 +217,10 @@ async function main() {
   // Controls for I5, created before anything transitions.
   const controls = {
     exemptDeclared: await business(), exemptPlain: await business(), authorizedDeclared: await business({ kind: "AUTHORIZED_DEALER" }),
-    company: await business({ kind: "LTD_COMPANY" }), twoUsersDeclared: await business({ users: 2 }), anonymised: await business(),
+    company: await business({ kind: "LTD_COMPANY" }), twoUsersDeclared: await business(), anonymised: await business(),
   };
   await declare(controls.exemptDeclared); await declare(controls.authorizedDeclared, { authorized: true });
-  await declare(controls.twoUsersDeclared); await declare(controls.anonymised, { anonymised: true });
+  await declare(controls.twoUsersDeclared); await addUser(controls.twoUsersDeclared); await declare(controls.anonymised, { anonymised: true });
   for (const c of Object.values(controls)) { await issuedDoc(c, "RECEIPT"); }
   const controlBefore = await Promise.all(Object.values(controls).map((c) => snap(c.businessId)));
 
@@ -316,7 +321,7 @@ async function main() {
     ["user of another business", () => business(), { user: other.userId }],
     ["business being deleted", () => business({ deleting: true }), {}],
     ["two users", () => business({ users: 2 }), {}],
-    ["live declaration + two users (refused before the writer)", async () => { const b = await business({ users: 2 }); await declare(b); return b; }, {}],
+    ["live declaration + two users (refused before the writer)", async () => { const b = await business(); await declare(b); await addUser(b); return b; }, {}],
     ["live declaration + VAT ≠ id (refused before the writer)", async () => { const b = await business(); await declare(b); return b; }, { vat: withCheckDigit("03141592") }],
     ["live declaration + stale re-auth (refused before the writer)", async () => { const b = await business(); await declare(b); return b; }, { at: new Date(Date.now() - 11 * 60_000) }],
   ];

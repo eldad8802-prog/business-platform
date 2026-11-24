@@ -227,8 +227,11 @@ async function main() {
     const r = await transition(b);
     ok("K3 live declaration not yet effective → ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE, nothing written",
       r === "ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE" && (await snap(b.businessId)) === before, r);
-    const two = await business({ users: 2 });
+    const two = await business();
     await declaration(two.businessId, two.userId, false);
+    // the declaration requires a sole user (DZD33): the second user joins afterwards
+    await owner.$executeRawUnsafe(`INSERT INTO "User" ("email","password","name","businessId","updatedAt") VALUES ($1,$2,'בני',$3, now())`,
+      `bkt-${Date.now()}-k3two@lab.invalid`, "$2b$10$" + "A".repeat(53), two.businessId);
     const twoBefore = await snap(two.businessId);
     const r2 = await transition(two);
     ok("K3 live declaration + two users → NOT_SOLE_USER (the transition's own check first), nothing written",
