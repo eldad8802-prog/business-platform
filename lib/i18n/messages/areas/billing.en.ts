@@ -511,4 +511,15 @@ export const billingEn: Widen<typeof billingHe> = {
       SUPPLIER_ORDER: { title: "Supplier order", help: "Order products from a supplier" },
     },
   },
+  vatReview: {
+    message: "This document was created before you switched to an authorized dealer. Before issuing it, review the VAT rates and update them to fit the transaction.",
+    button: "Review the document's VAT",
+    intro: "Lines at 0% VAT are marked. To change a rate, edit the line in the document and save. You may keep 0% if that is the right treatment for the transaction.",
+    colLine: "Line",
+    colVat: "VAT",
+    confirm: "Reviewed — the rates fit the transaction",
+    cancel: "Cancel",
+    reviewed: "The document's VAT rates were reviewed and confirmed.",
+    error: "We could not save the confirmation. Please try again.",
+  },
 };
