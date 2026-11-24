@@ -689,6 +689,8 @@ const INTERNAL: Record<string, ModelCoverage> = {
   OAuthSignupTicket: internal("auth plane: a single-use Google signup ticket for a person who has NO account yet (address + name from Google, sha256 of the secret); belongs to no business, no role but the migration role reads it, it lives at most 30 minutes and auth_oauth_ticket_purge removes it once expired; a spent ticket names its user only until then (SET NULL with the User row)"),
   PlatformAdminPasskey: internal("platform-admin passkey public keys (WebAuthn); belong to the operator, not to a tenant; cascade with the User row"),
   PlatformAuditEvent: internal("platform-operator audit trail"),
+  PlatformSubscription: internal("Dubiz's commercial record of the business (plan, account type, lifecycle state, dates); enum-like columns and the deciding admin's user id — no free text, nothing about the business's own customers"),
+  PlatformSubscriptionEvent: internal("platform-operator append-only log of subscription changes (from/to enums, the admin's user id, the admin's reason, a provider event id); written only by the control plane"),
   AccountantOpsRun: internal("run log of the accountant sweep and its monitor: kind, source, times, outcome and counts only (DB CHECK); names no business"),
   AccountantOpsAlert: internal("platform-level alerts of the accountant monitor (the sweep did not run / failed): codes, times and counts only (DB CHECK); names no business"),
   PlatformFeatureDefinition: internal("the catalogue of feature flags"),

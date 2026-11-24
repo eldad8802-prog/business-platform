@@ -1,4 +1,7 @@
 import type { PlatformFeatureKey } from "./platform-feature-catalog";
+import type { SubscriptionPlan } from "@/lib/services/subscriptions/plan-catalog";
+import type { PlanAccess, PlanReasonCode } from "@/lib/services/subscriptions/resolve-entitlement";
+import type { SubscriptionAccountType, SubscriptionStatus } from "@/lib/services/subscriptions/subscription.types";
 import type {
   FeatureAccessCategoryGroup,
   FeatureAccessDisplayState,
@@ -45,6 +48,25 @@ export type BusinessCapabilitiesResponse = {
    * draws exactly what it drew before.
    */
   activity?: { primary: string; additional: string[] } | null;
+  /**
+   * Subscriptions stage A/B — the business's subscription as recorded, SHADOW ONLY: nothing reads it to grant or
+   * refuse. Absent while SUBSCRIPTION_ENFORCEMENT=off. The lifecycle is reported as `status`, deliberately NOT
+   * `state`: the Home draws its FREE_LIMITED screen from `subscription.state` (home-access.ts), and that must stay
+   * unset until enforcement is approved (stage C). `record: false` = no subscription record (computed as a tester).
+   */
+  subscription?: {
+    record: boolean;
+    accountType: SubscriptionAccountType;
+    status: SubscriptionStatus;
+    plan: SubscriptionPlan | null;
+    catalogVersion: string;
+    enforced: false;
+  };
+  /** Subscriptions stage A/B — the plan verdict per feature, shadow only (see `subscription`). */
+  planAccess?: Record<
+    PlatformFeatureKey,
+    { access: PlanAccess; reasonCode: PlanReasonCode; requiredPlan: SubscriptionPlan | null }
+  >;
 };
 
 export type PlatformAdminBusinessFeatureItem = {

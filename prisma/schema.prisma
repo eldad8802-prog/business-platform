@@ -261,6 +261,8 @@ model Business {
   productUsageEvents            ProductUsageEvent[]
   businessFeatureAccess         BusinessFeatureAccess[]
   activityProfile               BusinessActivityProfile?
+  platformSubscription          PlatformSubscription?
+  platformSubscriptionEvents    PlatformSubscriptionEvent[]
   notifications                 Notification[]
   pushSubscriptions             PushSubscription[]
   notificationDeliveries        NotificationDelivery[]
@@ -596,6 +598,56 @@ model BusinessActivityProfile {
   updatedAt       DateTime @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// Subscriptions stage B (migration 20261224090000_platform_subscriptions): the business's subscription record — at most
+/// one row per business. Plan CONTENT lives in code (lib/services/subscriptions/plan-catalog.ts); this row keeps only
+/// which plan and state the business is in. Values are CHECK-constrained in the migration:
+///   accountType CUSTOMER | TESTER | INTERNAL; status EXEMPT | TRIALING | ACTIVE | PAST_DUE | FREE_LIMITED;
+///   plan BASIC | ADVANCED | PREMIUM | null; source BACKFILL | ADMIN | SIGNUP | CHECKOUT | PROVIDER.
+/// FORCE RLS: the runtime reads its own row only and can change nothing; the control plane writes (GUC-scoped).
+/// No row = computed as a tester (today's access). Shadow only: nothing grants or refuses on it yet.
+model PlatformSubscription {
+  businessId         Int       @id
+  accountType        String
+  status             String
+  plan               String?
+  catalogVersion     String
+  trialStartedAt     DateTime?
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean   @default(false)
+  source             String
+  updatedByUserId    Int?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// Subscriptions stage B: append-only log of every subscription change (a trigger refuses UPDATE for every role;
+/// nobody may DELETE). kind BACKFILL | ADMIN_CHANGE | SYSTEM_TRANSITION | PROVIDER_EVENT. The control plane may only
+/// INSERT — like PlatformAuditEvent, the writer never reads back what it wrote.
+model PlatformSubscriptionEvent {
+  id              BigInt   @id @default(autoincrement())
+  businessId      Int
+  kind            String
+  fromAccountType String?
+  toAccountType   String
+  fromStatus      String?
+  toStatus        String
+  fromPlan        String?
+  toPlan          String?
+  actorUserId     Int?
+  reason          String
+  providerEventId String?  @unique
+  catalogVersion  String
+  createdAt       DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
 }
 
 /// Sparse per-business overrides only (no row = inherit global/catalog).
