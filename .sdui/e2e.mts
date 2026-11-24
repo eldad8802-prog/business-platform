@@ -143,10 +143,73 @@ async function main() {
     current = p;
     await openCase(p, seed.c1);
     await shot(p, "real-case-open-phone");
-    await check("W1 confirm the intake → CHECKED_IN", async () => {
-      await clickAction(p, "לאשר את הקליטה");
-      await confirmDialog(p);
+    const checkIns = async (id: number) => Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND action::text = 'CHECK_IN'`, id))[0].n);
+    const confirmBtn = () => p.getByRole("button", { name: "לאשר קליטה ולקבל את הפריט", exact: true });
+    const failWith500 = (route: { fulfill: (o: { status: number; contentType: string; body: string }) => Promise<void> }) =>
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "lab: forced failure" }) });
+    await check("W1 «confirm the intake» leads to the intake screen — the one place it is confirmed; it fits 390 px and 360 px with nothing hidden", async () => {
+      await p.locator("section[aria-label='מצב ופעולה הבאה']").getByRole("link", { name: "לאשר את הקליטה", exact: true }).click();
+      await p.waitForURL(/\/service-desk\/cases\/\d+\/intake/, { timeout: 60_000 });
+      await confirmBtn().waitFor({ timeout: 120_000 });
+      await shot(p, "real-intake-phone-390");
+      const c360 = await ctx(browser, seed.tokenA, { width: 360, height: 780, phone: true });
+      const p360 = await c360.newPage();
+      await p360.goto(`/service-desk/cases/${seed.c1}/intake`);
+      await p360.getByRole("button", { name: "לאשר קליטה ולקבל את הפריט", exact: true }).waitFor({ timeout: 120_000 });
+      for (const [pg, w] of [[p, 390], [p360, 360]] as const) {
+        const over = await pg.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - document.documentElement.clientWidth);
+        if (over > 1) throw new Error(`intake scrolls sideways at ${w} px (${over})`);
+        const b = pg.getByRole("button", { name: "לאשר קליטה ולקבל את הפריט", exact: true });
+        await b.scrollIntoViewIfNeeded();
+        const box = await b.boundingBox();
+        if (!box || box.x < 0 || box.x + box.width > w + 1) throw new Error(`the confirm button is cut at ${w} px`);
+        // nothing (a bottom bar, a floating button) sits on top of the button's centre
+        const onTop = await b.evaluate((el) => { const r = el.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!hit && (hit === el || el.contains(hit)); });
+        if (!onTop) throw new Error(`the confirm button is covered at ${w} px`);
+      }
+      await shot(p360, "w360-intake");
+      await c360.close();
+    });
+    await check("IN1 the details' save fails → nothing is confirmed, the screen does not claim a save, the typed note stays; the case stays OPEN", async () => {
+      const v0 = await versionOf(seed.c1);
+      await p.locator("textarea").first().fill("סדק בפינה הימנית העליונה · נבדק בקליטה");
+      await p.route("**/api/service-desk/cases/*/intake", (r) => r.request().method() === "PUT" ? failWith500(r) : r.continue());
+      try {
+        await Promise.all([p.waitForResponse((r) => r.url().includes("/intake") && r.request().method() === "PUT"), confirmBtn().click()]);
+        await confirmBtn().waitFor();
+      } finally { await p.unroute("**/api/service-desk/cases/*/intake"); } // never leaks into the next checks
+      if (await p.getByText(/הקליטה אושרה|פרטי הקליטה נשמרו/).count()) throw new Error("the screen claims a save or a confirmation");
+      // what the owner typed is still there after the reload (a failed save wrote nothing; the text must not vanish)
+      await p.waitForTimeout(1500);
+      if ((await p.locator("textarea").first().inputValue()) !== "סדק בפינה הימנית העליונה · נבדק בקליטה") throw new Error("the typed note was lost after the failed save");
+      if ((await statusOf(seed.c1)) !== "OPEN" || (await checkIns(seed.c1)) !== 0 || (await versionOf(seed.c1)) !== v0) throw new Error("something was written");
+    });
+    await check("IN2 saved, then the confirmation fails → the screen says the details were saved and the confirmation did not pass; nothing confirmed", async () => {
+      const v0 = await versionOf(seed.c1);
+      await p.route("**/api/service-desk/cases/*/actions", (r) => failWith500(r));
+      try {
+        await confirmBtn().click();
+        await p.getByText(/פרטי הקליטה נשמרו, אבל האישור לא עבר/).waitFor({ timeout: 60_000 });
+      } finally { await p.unroute("**/api/service-desk/cases/*/actions"); }
+      if (await p.getByText(/לא נשמר דבר/).count()) throw new Error("the partial failure says «nothing was saved» right after saying the details were saved");
+      await shot(p, "real-intake-partial-failure-phone");
+      if ((await statusOf(seed.c1)) !== "OPEN" || (await checkIns(seed.c1)) !== 0) throw new Error("confirmed despite the failure");
+      if ((await versionOf(seed.c1)) !== v0 + 1) throw new Error("the details were not saved exactly once");
+    });
+    await check("IN3 a double click confirms once: one CHECK_IN, CHECKED_IN; a replay of the confirmation is refused; back to the case", async () => {
+      await confirmBtn().dblclick();
       await waitStatus(seed.c1, "CHECKED_IN");
+      await p.getByText("הקליטה אושרה והפריט התקבל לטיפול.").waitFor({ timeout: 60_000 });
+      if ((await checkIns(seed.c1)) !== 1) throw new Error(`CHECK_IN events: ${await checkIns(seed.c1)}`);
+      const v = await versionOf(seed.c1);
+      const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
+      const replay = await p.evaluate(async ({ id, ver, key }) => {
+        const r = await fetch(`/api/service-desk/cases/${id}/actions`, { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("token")}`, "Content-Type": "application/json", "Idempotency-Key": key }, body: JSON.stringify({ action: { type: "CHECK_IN", intakeConfirmed: true }, expectedVersion: ver }) });
+        return r.status;
+      }, { id: seed.c1, ver: v, key: uuidV7(new Date()) });
+      if (replay < 400) throw new Error(`a second confirmation was accepted (${replay})`);
+      if ((await checkIns(seed.c1)) !== 1) throw new Error("a second CHECK_IN was written");
+      await openCase(p, seed.c1);
       await statusPill(p, "התקבל").waitFor();
     });
     await check("W2 start diagnosis → DIAGNOSING", async () => {

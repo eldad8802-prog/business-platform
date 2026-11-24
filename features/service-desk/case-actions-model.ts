@@ -92,11 +92,9 @@ export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "ho
     case "SCHEDULED": {
       if (held(c)) {
         const intakeReady = !!c.intake && c.intake.conditionRecorded && c.intake.accessoriesRecorded;
+        // One place to confirm the intake (owner decision 2026-11-24): the intake screen saves and confirms together.
         return [
-          intakeReady
-            ? { id: "check-in", label: "לאשר את הקליטה", tone: "primary", input: { kind: "confirm", text: "מאשר/ת שמצב הפריט והאביזרים תועדו ושהפריט נקלט לעסק." }, target: a("CHECK_IN", { intakeConfirmed: true }) }
-            : { id: "intake", label: "לקליטת הפריט", tone: "primary", input: { kind: "none" }, target: { endpoint: "link", href: `/service-desk/cases/${c.id}/intake` } },
-          ...(intakeReady ? [{ id: "intake-edit", label: "לפרטי הקליטה", tone: "secondary" as const, input: { kind: "none" as const }, target: { endpoint: "link" as const, href: `/service-desk/cases/${c.id}/intake` } }] : []),
+          { id: "intake", label: intakeReady ? "לאשר את הקליטה" : "לקליטת הפריט", tone: "primary", input: { kind: "none" }, target: { endpoint: "link", href: `/service-desk/cases/${c.id}/intake` } },
           cancelAction(c),
         ];
       }
