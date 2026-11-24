@@ -48,6 +48,7 @@ async function main() {
   const dana = await customer("דנה כהן");
   const gal = await customer("משרד גל ושות׳");
   const michal = await customer("מיכל אברהם");
+  await own(bizA, `UPDATE "Customer" SET phone = '050-123-4567' WHERE id = $1`, michal); // the case head's call button (lab only)
   const avi = await customer("אבי מזרחי");
 
   const p = { businessId: bizA, userId: userA };

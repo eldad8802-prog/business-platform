@@ -11,7 +11,7 @@
  */
 import { readFileSync } from "fs";
 import { join } from "path";
-import { APPROVED_TASKS_PUSH_CHUNK_EXCEPTION, MAX_DICTIONARY_FILES, MIN_SENTINELS_PER_FILE, chunkPathsInHtml, dictionaryChunkVerdict, isHashedChunkPath, selectDictionaryChunks, tasksPushChunkExceptionVerdict } from "./en-chunk-rules";
+import { APPROVED_SERVICE_DESK_RENAME, APPROVED_TASKS_PUSH_CHUNK_EXCEPTION, approvedRenameVerdict, MAX_DICTIONARY_FILES, MIN_SENTINELS_PER_FILE, chunkPathsInHtml, dictionaryChunkVerdict, isHashedChunkPath, selectDictionaryChunks, tasksPushChunkExceptionVerdict } from "./en-chunk-rules";
 
 let pass = 0;
 let fail = 0;
@@ -115,6 +115,34 @@ check("the DOM and byte assertions are unchanged", proof.includes("MAIN = BRANCH
   const html = `<script src="/_next/static/chunks/ddddddddddddd.js" async></script>…"/_next/static/chunks/ddddddddddddd.js"…/_next/static/chunks/main-app.js…/_next/static/css/aaaaaaaaaaaaa.css`;
   check("chunk paths: distinct, hashed JS only", JSON.stringify(chunkPathsInHtml(html)) === JSON.stringify(["/_next/static/chunks/ddddddddddddd.js"]), JSON.stringify(chunkPathsInHtml(html)));
   check("the proof applies the exception only for its route and keeps the strict rule for every other", proof.includes("row.route === APPROVED_TASKS_PUSH_CHUNK_EXCEPTION.route") && /tasksPushChunkExceptionVerdict\(row\.route, await measurePage\(B\.mainOn/.test(proof) && proof.includes("BRANCH English HTML not larger than MAIN") && proof.includes("{ main: await measurePage(B.mainOn, sharedPath), branch: await measurePage(B.branchOn, sharedPath) }"));
+}
+
+// ── 6 · the one owner-approved module rename (2026-11-24, #1264) ──────────
+{
+  const X = APPROVED_SERVICE_DESK_RENAME;
+  check("the rename is exactly «שירות ואחריות» → «תיקונים ושירות» (+ English, text and DOM forms), ≤ 2 per page, frozen",
+    Object.isFrozen(X) && Object.isFrozen(X.pairs) && X.pairs.length === 3 && X.pairs[0].from === "שירות ואחריות" && X.pairs[0].to === "תיקונים ושירות"
+    && X.pairs[1].from === "Service &amp; warranty" && X.pairs[2].to === "Repairs & service" && X.maxOccurrencesPerPage === 2);
+  const page = (name: string, extra = "", href = "/service-desk") => ({
+    dom: `<nav><a class="dz-sidebar__item" href="${href}"><svg></svg><span style="flex: 1 1 0%;">${name}</span></a><a href="/secretary">המזכירה שלי</a></nav><main>${extra}</main>`,
+    text: `${name}\nהמזכירה שלי\n${extra}`,
+  });
+  const V = (m: { dom: string; text: string }, b: { dom: string; text: string }) => approvedRenameVerdict(m, b, (s) => s.replace(/\s+/g, " ").trim().replace(/\b\d{1,2}:\d{2}\b/g, "HH:MM"));
+  check("the rename alone: allowed", V(page("שירות ואחריות"), page("תיקונים ושירות")).ok);
+  check("…English (DOM escaped, text plain): allowed", V({ dom: "<span>Service &amp; warranty</span>", text: "Service & warranty" }, { dom: "<span>Repairs &amp; service</span>", text: "Repairs & service" }).ok);
+  check("…plus a changed link: refused", !V(page("שירות ואחריות"), page("תיקונים ושירות", "", "/service-desk/x")).ok);
+  check("…plus another changed word: refused", !V(page("שירות ואחריות", "שלום"), page("תיקונים ושירות", "שלום רב")).ok);
+  check("…plus an extra element: refused", !V(page("שירות ואחריות"), page("תיקונים ושירות", "<p>חדש</p>")).ok);
+  check("…a different new name: refused", !V(page("שירות ואחריות"), page("תיקונים")).ok);
+  check("…the old name still on BRANCH: refused", !V(page("שירות ואחריות", "שירות ואחריות"), page("תיקונים ושירות", "שירות ואחריות")).ok);
+  check("…more than 2 occurrences on a page: refused", !V(page("שירות ואחריות", "שירות ואחריות שירות ואחריות"), page("תיקונים ושירות", "תיקונים ושירות תיקונים ושירות")).ok);
+  check("…only the volatile clock differs too: allowed (the strict check allows it as well)", V(page("שירות ואחריות", "12:03"), page("תיקונים ושירות", "12:04")).ok);
+  check("not cumulative — MAIN already renamed (nothing to apply): never an exception", !V(page("תיקונים ושירות", "א"), page("תיקונים ושירות", "ב")).ok);
+  check("no rename on the page and a difference: refused", !V(page("לקוחות", "א"), page("לקוחות", "ב")).ok);
+  check("the proof applies the rename only when the strict comparison fails, and keeps every strict assertion",
+    proof.includes("const renamed = meta && !exact && !volatileOnly ? approvedRenameVerdict(a, b, vol) : null;")
+    && proof.includes("res.identical || res.volatileOnly || res.renameOnly") && proof.includes("MAIN = BRANCH (meta, text, DOM)")
+    && proof.includes("no new hydration error on BRANCH") && proof.includes("const meta = a.status === b.status && a.path === b.path && a.lang === b.lang && a.dir === b.dir && a.title === b.title;"));
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);

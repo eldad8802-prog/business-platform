@@ -67,8 +67,9 @@ export const checkIdentity = (input: Omit<TransitionInput, "acknowledged">) =>
   call<{ ok?: boolean; problems?: { field: string; code: string; message: string }[] }>("/preview", { method: "POST", body: { ...input, acknowledged: [], stage: "identity" } });
 export const reauthWithPassword = (password: string) => call<{ retryAfterSeconds?: number }>("/reauth/password", { method: "POST", body: { password } });
 export const startGoogleReauth = () => call<{ url?: string }>("/reauth/google", { method: "POST", body: {} });
-export const confirmKindTransition = (input: TransitionInput & { statementSha256: string }) =>
-  call<{ reauthMethod?: string }>("", { method: "POST", body: input });
+/** interimDocumentCount: the N the owner saw on step 3 (4a T4); the server counts again inside the transition. */
+export const confirmKindTransition = (input: TransitionInput & { statementSha256: string; interimDocumentCount: number }) =>
+  call<{ reauthMethod?: string; count?: number }>("", { method: "POST", body: input });
 
 // ── pure helpers (unit-tested) ────────────────────────────────────────────────────────────────────
 
@@ -154,9 +155,14 @@ export function decodeDraft(raw: string | null, now = Date.now()): SavedDraft | 
 }
 
 /** The message a refused confirmation shows, and where the screen goes next. */
-export function confirmOutcome(status: number, code: string | undefined, fallback: string | undefined):
-  { kind: "success" } | { kind: "reverify"; message: string } | { kind: "restart"; message: string } | { kind: "error"; message: string } {
+export function confirmOutcome(status: number, code: string | undefined, fallback: string | undefined, body: { count?: unknown } = {}):
+  { kind: "success" } | { kind: "reverify"; message: string } | { kind: "restart"; message: string } | { kind: "error"; message: string }
+  | { kind: "interimChanged"; count: number } {
   if (status === 200) return { kind: "success" };
+  // 4a T4: a document was issued while confirming; nothing was written. The screen shows the new number.
+  if (status === 409 && code === "INTERIM_DOCUMENTS_CHANGED" && typeof body.count === "number" && Number.isInteger(body.count) && body.count >= 0) {
+    return { kind: "interimChanged", count: body.count };
+  }
   if (status === 401 || code === "REAUTH_REQUIRED") return { kind: "reverify", message: "עבר זמן רב מדי מאז האימות. צריך לאמת שוב — שום דבר לא השתנה." };
   if (code === "STATEMENT_STALE") return { kind: "restart", message: "פרטי העסק השתנו מאז שנפתח המסך. צריך להתחיל מחדש — שום דבר לא השתנה." };
   if (status === 429) return { kind: "error", message: "יותר מדי ניסיונות. אפשר לנסות שוב מאוחר יותר." };
