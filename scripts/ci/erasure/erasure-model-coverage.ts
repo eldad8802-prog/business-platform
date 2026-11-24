@@ -437,6 +437,24 @@ const UNMANAGED: Record<string, ModelCoverage> = {
     "legalName, tradeName, idNumber, vatRegistrationNumber, address, phone, email, declarantName, declarantCapacity",
     "the purge calls issuer_declaration_erase() (#1117, proven by the account-deletion lab W8/C); still debt until the DB-function contract learns placeholder anonymisation and conditional retention"
   ),
+  // Appointments completion (migration 20261226090000, NOT applied; nothing writes these yet). The database already
+  // allows the erased state of each (title / customerId NULL + erasedAt; the three hashes NULL + erasedAt; a CUSTOMER
+  // delivery's phone NULL) through ordinary UPDATEs under the tenant RLS. The adapter lines cannot ship in the
+  // migration PR (migration-first guard: no runtime code beside a migration); they ship with the first writer.
+  AppointmentSeries: unmanaged(
+    "title (the owner's text) and customerId",
+    "appointments completion E (recurring): the purge blanks title, nulls customerId and stamps erasedAt — in the same PR as the first writer"
+  ),
+  BookingPhoneChallenge: unmanaged(
+    "phoneHash, codeHash and ipHash (keyed hashes of the requester's phone and IP)",
+    "appointments completion G (secure self-service): the purge nulls the three hashes and stamps erasedAt — in the same PR as the first writer"
+  ),
+  // Moved out of NON_PERSONAL_OPERATIONAL by migration 20261226090000: a CUSTOMER delivery carries the customer's
+  // phone (recipientPhone, E.164; NULL = erased). Every other column is still delivery bookkeeping.
+  NotificationDelivery: unmanaged(
+    "recipientPhone on CUSTOMER (WhatsApp) deliveries",
+    "appointments completion F (customer WhatsApp): the purge nulls recipientPhone — in the same PR as the first writer"
+  ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -546,7 +564,6 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   ContentFeedback: operational("numeric feedback on generated content"),
   Party: operational("an empty identity anchor — id, businessId and timestamps only"),
   PaymentProviderRouting: operational("which provider a business routes to"),
-  NotificationDelivery: operational("delivery bookkeeping for one notification"),
   ImportRunRow: operational("per-row import status and hashes"),
   KnowledgeMeasure: operational(
     "a number, an observation count and a window describing the OWNER's own behaviour — " +

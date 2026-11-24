@@ -228,6 +228,8 @@ on:
           - 'ops/evidence/notifications-engine-open-all-production-evidence.sql'
           - 'ops/evidence/quote-render-event-coverage.sql'
           - 'ops/evidence/appointments-endless-rows-impact.sql'
+          - 'ops/evidence/appointments-completion-preflight.sql'
+          - 'ops/evidence/appointments-completion-production-evidence.sql'
 
 permissions:
   contents: read
