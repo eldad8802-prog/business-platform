@@ -2,6 +2,7 @@
  * Service Desk UI 1.3 — cases list / case screen view model. Pure: run with `npx tsx features/service-desk/cases-model.test.ts`.
  */
 import {
+  qaHeadline,
   attentionReason, buildListSections, nextStepHint, caseNoun, caseSections, eventLabel, historyItems, isClosed, matchesQuery,
   journaledLoanIds, mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
 } from "./cases-model";
@@ -135,5 +136,12 @@ ok("J2 a loan / task line takes its name from what the screen holds; without it,
   && eventLabel({ eventType: "task.unlinked", toStatus: "READY", payload: { taskId: 3 } }) === "הוסר קישור למשימה");
 ok("J3 journaled loans are known, so their side lines are not repeated", [...journaledLoanIds([{ seq: 4, eventType: "loan.lent", toStatus: "READY", occurredAt: "2026-11-22T10:00:00.000Z", actor: "OWNER_USER", payload: { loanId: 7 } }])].join(",") === "7");
 
+// ── QA heading follows the marks (owner 2026-11-24): ready / remaining / failed — never «complete» over a full list ──
+ok("QH1 every required check passed → the heading says they can be confirmed", nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "ready", remaining: 0 } }) === "כל בדיקות החובה עברו — אפשר לאשר");
+ok("QH2 checks left → how many", nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "incomplete", remaining: 3 } }) === "נותרו 3 בדיקות לסמן"
+  && qaHeadline({ state: "incomplete", remaining: 1 }) === "נותרה בדיקה אחת לסמן");
+ok("QH3 one failed check → named, and back to work", nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "failed", failedLabels: ["המסך נקי"] } }) === "הבדיקה «המסך נקי» לא עברה — להחזיר לעבודה");
+ok("QH4 several failed → the count, and back to work", qaHeadline({ state: "failed", failedLabels: ["א", "ב"] }) === "2 בדיקות לא עברו — להחזיר לעבודה");
+ok("QH5 the heading never says «complete the checks» once every required check passed", !(nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "ready" } }) ?? "").includes("להשלים"));
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
