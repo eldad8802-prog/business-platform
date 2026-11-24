@@ -38,7 +38,8 @@ async function main() {
 
   const bizA = Number((await q(`INSERT INTO "Business" (name, "updatedAt") VALUES ('מעבדת בדיקה — שירות', now()) RETURNING id`))[0].id);
   const bizB = Number((await q(`INSERT INTO "Business" (name, "updatedAt") VALUES ($1, now()) RETURNING id`, `sdui-B-${t}`))[0].id);
-  const userA = Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `sdui-a-${t}@lab.invalid`, bizA))[0].id);
+  // A named owner (the history shows who acted by name — owner decision 2026-11-24); business C's user stays unnamed.
+  const userA = Number((await q(`INSERT INTO "User" (email, name, "businessId", "updatedAt") VALUES ($1, 'שירה כהן', $2, now()) RETURNING id`, `sdui-a-${t}@lab.invalid`, bizA))[0].id);
   const userB = Number((await q(`INSERT INTO "User" (email, "businessId", "updatedAt") VALUES ($1, $2, now()) RETURNING id`, `sdui-b-${t}@lab.invalid`, bizB))[0].id);
   await owner.businessFeatureAccess.create({ data: { businessId: bizA, featureKey: "service_desk", state: "ENABLED", reason: "lab: service desk UI e2e" } });
   await own(bizA, `INSERT INTO "ServiceSettings" ("businessId", version, "updatedAt", "serviceProfileKey", "profileOverrides") VALUES ($1, 1, now(), 'device_lab', $2::jsonb) RETURNING "businessId"`,

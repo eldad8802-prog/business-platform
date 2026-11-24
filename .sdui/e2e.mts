@@ -406,6 +406,10 @@ async function main() {
         await clickAction(pc, "לאשר שהבדיקות עברו");
         await until(async () => (await own(seed.bizC, `SELECT "qaCompletedAt" IS NOT NULL ok FROM "ServiceCase" WHERE id = $1`, seed.c5))[0].ok === true, "qaCompletedAt not set");
         await until(async () => String((await own(seed.bizC, `SELECT status::text s FROM "ServiceCase" WHERE id = $1`, seed.c5))[0].s) === "READY", "not READY");
+        // Business C's user has no profile name: the history says so — never an e-mail, never an invented name.
+        await openCase(pc, seed.c5);
+        await pc.locator("section[aria-label='היסטוריה']").getByText("משתמש ללא שם").first().waitFor({ timeout: 30_000 });
+        if ((await pc.locator("section[aria-label='היסטוריה']").innerText()).includes("@")) throw new Error("an e-mail in the history");
       });
       await check("X3 another business cannot read A's case panels (404)", async () => {
         const codes = await pc.evaluate(async (id) => {
@@ -497,7 +501,7 @@ async function main() {
           const li = pa.locator("ol li").filter({ hasText: line });
           await li.first().waitFor({ timeout: 30_000 });
           if ((await li.count()) !== 1) throw new Error(`"${line}" shown ${await li.count()} times`);
-          if (!(await li.first().innerText()).includes("בעל העסק")) throw new Error(`"${line}" without who acted`);
+          if (!(await li.first().innerText()).includes("שירה כהן")) throw new Error(`"${line}" without the name of who acted`);
         }
         const rows = await own(seed.bizA, `SELECT "eventType"::text t, "actorUserId" u FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND "eventType"::text IN ('task.linked', 'task.unlinked', 'case.work_details_recorded') ORDER BY seq`, seed.c4);
         const kinds = rows.map((r) => r.t).join(",");
@@ -545,7 +549,7 @@ async function main() {
           const li = pp.locator("ol li").filter({ hasText: line });
           await li.first().waitFor({ timeout: 30_000 });
           if ((await li.count()) !== 1) throw new Error(`"${line}" shown ${await li.count()} times`);
-          if (!(await li.first().innerText()).includes("בעל העסק")) throw new Error(`"${line}" without who acted`);
+          if (!(await li.first().innerText()).includes("שירה כהן")) throw new Error(`"${line}" without the name of who acted`);
         }
         const n = Number((await own(seed.bizA, `SELECT count(*)::int n FROM "ServiceCaseEvent" WHERE "caseId" = $1 AND "eventType"::text IN ('loan.lent', 'loan.returned') AND "actorUserId" = $2`, seed.c3, seed.userA))[0].n);
         if (n !== 2) throw new Error(`loan records ${n}`);

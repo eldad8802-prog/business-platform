@@ -241,7 +241,7 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
               <h2 id="in-confirm" className={s.cardTitle}>אישור הקליטה</h2>
               {view.confirmation ? (
                 <>
-                  <p className={s.cardSub}>הקליטה אושרה על ידי {view.confirmation.byName ?? "משתמש העסק"} · {israelDateTime(view.confirmation.at)}</p>
+                  <p className={s.cardSub}>הקליטה אושרה על ידי {view.confirmation.byName ?? "משתמש ללא שם"} · {israelDateTime(view.confirmation.at)}</p>
                   <div className={s.actions}>
                     <Link className={`${s.button} ${s.primary}`} href={`/service-desk/cases/${caseId}`} replace>המשך לתיק</Link>
                   </div>

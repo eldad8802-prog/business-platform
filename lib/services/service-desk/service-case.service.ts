@@ -362,6 +362,11 @@ export async function getCase(businessId: number, caseId: unknown): Promise<Case
 export type JournalEntry = {
   seq: number; eventType: string; action: string; fromStatus: string | null; toStatus: string; holdReasonAfter: string | null;
   outcome: string | null; actor: string; actorUserId: number | null; occurredAt: string; payload: unknown;
+  /**
+   * Who acted, by name (owner decision 2026-11-24): the acting user's profile name when the user is of this business and
+   * has one; null otherwise — never an e-mail, never an invented name. actorKnown: the user row was found.
+   */
+  actorName: string | null; actorKnown: boolean;
 };
 
 /** The case's journal, oldest first. The payload holds tokens, numbers and booleans only (decision ט-1 A). */
@@ -371,14 +376,18 @@ export async function listCaseEvents(businessId: number, caseId: unknown): Promi
     const exists = await tx.$queryRaw<{ ok: boolean }[]>`SELECT EXISTS (SELECT 1 FROM "ServiceCase" WHERE id = ${caseId}::int AND "businessId" = ${businessId}::int) AS ok`;
     if (exists[0]?.ok !== true) throw new ServiceDeskError("NOT_FOUND");
     const rows = await tx.$queryRaw<Record<string, unknown>[]>`
-      SELECT seq, "eventType"::text AS "eventType", action::text AS action, "fromStatus"::text AS "fromStatus", "toStatus"::text AS "toStatus",
-             "holdReasonAfter"::text AS "holdReasonAfter", outcome::text AS outcome, actor::text AS actor, "actorUserId",
-             to_char("occurredAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt", payload
-        FROM "ServiceCaseEvent" WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int ORDER BY seq`;
+      SELECT e.seq, e."eventType"::text AS "eventType", e.action::text AS action, e."fromStatus"::text AS "fromStatus", e."toStatus"::text AS "toStatus",
+             e."holdReasonAfter"::text AS "holdReasonAfter", e.outcome::text AS outcome, e.actor::text AS actor, e."actorUserId",
+             to_char(e."occurredAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt", e.payload,
+             NULLIF(btrim(u.name), '') AS "actorName", (u.id IS NOT NULL) AS "actorKnown"
+        FROM "ServiceCaseEvent" e
+        LEFT JOIN "User" u ON u.id = e."actorUserId" AND u."businessId" = e."businessId"
+       WHERE e."businessId" = ${businessId}::int AND e."caseId" = ${caseId}::int ORDER BY e.seq`;
     return rows.map((r) => ({
       seq: Number(r.seq), eventType: String(r.eventType), action: String(r.action), fromStatus: (r.fromStatus as string) ?? null,
       toStatus: String(r.toStatus), holdReasonAfter: (r.holdReasonAfter as string) ?? null, outcome: (r.outcome as string) ?? null,
       actor: String(r.actor), actorUserId: r.actorUserId === null ? null : Number(r.actorUserId), occurredAt: String(r.occurredAt), payload: r.payload,
+      actorName: (r.actorName as string | null) ?? null, actorKnown: r.actorKnown === true,
     }));
   });
 }
