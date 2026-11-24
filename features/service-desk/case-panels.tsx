@@ -12,13 +12,13 @@ import s from "./cases.module.css";
 
 function Panel({ title, hint, children, id }: { title: string; hint?: string | null; children: ReactNode; id: string }) {
   return (
-    <section className={s.infoCard} style={{ gap: 10 }} aria-labelledby={`${id}-t`} data-panel={id}>
+    <section className={s.infoCard} style={{ gap: 10 }} aria-labelledby={`${id}-t`} data-panel={id} id={`sd-${id}`}>
       <p className={s.infoTitle} id={`${id}-t`}>{title}{hint ? <span className={s.sectionHint}> · {hint}</span> : null}</p>
       {children}
     </section>
   );
 }
-const Later = () => <p className={s.muted}>יהיה זמין אחרי עדכון מסד הנתונים של המערכת (A7).</p>;
+const Later = () => <p className={s.muted}>עוד לא זמין בעסק הזה.</p>;
 
 // ── QA ──
 export function QaPanel(p: { qa: CaseQa; editable: boolean; busy: boolean; onSave: (r: QaResults) => void; onDraft?: (r: QaResults) => void }) {
@@ -29,8 +29,10 @@ export function QaPanel(p: { qa: CaseQa; editable: boolean; busy: boolean; onSav
   const setDraft = (next: QaResults) => { setDraftState(next); p.onDraft?.(next); };
   const set = (k: string, v: "PASS" | "FAIL") => setDraft({ ...draft, [k]: v });
   const failedLabels = t.items.filter((i) => draft[i.key] === "FAIL").map((i) => i.label);
+  const changed = t.items.some((i) => (draft[i.key] ?? null) !== (p.qa.results[i.key] ?? null));
   return (
-    <Panel id="qa" title="בדיקות לפני מסירה" hint={p.qa.mode === "OPTIONAL" ? "לא חובה" : p.qa.completed ? "הושלמו" : `${prog.recorded} מתוך ${prog.total}`}>
+    <Panel id="qa" title="בדיקות לפני מסירה" hint={p.qa.mode === "OPTIONAL" ? "לא חובה" : `${prog.recorded} מתוך ${prog.total} בדיקות הושלמו`}>
+      <div className={s.progress} role="img" aria-label={`${prog.recorded} מתוך ${prog.total} בדיקות הושלמו`}><span style={{ width: `${prog.total ? Math.round((prog.recorded / prog.total) * 100) : 0}%` }} /></div>
       <ul className={s.timeline} style={{ gap: 8 }}>
         {t.items.map((i) => (
           <li key={i.key} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -38,20 +40,20 @@ export function QaPanel(p: { qa: CaseQa; editable: boolean; busy: boolean; onSav
               {draft[i.key] === "PASS" ? "✓ " : draft[i.key] === "FAIL" ? "✕ " : ""}{i.label}{i.required ? " *" : ""}
             </span>
             <span className={s.choices} role="group" aria-label={i.label} style={{ flex: "0 0 auto" }}>
-              <button type="button" className={s.choice} data-result="PASS" style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "PASS"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "PASS")}>עבר</button>
-              <button type="button" className={s.choice} data-result="FAIL" style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "FAIL"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "FAIL")}>לא עבר</button>
+              <button type="button" className={s.choice} data-result="PASS" style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "PASS"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "PASS")}>✓ עבר</button>
+              <button type="button" className={s.choice} data-result="FAIL" style={{ whiteSpace: "nowrap", paddingInline: 14 }} aria-pressed={draft[i.key] === "FAIL"} disabled={!p.editable || p.busy} onClick={() => set(i.key, "FAIL")}>✕ לא עבר</button>
             </span>
           </li>
         ))}
       </ul>
       {failedLabels.length ? (
         <p className={s.blockedNote} role="note">
-          {failedLabels.length === 1 ? `הבדיקה "${failedLabels[0]}" לא עברה.` : `${failedLabels.length} בדיקות לא עברו: ${failedLabels.join(", ")}.`} אחרי השמירה אפשר רק להחזיר לעבודה — אי אפשר לאשר שהבדיקות עברו.
+          {failedLabels.length === 1 ? `הבדיקה "${failedLabels[0]}" לא עברה.` : `${failedLabels.length} בדיקות לא עברו: ${failedLabels.join(", ")}.`} מה עכשיו: מחזירים לעבודה, מתקנים, ומסיימים שוב — התיק יחזור לבדיקות.
         </p>
-      ) : prog.missing ? <p className={s.muted}>חסרות עוד {prog.missing === 1 ? "בדיקה אחת" : `${prog.missing} בדיקות`} כדי לאשר.</p> : null}
-      {p.editable ? (
+      ) : prog.missing ? <p className={s.muted}>חסרות עוד {prog.missing === 1 ? "בדיקה אחת" : `${prog.missing} בדיקות`}. מסמנים כל בדיקה אחרי שבודקים אותה בפועל.</p> : null}
+      {p.editable && changed && !prog.complete && !failedLabels.length ? (
         <div className={s.actionsRow}>
-          <button type="button" className={s.secondary} disabled={p.busy || prog.recorded === 0} onClick={() => p.onSave(draft)}>{p.busy ? "שומר…" : "לשמור את הבדיקות"}</button>
+          <button type="button" className={s.secondary} disabled={p.busy} onClick={() => p.onSave(draft)}>{p.busy ? "שומר…" : "לשמור בלי לאשר"}</button>
         </div>
       ) : null}
     </Panel>
@@ -116,9 +118,11 @@ const SETTLEMENT_TYPE: Record<string, string> = { TAX_INVOICE: "חשבונית �
 
 export function ChargePanel(p: {
   charge: CaseChargeView | null; settlementDocs: SettlementDoc[]; editable: boolean; busy: boolean;
+  /** A service call: «לפני הסגירה», never «לפני המסירה». */
+  field?: boolean;
   onNoCharge: () => void; onAmount: () => void; onLink: (doc: SettlementDoc) => void;
 }) {
-  const sum = chargeSummary(p.charge?.balance ?? null);
+  const sum = chargeSummary(p.charge?.balance ?? null, { field: p.field });
   const c = p.charge?.current ?? null;
   const linked = new Set((p.charge?.links ?? []).filter((l) => l.active).map((l) => l.billingDocumentId));
   const linkable = c?.mode === "CHARGEABLE" ? p.settlementDocs.filter((d) => !linked.has(d.id)) : [];
