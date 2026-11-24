@@ -19,6 +19,7 @@ import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { authorizeAppointmentAction, type AppointmentPrincipal } from "./appointment-authorization";
 import { AppointmentServiceError, invalid } from "./appointment-errors";
 import { isDayKey, isValidWindow, mergeWindows } from "./availability.core";
+import { openingHoursText } from "./opening-hours-text";
 
 type Tx = Prisma.TransactionClient;
 const isPositiveInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n > 0;
@@ -342,5 +343,30 @@ export async function upsertServicePolicy(principal: AppointmentPrincipal, busin
       throw new AppointmentServiceError("VERSION_CONFLICT", { version: current.version });
     }
     return tx.serviceBookingPolicy.update({ where: { id: current.id }, data: { ...(data as Prisma.ServiceBookingPolicyUpdateInput), version: { increment: 1 } } });
+  });
+}
+
+// ── G19: the profile's opening hours, from the calendar (owner consent, one tap) ──────────────────
+
+/**
+ * Writes the business's calendar weekly hours, as one Hebrew line (openingHoursText), into BusinessProfile.openingHours
+ * — the free text the bot and the business knowledge read. Only on the owner's explicit tap after saving the hours;
+ * the text is built HERE from the saved rules (never taken from the client). A business without a profile row, or
+ * without weekly hours, is left untouched (updated: false). The bot is not changed: it reads the field as before.
+ * Changing the value lapses an earlier "approved for public use" decision on OPENING_HOURS (identity fact authority
+ * binds it to the value's hash) — by that system's own design; the owner re-approves it there.
+ */
+export async function syncProfileOpeningHours(principal: AppointmentPrincipal): Promise<{ updated: boolean; text: string | null }> {
+  authorizeAppointmentAction(principal, "availability.manage");
+  const businessId = principal.businessId;
+  return tenantTx(businessId, async (tx) => {
+    const rules = await tx.availabilityRule.findMany({
+      where: { businessId, staffMemberId: null, removedAt: null },
+      select: { weekday: true, startMinute: true, endMinute: true },
+    });
+    const text = openingHoursText(rules);
+    if (text === null) return { updated: false, text: null };
+    const r = await tx.businessProfile.updateMany({ where: { businessId }, data: { openingHours: text } });
+    return { updated: r.count === 1, text };
   });
 }

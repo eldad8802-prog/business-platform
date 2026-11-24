@@ -37,6 +37,9 @@ import {
   viewTitle,
   weekStart,
   windowsProblem,
+  splitOvernight,
+  OVERNIGHT_MAX_END,
+  UNTIMED_DEFAULT_MINUTES,
   type StaffWire,
   type AppointmentWire,
   type Availability,
@@ -146,7 +149,11 @@ eq("a confirmed one still in the future: no completed, no no-show", actionsFor(a
 eq("…exactly at its start time it may be completed", actionsFor(appt(timed), new Date(timed.startsAt)).includes("complete"), true);
 eq("an internal item that has started: completed, but never a no-show", actionsFor(appt({ kind: "INTERNAL", ...timed }), AFTER), ["complete", "move", "edit", "cancel"]);
 eq("a block: move, edit, cancel — never completed, even after its start", actionsFor(appt({ kind: "BLOCK", ...timed }), AFTER), ["move", "edit", "cancel"]);
-eq("an untimed one cannot be dragged", actionsFor(appt({}), BEFORE).includes("move"), false);
+// G22: an appointment without a time is given one through the ordinary move (it is still never dragged: the grid
+// drags only timed ones, calendar-views isTimed).
+eq("an untimed one can be given a time (move)", actionsFor(appt({}), BEFORE).includes("move"), true);
+eq("…and a terminal one still offers nothing", actionsFor(appt({ status: "CANCELED" }), BEFORE), []);
+eq("the default length of a row without one is an hour", UNTIMED_DEFAULT_MINUTES, 60);
 eq("a cancelled one: nothing", actionsFor(appt({ status: "CANCELED" }), AFTER), []);
 eq("a completed one: nothing", actionsFor(appt({ status: "COMPLETED" }), AFTER), []);
 eq("a no-show: nothing", actionsFor(appt({ status: "NO_SHOW" }), AFTER), []);
@@ -164,6 +171,28 @@ eq("time label of an untimed appointment", timeLabel(appt({})), "ללא שעה")
 eq("windows: an overlap is refused", windowsProblem([{ startMinute: 540, endMinute: 720 }, { startMinute: 700, endMinute: 800 }]) !== null, true);
 eq("windows: end before start is refused", windowsProblem([{ startMinute: 600, endMinute: 540 }]) !== null, true);
 eq("windows: two separate windows pass", windowsProblem([{ startMinute: 540, endMinute: 720 }, { startMinute: 780, endMinute: 1020 }]), null);
+// G17: past midnight is never silently dropped — refused in Hebrew, or (the editor's last range) carried to the next day.
+eq("windows: past midnight without the overnight option is refused in Hebrew", windowsProblem([{ startMinute: 1200, endMinute: 1560 }]), "רק הטווח האחרון ביום יכול להימשך אחרי חצות.");
+eq("windows: the last range may run to 02:00 the next day", windowsProblem([{ startMinute: 540, endMinute: 720 }, { startMinute: 1200, endMinute: 1560 }], true), null);
+eq("windows: …but only the last one", windowsProblem([{ startMinute: 540, endMinute: 1560 }, { startMinute: 1500, endMinute: 1600 }], true) !== null, true);
+eq("windows: …and not past 06:00", windowsProblem([{ startMinute: 1200, endMinute: OVERNIGHT_MAX_END + 15 }], true), "אפשר להמשיך אחרי חצות עד 06:00 לכל היותר.");
+{
+  const DAYS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+  const week = (d: number, ranges: Array<{ startMinute: number; endMinute: number }>) => Array.from({ length: 7 }, (_, i) => (i === d ? ranges : []));
+  const tue = week(2, [{ startMinute: 1200, endMinute: 1560 }]);
+  eq("overnight: Tue 20:00–02:00 is stored as Tue 20:00–24:00 + Wed 00:00–02:00", splitOvernight(tue, DAYS),
+    { ok: true, rules: [{ weekday: 2, startMinute: 1200, endMinute: 1440 }, { weekday: 3, startMinute: 0, endMinute: 120 }] });
+  const sat = week(6, [{ startMinute: 1260, endMinute: 1500 }]);
+  eq("overnight: Saturday night continues on Sunday", splitOvernight(sat, DAYS),
+    { ok: true, rules: [{ weekday: 6, startMinute: 1260, endMinute: 1440 }, { weekday: 0, startMinute: 0, endMinute: 60 }] });
+  const clash = tue.map((d, i) => (i === 3 ? [{ startMinute: 60, endMinute: 600 }] : d));
+  eq("overnight: a morning part that meets the next day's hours is refused, naming both days", splitOvernight(clash, DAYS),
+    { ok: false, day: 2, error: "השעות אחרי חצות של יום שלישי חופפות לשעות של יום רביעי." });
+  const touching = tue.map((d, i) => (i === 3 ? [{ startMinute: 120, endMinute: 600 }] : d));
+  check("overnight: a next day that opens exactly at 02:00 is fine", splitOvernight(touching, DAYS).ok);
+  eq("overnight: an ordinary week is stored as is", splitOvernight(week(0, [{ startMinute: 540, endMinute: 1020 }]), DAYS),
+    { ok: true, rules: [{ weekday: 0, startMinute: 540, endMinute: 1020 }] });
+}
 {
   const names: Names = { customers: new Map([[7, "דנה"]]), services: new Map([[3, "תספורת"]]), staff: new Map() };
   eq("a customer appointment reads customer · service", headline(appt({ customerId: 7, businessServiceId: 3 }), names), "דנה · תספורת");
@@ -207,6 +236,27 @@ console.log("— what is open (the free-slot rule, as shown)");
   eq("the business closure still cuts their own hours", openWindows(av, 2, "2026-11-05"), []);
   eq("nothing set at all: nothing is shaded", openWindows(NO_AVAILABILITY, null, "2026-11-03"), null);
   eq("no weekly hours but a closure: only the closure", openWindows({ business: { rules: [], exceptions: av.business.exceptions }, staff: new Map() }, null, "2026-11-04"), [{ startMinute: 0, endMinute: 720 }, { startMinute: 840, endMinute: 1440 }]);
+  // G21: a business special day bounds a staff member's OWN hours (never replaces them); their exceptions stay theirs.
+  {
+    const g21: Availability = {
+      business: { rules: week, exceptions: [{ dayKey: "2026-11-03", kind: "OPEN_HOURS", startMinute: 480, endMinute: 780, label: "יום קצר" }] },
+      staff: new Map([
+        [2, { rules: [{ weekday: 2, startMinute: 600, endMinute: 900 }], exceptions: [] }],
+        [3, { rules: [], exceptions: [{ dayKey: "2026-11-03", kind: "OPEN_HOURS", startMinute: 420, endMinute: 1200, label: null }] }],
+      ]),
+    };
+    eq("G21: the business's short day is the business lane's hours", openWindows(g21, null, "2026-11-03"), [{ startMinute: 480, endMinute: 780 }]);
+    eq("G21: a staff member's own 10:00–15:00 is bounded by it to 10:00–13:00 (not replaced by 08:00–13:00)", openWindows(g21, 2, "2026-11-03"), [{ startMinute: 600, endMinute: 780 }]);
+    eq("G21: a staff special day is still bounded by the business's special day", openWindows(g21, 3, "2026-11-03"), [{ startMinute: 480, endMinute: 780 }]);
+    eq("G21: on an ordinary day the staff member's own hours stand (owner's calendar)", openWindows(g21, 2, "2026-11-10"), [{ startMinute: 600, endMinute: 900 }]);
+  }
+  // G17: a night past midnight (Tue 20:00–24:00 + Wed 00:00–02:00) is one stretch for the "outside the hours" warning.
+  {
+    const night: Availability = { business: { rules: [{ weekday: 2, startMinute: 1200, endMinute: 1440 }, { weekday: 3, startMinute: 0, endMinute: 120 }], exceptions: [] }, staff: new Map() };
+    eq("G17: 23:00 for two hours across midnight is inside the hours", availabilityWarning(night, null, "2026-11-03", 1380, 120, names), null);
+    eq("G17: …four hours runs past 02:00 and is warned", availabilityWarning(night, null, "2026-11-03", 1380, 240, names) !== null, true);
+    eq("G17: …and a night with no next-morning hours is warned", availabilityWarning({ business: { rules: [{ weekday: 2, startMinute: 1200, endMinute: 1440 }], exceptions: [] }, staff: new Map() }, null, "2026-11-03", 1380, 120, names) !== null, true);
+  }
   eq("month/phone: 5.11 is closed, with its reason", dayAvailability(av, "2026-11-05", names), { closed: true, notes: ["סגור כל היום · חג"] });
   eq("month/phone: 4.11 is open, naming the part closed", dayAvailability(av, "2026-11-04", names), { closed: false, notes: ["סגור ⁦12:00–14:00⁩"] });
   eq("month/phone: a staff member's day off is named", dayAvailability(av, "2026-11-03", names).notes, ["שירה: סגור כל היום"]);
@@ -249,6 +299,8 @@ console.log("— redesign: lanes, hours in words, ranges, units, colours, who pe
   eq("+ range on an empty day", nextRange([]), { startMinute: 540, endMinute: 1020 });
   check("end-time options reach 24:00 and read it", timeOptions("end").at(-1) === 1440 && timeOptionLabel(1440) === "24:00");
   check("…an off-grid saved time stays selectable", timeOptions("start", 545).includes(545));
+  check("G17: the last range's end may run to 06:00 the next day, read as (למחרת)", timeOptions("overnight").at(-1) === 1440 + 360 && timeOptionLabel(1560) === "02:00 (למחרת)");
+  check("G17: an ordinary end picker still stops at 24:00", timeOptions("end").at(-1) === 1440);
 
   eq("2 days reads as days", splitMinutes(2880), { value: 2, unit: "days" });
   eq("3 hours reads as hours", splitMinutes(180), { value: 3, unit: "hours" });

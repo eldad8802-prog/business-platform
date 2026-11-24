@@ -26,7 +26,9 @@ import {
   jerusalemInstantAt,
   type JerusalemDayKey,
 } from "@/lib/utils/jerusalem-day";
-import { windowsForDay } from "@/lib/services/appointment/availability.core";
+import { laneWindowsForDay, UNTIMED_DEFAULT_MINUTES } from "@/lib/services/appointment/availability.core";
+
+export { UNTIMED_DEFAULT_MINUTES };
 
 export type DayKey = JerusalemDayKey;
 
@@ -439,7 +441,8 @@ export function actionsFor(a: AppointmentWire, now: Date): Action[] {
       if (a.kind === "CUSTOMER") out.push("no_show");
     }
   }
-  if (isTimed(a)) out.push("move");
+  // A timed appointment moves; one without a time (or without an end) gets its time the same way (G22).
+  out.push("move");
   out.push("edit", "cancel");
   return out;
 }
@@ -490,15 +493,46 @@ export function windowsByWeekday(rules: WeekWindow[]): WeekWindow[][] {
   return out;
 }
 
-/** A window list's first problem in Hebrew (start before end, inside the day, no overlap), or null. */
-export function windowsProblem(windows: Array<{ startMinute: number; endMinute: number }>): string | null {
+/** G17: how far past midnight a day's last range may run in the hours editor — 06:00 the next morning. */
+export const OVERNIGHT_MAX_END = 1440 + 360;
+
+/**
+ * A window list's first problem in Hebrew (start before end, inside the day, no overlap), or null. With
+ * `overnight`, the LAST range may end after midnight (up to OVERNIGHT_MAX_END, G17) — never silently dropped.
+ */
+export function windowsProblem(windows: Array<{ startMinute: number; endMinute: number }>, overnight = false): string | null {
   const sorted = [...windows].sort((a, b) => a.startMinute - b.startMinute);
   for (let i = 0; i < sorted.length; i++) {
     const w = sorted[i];
-    if (!(w.startMinute >= 0 && w.endMinute <= 1440 && w.endMinute > w.startMinute)) return "שעת הסיום צריכה להיות אחרי שעת ההתחלה.";
+    const maxEnd = overnight && i === sorted.length - 1 ? OVERNIGHT_MAX_END : 1440;
+    if (!(w.startMinute >= 0 && w.startMinute < 1440 && w.endMinute > w.startMinute)) return "שעת הסיום צריכה להיות אחרי שעת ההתחלה.";
+    if (w.endMinute > maxEnd) return w.endMinute > 1440 && maxEnd === 1440 ? "רק הטווח האחרון ביום יכול להימשך אחרי חצות." : "אפשר להמשיך אחרי חצות עד 06:00 לכל היותר.";
     if (i > 0 && w.startMinute < sorted[i - 1].endMinute) return "שני טווחים באותו יום חופפים.";
   }
   return null;
+}
+
+/**
+ * G17: the week as the hours editor holds it (a day's last range may end after midnight) → the weekly rules stored,
+ * none crossing midnight: the part after midnight becomes the next day's range from 00:00 (Saturday → Sunday). The
+ * rule set states exactly the same time; nothing is dropped. When that morning part meets the next day's own hours,
+ * the first problem is said in Hebrew instead (the day it belongs to, for the editor to mark).
+ */
+export function splitOvernight(week: Array<Array<{ startMinute: number; endMinute: number }>>, dayNames: string[]):
+  { ok: true; rules: WeekWindow[] } | { ok: false; day: number; error: string } {
+  const rules: WeekWindow[] = [];
+  for (let d = 0; d < week.length; d++) {
+    for (const w of week[d]) {
+      if (w.endMinute <= 1440) { rules.push({ weekday: d, startMinute: w.startMinute, endMinute: w.endMinute }); continue; }
+      const next = (d + 1) % 7;
+      const tail = w.endMinute - 1440;
+      if (week[next].some((x) => x.startMinute < tail)) {
+        return { ok: false, day: d, error: `השעות אחרי חצות של יום ${dayNames[d]} חופפות לשעות של יום ${dayNames[next]}.` };
+      }
+      rules.push({ weekday: d, startMinute: w.startMinute, endMinute: 1440 }, { weekday: next, startMinute: 0, endMinute: tail });
+    }
+  }
+  return { ok: true, rules };
 }
 
 // ── What is open: the same rule the slots engine applies ──────────────────────────────────────────
@@ -525,7 +559,22 @@ export function openWindows(av: Availability, staffMemberId: number | null, day:
   const rules = own && own.rules.length ? own.rules : av.business.rules;
   const today = [...av.business.exceptions, ...(own?.exceptions ?? [])].filter((e) => e.dayKey === day);
   if (!rules.length && !today.length) return null;
-  return windowsForDay(day, rules.length ? rules : ALL_DAY, today);
+  // G21: the business's special day bounds every lane; a staff member's own exceptions only their lane.
+  const business = { rules: av.business.rules.length ? av.business.rules : ALL_DAY, exceptions: av.business.exceptions };
+  return laneWindowsForDay(day, business, staffMemberId === null ? null : { rules: own?.rules ?? [], exceptions: own?.exceptions ?? [] });
+}
+
+/**
+ * G17: is [startMinute, startMinute + minutes) of `day` open — also when it runs past midnight into the next day's
+ * hours (a night stored as 20:00–24:00 + 00:00–02:00)?
+ */
+function openAcrossMidnight(av: Availability, staffMemberId: number | null, day: DayKey, startMinute: number, minutes: number): boolean {
+  const open = openWindows(av, staffMemberId, day) ?? [];
+  const end = startMinute + minutes;
+  if (end <= 1440) return open.some((w) => w.startMinute <= startMinute && end <= w.endMinute);
+  if (!open.some((w) => w.startMinute <= startMinute && w.endMinute >= 1440)) return false;
+  const next = openWindows(av, staffMemberId, addCalendarDays(day, 1)) ?? [];
+  return next.some((w) => w.startMinute === 0 && end - 1440 <= w.endMinute);
 }
 
 /** One exception in words: "סגור כל היום", "סגור 12:00–14:00", "שעות מיוחדות 10:00–13:00", with its label. */
@@ -584,7 +633,7 @@ export function availabilityWarning(av: Availability, staffMemberId: number | nu
   const open = openWindows(av, staffMemberId, day);
   if (open === null || !(minutes > 0)) return null;
   const end = startMinute + minutes;
-  if (open.some((w) => w.startMinute <= startMinute && end <= w.endMinute)) return null;
+  if (openAcrossMidnight(av, staffMemberId, day, startMinute, minutes)) return null;
   const hits = closureBands(av, staffMemberId, day, names).filter((b) => b.start < end && startMinute < b.end);
   const range = (a: number, b: number) => `⁦${clock(a)}–${b >= 1440 ? "24:00" : clock(b)}⁩`;
   if (hits.length) return `השעה נופלת בזמן סגור: ${hits.map((b) => (b.start === 0 && b.end === 1440 ? `${b.label} (כל היום)` : `${b.label} ${range(b.start, b.end)}`)).join(" · ")}.`;

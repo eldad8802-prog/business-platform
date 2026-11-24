@@ -17,7 +17,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 
 import { AssignmentEditor, assignmentErrorText, saveAssignment } from "./assignment-editor";
-import { CalendarApiError, createService, forgetIntent, getPolicy, listServices, listStaff, savePolicy, updateService, type PolicyWire, type ServiceWire } from "./calendar-client";
+import { CalendarApiError, createService, forgetIntent, getPolicy, listServices, listStaff, savePolicy, updateService, type ImpactWire, type PolicyWire, type ServiceWire } from "./calendar-client";
+import { ImpactNote } from "./availability-editors";
 import {
   durationLabel,
   errorText,
@@ -215,6 +216,8 @@ function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; on
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [stamp, setStamp] = useState(0);
+  // G20: after a policy save, the service's live future appointments outside the hours (information only).
+  const [impact, setImpact] = useState<ImpactWire | null>(null);
   const axis = { kind: "service" as const, serviceId: service.id };
 
   useEffect(() => {
@@ -264,7 +267,8 @@ function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; on
       if (policy && Object.keys(policyChanges).length) {
         const intent = `policy:${service.id}:${policy.version ?? 0}:${JSON.stringify(policyChanges)}`;
         try {
-          await savePolicy(intent, service.id, { ...policyChanges, expectedVersion: policy.version });
+          const out = await savePolicy(intent, service.id, { ...policyChanges, expectedVersion: policy.version });
+          setImpact(out.impact ?? null);
         } catch (e) {
           forgetIntent(intent);
           throw e;
@@ -350,6 +354,7 @@ function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; on
         </>
       ) : null}
 
+      {!dirty ? <ImpactNote impact={impact} /> : null}
       {error ? <p className={s.fieldErr} role="alert">{error}</p> : null}
       <div className={s.saveBar}>
         <button type="button" className={`${s.btn} ${s.btnPri}`} disabled={busy || loading || !dirty} onClick={() => void save()}>{busy ? "שומר…" : "שמירת השינויים"}</button>

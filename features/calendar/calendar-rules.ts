@@ -72,13 +72,19 @@ export function nextRange(ranges: Array<{ startMinute: number; endMinute: number
   return { startMinute: last, endMinute: Math.min(1440, last + 120) };
 }
 
-/** The quarter-hour clock values a time picker offers (start: 00:00–23:45; end: 00:15–24:00), plus `keep` if off-grid. */
-export function timeOptions(kind: "start" | "end", keep?: number | null): number[] {
-  const out = Array.from({ length: 96 }, (_, i) => (kind === "start" ? i * 15 : (i + 1) * 15));
+/**
+ * The quarter-hour clock values a time picker offers (start: 00:00–23:45; end: 00:15–24:00), plus `keep` if off-grid.
+ * "overnight" (G17, a day's last range in the hours editor): the end may also run past midnight, up to 06:00 the next
+ * morning — saved as the next day's range from 00:00 (splitOvernight).
+ */
+export function timeOptions(kind: "start" | "end" | "overnight", keep?: number | null): number[] {
+  const count = kind === "overnight" ? 96 + 24 : 96;
+  const out = Array.from({ length: count }, (_, i) => (kind === "start" ? i * 15 : (i + 1) * 15));
   if (keep !== undefined && keep !== null && !out.includes(keep)) out.push(keep);
   return out.sort((a, b) => a - b);
 }
-export const timeOptionLabel = (m: number) => endClock(m);
+/** "17:00", "24:00", and past midnight "02:00 (למחרת)". */
+export const timeOptionLabel = (m: number) => (m > 1440 ? `${clock(m - 1440)} (למחרת)` : endClock(m));
 
 /** A length of time in the unit it reads best in: whole days, else whole hours, else minutes. */
 export type LeadUnit = "minutes" | "hours" | "days";

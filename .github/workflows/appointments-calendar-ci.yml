@@ -42,6 +42,8 @@ on:
       - ".nte/lab.sh"
       - ".appt/b-followups-battery.ts"
       - ".appt/open-all-*"
+      - ".appt/engine-correctness-battery.ts"
+      - "app/api/conversations/[[]id]/appointment/**"
       - "prisma/migrations/20261115100000_appointments_open_all/**"
       - "ops/evidence/appointments-open-all-*.sql"
       - "lib/services/feature-access/**"
@@ -86,7 +88,7 @@ jobs:
           npx tsx lib/navigation/app-title-metadata.test.ts
           npx tsx components/customers/appointment-status-labels.test.ts
       - name: Lint the calendar and what it touches
-        run: npx eslint features/calendar "app/(shell)/calendar" "app/(shell)/secretary" components/customers features/tools lib/navigation .appt/ui-seed.ts .appt/ui-e2e.mts .appt/open-all-battery.ts features/public-booking app/book .bkg/public-ui-e2e.mts
+        run: npx eslint features/calendar "app/(shell)/calendar" "app/(shell)/secretary" components/customers features/tools lib/navigation .appt/ui-seed.ts .appt/ui-e2e.mts .appt/open-all-battery.ts .appt/engine-correctness-battery.ts features/public-booking app/book .bkg/public-ui-e2e.mts
 
   e2e:
     name: calendar — the real app in a browser, desktop + phone (PG17 lab, appointments ON for one business)
@@ -169,6 +171,9 @@ jobs:
       # the calendar — permissions, isolation between businesses, validation, regression, and a 400-appointment read.
       - name: API battery — services PATCH, leads by customer, customer names (runtime role, real routes)
         run: npx tsx .appt/b-followups-battery.ts
+
+      - name: Engine correctness battery — midnight, special days per lane, legacy rows, hours impact, profile hours (runtime role, real routes)
+        run: npx tsx .appt/engine-correctness-battery.ts
 
       - run: npx playwright install --with-deps chromium
 

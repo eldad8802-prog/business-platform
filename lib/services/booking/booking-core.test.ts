@@ -143,6 +143,12 @@ check("…but only within them", !withinBusinessHours(span(MON, "13:30", 45), sp
 const split = { rules: [{ weekday: 0, startMinute: 9 * 60, endMinute: 12 * 60 }, { weekday: 0, startMinute: 13 * 60, endMinute: 17 * 60 }], exceptions: [] };
 check("split hours: a time across the gap is outside", !withinBusinessHours(span(SUN, "11:30", 45), split));
 check("a business with no hours at all offers nothing on the link", !withinBusinessHours(span(SUN, "10:00", 45), { rules: [], exceptions: [] }));
+// G17 (2026-11-24): a night stored as Sunday 20:00–24:00 + Monday 00:00–02:00 is one stretch on the link too.
+const night = { rules: [{ weekday: 0, startMinute: 20 * 60, endMinute: 1440 }, { weekday: 1, startMinute: 0, endMinute: 120 }], exceptions: [] as typeof sunday.exceptions };
+check("G17: 23:00 for two hours across midnight is inside the business's hours", withinBusinessHours(span(SUN, "23:00", 120), night));
+check("G17: …past 02:00 is not", !withinBusinessHours(span(SUN, "23:30", 180), night));
+check("G17: …nor when Monday morning is closed by an exception", !withinBusinessHours(span(SUN, "23:00", 120), { rules: night.rules, exceptions: [{ dayKey: MON, kind: "CLOSED", startMinute: null, endMinute: null }] }));
+check("G17: …nor without the morning rule", !withinBusinessHours(span(SUN, "23:00", 120), { rules: [night.rules[0]], exceptions: [] }));
 
 console.log("— D9: self-cancel");
 const start = new Date(t0.getTime() + 48 * H);

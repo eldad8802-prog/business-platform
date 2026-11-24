@@ -12,6 +12,16 @@
  *   - the owner may book outside working hours (their calendar, their call): the answer says so
  *     (OUTSIDE_AVAILABILITY) instead of refusing. Overlap is never allowed.
  * Free slots come from availability.core (pure) over the lane's rules, exceptions and busy time.
+ *
+ * Engine correctness (2026-11-24, owner-approved program, workstream B):
+ *   G17 a night across midnight (two rules: …–24:00 and 00:00–…) is one stretch for slots and for "inside the hours";
+ *   G21 a business special day bounds every lane, a staff member's own exceptions only their lane (laneWindowsForDay);
+ *   G22 a live row with a start and no end occupies its length or UNTIMED_DEFAULT_MINUTES (laneOccupants), rows
+ *       without a time or an end are listed apart (listUntimed) and get their time through the ordinary move;
+ *   G20 hoursImpact counts the live future appointments a change to the hours leaves outside them (never cancels);
+ *   G25 the autumn night's repeated wall-clock hour is never offered twice (availability.core isRepeatedWallClock).
+ * Buffers: an internal meeting or a block carries zero buffers (bufferPolicy is for customer appointments with a
+ * service) — the approved policy, unchanged.
  */
 import type { Appointment, AppointmentKind, AppointmentLocationKind, Prisma } from "@prisma/client";
 
@@ -29,16 +39,22 @@ import { appendAppointmentEvent, instantToken } from "./appointment-journal";
 import { ownerWrite, type OwnerRequest, type WriteContext } from "./appointment-request";
 import { hasPendingRequest, settleRequestForStatus } from "@/lib/services/booking/booking-settle";
 import {
+  appointmentsOutside,
   computeSlots,
+  effectiveEnd,
   insideAvailability,
   isDayKey,
+  laneWindowsForDay,
   MAX_SLOT_RANGE_DAYS,
   occupiedRange,
+  openStretches,
   overlaps,
-  windowsAsIntervals,
-  windowsForDay,
+  UNTIMED_DEFAULT_MINUTES,
   type DayException,
+  type HoursImpact,
   type Interval,
+  type MinuteWindow,
+  type ScopeHours,
   type Slot,
   type WeeklyRule,
 } from "./availability.core";
@@ -153,6 +169,8 @@ async function bufferPolicy(tx: Tx, businessId: number, businessServiceId: numbe
 }
 
 type Occupant = { id: number; startsAt: Date; endsAt: Date; bufferBeforeMinutes: number; bufferAfterMinutes: number };
+/** The longest an appointment may last — how far back a row's start may lie and still reach into a range. */
+const LONGEST = MAX_DURATION_MINUTES * MINUTE;
 
 /**
  * Who already occupies time around `range` in a lane. The business's own lane (no staff member) and every staff lane
@@ -164,6 +182,9 @@ type Occupant = { id: number; startsAt: Date; endsAt: Date; bufferBeforeMinutes:
  * Two different staff members never see each other: their lanes run in parallel.
  * The database's Appointment_no_overlap guards each lane on its own; across lanes this check is the guard, sound
  * because every timed write takes the per-business lock first (ownerWrite, the public submit).
+ * G22: a live row with a start but no end (from before the calendar, or from a conversation) occupies its own length
+ * or UNTIMED_DEFAULT_MINUTES (effectiveEnd) — it is outside the database constraint, so this check is its only
+ * guard, and it holds for the same reason (the lock). A row without a start occupies nothing.
  */
 export async function laneOccupants(tx: Tx, businessId: number, staffMemberId: number | null, range: Interval, excludeId?: number): Promise<Occupant[]> {
   const pad = 241 * MINUTE; // the widest buffer (240) and one minute
@@ -171,14 +192,22 @@ export async function laneOccupants(tx: Tx, businessId: number, staffMemberId: n
     where: {
       businessId,
       status: { in: ACTIVE },
-      endsAt: { not: null, gt: new Date(range.start.getTime() - pad) },
       startsAt: { lt: new Date(range.end.getTime() + pad) },
+      AND: [
+        { OR: [
+          { endsAt: { not: null, gt: new Date(range.start.getTime() - pad) } },
+          { endsAt: null, startsAt: { not: null, gt: new Date(range.start.getTime() - pad - LONGEST) } },
+        ] },
+        ...(staffMemberId === null ? [] : [{ OR: [{ staffMemberId }, { staffMemberId: null }] }]),
+      ],
       ...(excludeId ? { id: { not: excludeId } } : {}),
-      ...(staffMemberId === null ? {} : { OR: [{ staffMemberId }, { staffMemberId: null }] }),
     },
-    select: { id: true, startsAt: true, endsAt: true, bufferBeforeMinutes: true, bufferAfterMinutes: true },
+    select: { id: true, startsAt: true, endsAt: true, durationMinutes: true, bufferBeforeMinutes: true, bufferAfterMinutes: true },
   });
-  return rows.map((r) => ({ id: r.id, startsAt: r.startsAt as Date, endsAt: r.endsAt as Date, bufferBeforeMinutes: r.bufferBeforeMinutes, bufferAfterMinutes: r.bufferAfterMinutes }));
+  return rows.map((r) => ({
+    id: r.id, startsAt: r.startsAt as Date, endsAt: effectiveEnd(r) as Date,
+    bufferBeforeMinutes: r.bufferBeforeMinutes, bufferAfterMinutes: r.bufferAfterMinutes,
+  }));
 }
 
 async function assertFree(tx: Tx, businessId: number, staffMemberId: number | null, occupied: Interval, excludeId?: number): Promise<void> {
@@ -189,36 +218,134 @@ async function assertFree(tx: Tx, businessId: number, staffMemberId: number | nu
   }
 }
 
-/** The lane's rules and exceptions (a staff member without rules of their own follows the business's hours). */
-export async function laneAvailability(tx: Tx, businessId: number, staffMemberId: number | null, fromDay: JerusalemDayKey, toDay: JerusalemDayKey) {
+const toRule = (r: { weekday: number; startMinute: number; endMinute: number; validFrom: Date | null; validUntil: Date | null }): WeeklyRule => ({
+  weekday: r.weekday, startMinute: r.startMinute, endMinute: r.endMinute,
+  validFrom: r.validFrom ? r.validFrom.toISOString().slice(0, 10) : null,
+  validUntil: r.validUntil ? r.validUntil.toISOString().slice(0, 10) : null,
+});
+const toException = (e: { dayKey: Date; kind: "CLOSED" | "OPEN_HOURS"; startMinute: number | null; endMinute: number | null }): DayException => ({
+  dayKey: e.dayKey.toISOString().slice(0, 10), kind: e.kind, startMinute: e.startMinute, endMinute: e.endMinute,
+});
+
+export type LaneAvailability = {
+  /** The weekly rules the lane runs on (its own, or the business's when it has none) — kept for the callers' checks. */
+  rules: WeeklyRule[];
+  /** Every exception that touches the lane (the business's and its own). */
+  exceptions: DayException[];
+  hasRules: boolean;
+  business: ScopeHours;
+  staff: ScopeHours | null;
+  /** The lane's open windows of one day (G21: laneWindowsForDay). */
+  windowsOf: (day: JerusalemDayKey) => MinuteWindow[];
+};
+
+/**
+ * The lane's hours. A staff member without rules of their own follows the business's hours; the business's special
+ * days bound every lane (G21). Exceptions are read one day beyond each end, so a night across midnight (G17) is seen
+ * whole. `bound: "BUSINESS_HOURS"` is the public link's rule (staff hours only narrow the business's weekly hours).
+ */
+export async function laneAvailability(
+  tx: Tx, businessId: number, staffMemberId: number | null, fromDay: JerusalemDayKey, toDay: JerusalemDayKey,
+  bound: "BUSINESS_SPECIAL" | "BUSINESS_HOURS" = "BUSINESS_SPECIAL",
+): Promise<LaneAvailability> {
   const allRules = await tx.availabilityRule.findMany({
     where: { businessId, removedAt: null, OR: staffMemberId === null ? [{ staffMemberId: null }] : [{ staffMemberId: null }, { staffMemberId }] },
     select: { staffMemberId: true, weekday: true, startMinute: true, endMinute: true, validFrom: true, validUntil: true },
   });
-  const own = staffMemberId === null ? [] : allRules.filter((r) => r.staffMemberId === staffMemberId);
-  const chosen = own.length > 0 ? own : allRules.filter((r) => r.staffMemberId === null);
-  const rules: WeeklyRule[] = chosen.map((r) => ({
-    weekday: r.weekday, startMinute: r.startMinute, endMinute: r.endMinute,
-    validFrom: r.validFrom ? r.validFrom.toISOString().slice(0, 10) : null,
-    validUntil: r.validUntil ? r.validUntil.toISOString().slice(0, 10) : null,
-  }));
   const ex = await tx.availabilityException.findMany({
     where: {
       businessId, removedAt: null,
-      dayKey: { gte: new Date(`${fromDay}T00:00:00.000Z`), lte: new Date(`${toDay}T00:00:00.000Z`) },
+      dayKey: { gte: new Date(`${addCalendarDays(fromDay, -1)}T00:00:00.000Z`), lte: new Date(`${addCalendarDays(toDay, 1)}T00:00:00.000Z`) },
       OR: staffMemberId === null ? [{ staffMemberId: null }] : [{ staffMemberId: null }, { staffMemberId }],
     },
-    select: { dayKey: true, kind: true, startMinute: true, endMinute: true },
+    select: { staffMemberId: true, dayKey: true, kind: true, startMinute: true, endMinute: true },
   });
-  const exceptions: DayException[] = ex.map((e) => ({ dayKey: e.dayKey.toISOString().slice(0, 10), kind: e.kind, startMinute: e.startMinute, endMinute: e.endMinute }));
-  return { rules, exceptions, hasRules: allRules.length > 0 };
+  const business: ScopeHours = {
+    rules: allRules.filter((r) => r.staffMemberId === null).map(toRule),
+    exceptions: ex.filter((e) => e.staffMemberId === null).map(toException),
+  };
+  const staff: ScopeHours | null = staffMemberId === null ? null : {
+    rules: allRules.filter((r) => r.staffMemberId === staffMemberId).map(toRule),
+    exceptions: ex.filter((e) => e.staffMemberId === staffMemberId).map(toException),
+  };
+  const rules = staff && staff.rules.length > 0 ? staff.rules : business.rules;
+  // The answer covers [fromDay, toDay] as asked; the extra day each side serves only the midnight join.
+  const inRange = (e: DayException) => e.dayKey >= fromDay && e.dayKey <= toDay;
+  const exceptions = [...business.exceptions, ...(staff?.exceptions ?? [])].filter(inRange);
+  return {
+    rules, exceptions, hasRules: allRules.length > 0, business, staff,
+    windowsOf: (day) => laneWindowsForDay(day, business, staff, bound),
+  };
 }
 
 async function outsideAvailability(tx: Tx, businessId: number, staffMemberId: number | null, startsAt: Date, endsAt: Date): Promise<boolean> {
   const day = jerusalemDayKey(startsAt);
-  const { rules, exceptions, hasRules } = await laneAvailability(tx, businessId, staffMemberId, day, day);
-  if (!hasRules && exceptions.length === 0) return false; // no hours defined yet: nothing to be outside of
-  return !insideAvailability(startsAt, endsAt, windowsAsIntervals(day, windowsForDay(day, rules, exceptions)));
+  const lastDay = jerusalemDayKey(new Date(endsAt.getTime() - 1));
+  const lane = await laneAvailability(tx, businessId, staffMemberId, day, lastDay < day ? day : lastDay);
+  if (!lane.hasRules && lane.exceptions.length === 0) return false; // no hours defined yet: nothing to be outside of
+  return !insideAvailability(startsAt, endsAt, openStretches(day, lastDay < day ? day : lastDay, lane.windowsOf));
+}
+
+// ── G20: what a change to the hours leaves outside them ─────────────────────────────────────────
+
+/** The furthest ahead the impact count looks. */
+const IMPACT_DAYS = 366;
+
+/**
+ * After the owner saves hours, a special day or a service policy: the live future appointments (customer appointments
+ * and internal meetings — blocks are the owner's own closures) that no longer sit inside their lane's open time.
+ * Information only: nothing is cancelled, moved or notified. Runs in the caller's transaction, after its write.
+ *   scope { staffMemberId }     — that staff member's appointments (null = every lane: the business's hours bound all)
+ *   scope { businessServiceId } — that service's appointments
+ */
+export async function hoursImpact(
+  tx: Tx, businessId: number, scope: { staffMemberId: number | null } | { businessServiceId: number }, now: Date = new Date(),
+): Promise<HoursImpact> {
+  const until = new Date(now.getTime() + IMPACT_DAYS * 24 * 60 * MINUTE);
+  const rows = await tx.appointment.findMany({
+    where: {
+      businessId, status: { in: ACTIVE }, kind: { not: "BLOCK" },
+      startsAt: { gte: now, lt: until },
+      ...("businessServiceId" in scope ? { businessServiceId: scope.businessServiceId } : scope.staffMemberId !== null ? { staffMemberId: scope.staffMemberId } : {}),
+    },
+    orderBy: [{ startsAt: "asc" }, { id: "asc" }],
+    take: 2000,
+    select: { id: true, staffMemberId: true, startsAt: true, endsAt: true, durationMinutes: true },
+  });
+  if (rows.length === 0) return { count: 0, days: [], firstIds: [] };
+  const fromDay = jerusalemDayKey(now);
+  const toDay = jerusalemDayKey(until);
+  const allRules = await tx.availabilityRule.findMany({
+    where: { businessId, removedAt: null },
+    select: { staffMemberId: true, weekday: true, startMinute: true, endMinute: true, validFrom: true, validUntil: true },
+  });
+  const ex = await tx.availabilityException.findMany({
+    where: { businessId, removedAt: null, dayKey: { gte: new Date(`${addCalendarDays(fromDay, -1)}T00:00:00.000Z`), lte: new Date(`${addCalendarDays(toDay, 1)}T00:00:00.000Z`) } },
+    select: { staffMemberId: true, dayKey: true, kind: true, startMinute: true, endMinute: true },
+  });
+  const scopeOf = (id: number | null): ScopeHours => ({
+    rules: allRules.filter((r) => r.staffMemberId === id).map(toRule),
+    exceptions: ex.filter((e) => e.staffMemberId === id).map(toException),
+  });
+  const business = scopeOf(null);
+  const staffCache = new Map<number, ScopeHours>();
+  const staffOf = (id: number) => { let s = staffCache.get(id); if (!s) { s = scopeOf(id); staffCache.set(id, s); } return s; };
+  const placed = rows.map((r) => ({ id: r.id, staffMemberId: r.staffMemberId, startsAt: r.startsAt as Date, endsAt: effectiveEnd(r) as Date }));
+  return appointmentsOutside(
+    placed,
+    (staffMemberId, day) => laneWindowsForDay(day, business, staffMemberId === null ? null : staffOf(staffMemberId)),
+    // The owner's rule (outsideAvailability): with no hours and no exceptions known, nothing is "outside".
+    (staffMemberId) => {
+      const s = staffMemberId === null ? null : staffOf(staffMemberId);
+      return business.rules.length + business.exceptions.length + (s ? s.rules.length + s.exceptions.length : 0) > 0;
+    },
+  );
+}
+
+/** G20 for the routes: the impact as the owner sees it right after their save (a read of its own, after the write). */
+export async function readHoursImpact(principal: AppointmentPrincipal, scope: { staffMemberId: number | null } | { businessServiceId: number }): Promise<HoursImpact> {
+  authorizeAppointmentAction(principal, "availability.read");
+  return tenantTx(principal.businessId, (tx) => hoursImpact(tx, principal.businessId, scope));
 }
 
 // ── Create ──────────────────────────────────────────────────────────────────────────────────────
@@ -366,6 +493,28 @@ export async function listAppointments(principal: AppointmentPrincipal, input: L
   });
 }
 
+/**
+ * G22: the live appointments the calendar cannot place — no start at all, or a start without an end (rows from
+ * before the calendar, or converted from a conversation) — whenever they are, so the owner sees them ("ללא שעה")
+ * and gives them a time through the ordinary move (under the lock). Newest first, at most 100.
+ */
+export async function listUntimed(principal: AppointmentPrincipal): Promise<ListedAppointment[]> {
+  authorizeAppointmentAction(principal, "appointment.read");
+  return tenantTx(principal.businessId, async (tx) => {
+    const rows = await tx.appointment.findMany({
+      where: { businessId: principal.businessId, status: { in: ACTIVE }, OR: [{ startsAt: null }, { endsAt: null }] },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 100,
+    });
+    const ids = [...new Set(rows.map((r) => r.customerId).filter((id): id is number => id !== null))];
+    const customers = ids.length
+      ? await tx.customer.findMany({ where: { businessId: principal.businessId, id: { in: ids } }, select: { id: true, name: true } })
+      : [];
+    const names = new Map(customers.map((c) => [c.id, c.name]));
+    return rows.map((r) => ({ ...r, customerName: r.customerId !== null ? names.get(r.customerId) ?? null : null, booking: null }));
+  });
+}
+
 export async function getAppointment(principal: AppointmentPrincipal, id: number) {
   authorizeAppointmentAction(principal, "appointment.read");
   return tenantTx(principal.businessId, async (tx) => {
@@ -410,7 +559,15 @@ export async function moveAppointment(principal: AppointmentPrincipal, req: Owne
     if (current.businessServiceId !== null && staffMemberId !== current.staffMemberId) {
       await staffServiceDuration(tx, businessId, current.businessServiceId, staffMemberId);
     }
-    const keepMinutes = current.durationMinutes ?? (current.endsAt && current.startsAt ? Math.round((current.endsAt.getTime() - current.startsAt.getTime()) / MINUTE) : null);
+    let keepMinutes = current.durationMinutes ?? (current.endsAt && current.startsAt ? Math.round((current.endsAt.getTime() - current.startsAt.getTime()) / MINUTE) : null);
+    // G22: a row without a time or without an end (from before the calendar, or from a conversation) is scheduled
+    // here like any other — it gets an end: the length asked for, else the service's, else the default.
+    if (keepMinutes === null && durationIn === null && !endsAtIn) {
+      const svc = current.businessServiceId !== null
+        ? await tx.businessService.findFirst({ where: { id: current.businessServiceId, businessId }, select: { durationMinutes: true } })
+        : null;
+      keepMinutes = svc?.durationMinutes ?? UNTIMED_DEFAULT_MINUTES;
+    }
     const span = resolveSpan(startsAt, endsAtIn, (durationIn as number | null) ?? (endsAtIn ? null : keepMinutes));
     await assertFree(tx, businessId, staffMemberId, occupiedRange(startsAt, span.endsAt, current.bufferBeforeMinutes, current.bufferAfterMinutes), current.id);
     const warnings = current.kind !== "BLOCK" && (await outsideAvailability(tx, businessId, staffMemberId, startsAt, span.endsAt)) ? ["OUTSIDE_AVAILABILITY"] : [];
@@ -553,7 +710,7 @@ export async function findSlots(principal: AppointmentPrincipal, input: FindSlot
     const policy = service
       ? await tx.serviceBookingPolicy.findFirst({ where: { businessId, businessServiceId: service.id } })
       : null;
-    const { rules, exceptions } = await laneAvailability(tx, businessId, staffMemberId, fromDay, toDay);
+    const lane = await laneAvailability(tx, businessId, staffMemberId, fromDay, toDay);
     const range: Interval = {
       start: new Date(`${addCalendarDays(fromDay, -1)}T00:00:00.000Z`),
       end: new Date(`${addCalendarDays(toDay, 2)}T00:00:00.000Z`),
@@ -564,7 +721,7 @@ export async function findSlots(principal: AppointmentPrincipal, input: FindSlot
       fromDay, toDay, durationMinutes: duration,
       bufferBeforeMinutes: policy?.bufferBeforeMinutes ?? 0, bufferAfterMinutes: policy?.bufferAfterMinutes ?? 0,
       slotStepMinutes: policy?.slotStepMinutes ?? 15, minLeadMinutes: policy?.minLeadMinutes ?? 0,
-      maxAdvanceDays: policy?.maxAdvanceDays ?? 365, now, rules, exceptions, busy,
+      maxAdvanceDays: policy?.maxAdvanceDays ?? 365, now, rules: lane.rules, exceptions: lane.exceptions, windowsOf: lane.windowsOf, busy,
     });
     return { slots, durationMinutes: duration };
   });

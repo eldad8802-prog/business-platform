@@ -12,12 +12,22 @@
  *   SpecialDays   a closed day, a part-day closure or different hours on one date (the API holds one date per entry),
  *                 listed from today on; added and removed at once.
  * A read that fails says so — it is never shown as "closed every day" or "no special days".
+ *
+ * 2026-11-24 (engine correctness):
+ *   G17  a day's LAST range may end after midnight (up to 06:00, "02:00 (למחרת)"); it is saved as two rules — the
+ *        evening until 24:00 and the next day from 00:00 — which the engine joins into one night. A morning part that
+ *        meets the next day's own hours is refused in Hebrew; nothing is ever dropped.
+ *   G20  after a save, how many live future appointments now fall outside the hours (with a link to the first day);
+ *        nothing is cancelled.
+ *   G19  after saving the BUSINESS's hours: "לעדכן גם את שעות הפתיחה בפרופיל העסק" — one tap writes them, as text, into
+ *        the profile's opening hours (what the bot reads). Never automatic.
  */
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { addCalendarDays } from "@/lib/utils/jerusalem-day";
 
-import { addException, CalendarApiError, forgetIntent, getAvailability, removeException, replaceWeeklyRules, type ExceptionWire, type RuleWire } from "./calendar-client";
+import { addException, CalendarApiError, forgetIntent, getAvailability, removeException, replaceWeeklyRules, syncProfileHours, type ExceptionWire, type ImpactWire, type RuleWire } from "./calendar-client";
 import {
   dayTitle,
   errorText,
@@ -25,6 +35,7 @@ import {
   LIMITS,
   textProblem,
   todayKey,
+  splitOvernight,
   windowsByWeekday,
   windowsProblem,
 } from "./calendar-model";
@@ -45,7 +56,25 @@ const weekOf = (rules: RuleWire[]): Week => windowsByWeekday(rules.map((r) => ({
   .map((d) => d.map((w) => ({ startMinute: w.startMinute, endMinute: w.endMinute })));
 const sameWeek = (a: Week, b: Week) => JSON.stringify(a) === JSON.stringify(b);
 
-export function TimeSelect({ value, kind, onChange, label, id }: { value: number; kind: "start" | "end"; onChange: (m: number) => void; label: string; id?: string }) {
+/**
+ * G20: after a save — the live future appointments that now fall outside the hours, with a link to the first such
+ * day. Information only: they stay as they are until the owner moves or cancels them.
+ */
+export function ImpactNote({ impact }: { impact: ImpactWire | null | undefined }) {
+  if (!impact || impact.count === 0) return null;
+  const first = impact.days[0];
+  return (
+    <div className={`${s.banner} ${s.bannerInfo}`} role="status">
+      <span className={s.bannerText}>
+        <strong>{impact.count === 1 ? "תור עתידי אחד נמצא עכשיו מחוץ לשעות הפעילות." : `${impact.count} תורים עתידיים נמצאים עכשיו מחוץ לשעות הפעילות.`}</strong>
+        <span>הם נשארים ביומן כמו שהם — שום דבר לא בוטל. כדאי לעבור עליהם ולהזיז או לבטל לפי הצורך.</span>
+      </span>
+      {first ? <Link href={`/calendar?view=day&day=${first.dayKey}`} prefetch={false} className={`${s.btn} ${s.btnSm} ${s.btnSoft}`}>לראות ביומן ({dayTitle(first.dayKey)})</Link> : null}
+    </div>
+  );
+}
+
+export function TimeSelect({ value, kind, onChange, label, id }: { value: number; kind: "start" | "end" | "overnight"; onChange: (m: number) => void; label: string; id?: string }) {
   return (
     <select id={id} className={s.timeSel} aria-label={label} value={value} onChange={(e) => onChange(Number(e.target.value))}>
       {timeOptions(kind, value).map((m) => <option key={m} value={m}>{timeOptionLabel(m)}</option>)}
@@ -80,6 +109,9 @@ export function HoursEditor({ staffMemberId, onSaved, onDirty }: { staffMemberId
   const [busy, setBusy] = useState(false);
   const [copyFrom, setCopyFrom] = useState<number | null>(null);
   const [copyTo, setCopyTo] = useState<Set<number>>(new Set());
+  const [impact, setImpact] = useState<ImpactWire | null>(null);
+  // G19: offered after a save of the business's hours; null = not offered.
+  const [profileOffer, setProfileOffer] = useState<"offer" | "busy" | "done" | "none" | "error" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,17 +154,24 @@ export function HoursEditor({ staffMemberId, onSaved, onDirty }: { staffMemberId
 
   const save = async (next: Week = week) => {
     const errs: Record<number, string> = {};
-    next.forEach((ranges, d) => { const p = windowsProblem(ranges); if (p) errs[d] = p; });
+    next.forEach((ranges, d) => { const p = windowsProblem(ranges, true); if (p) errs[d] = p; });
+    // G17: a night past midnight is stored as the evening + the next morning; a clash with that morning is said.
+    const split = Object.keys(errs).length ? null : splitOvernight(next, DAY_NAMES);
+    if (split && !split.ok) errs[split.day] = split.error;
     setDayErrors(errs);
-    if (Object.keys(errs).length) { setError("יש ימים עם טווח שעות לא תקין — מסומנים למעלה."); return; }
-    const rules: RuleWire[] = next.flatMap((ranges, weekday) => ranges.map((w) => ({ weekday, startMinute: w.startMinute, endMinute: w.endMinute })));
+    if (Object.keys(errs).length || !split || !split.ok) { setError("יש ימים עם טווח שעות לא תקין — מסומנים למעלה."); return; }
+    const rules: RuleWire[] = split.rules;
+    // What the server will hold (the night split in two), so "saved" compares with what a reload shows.
+    const stored = weekOf(rules);
     const intent = `hours:${staffMemberId ?? "biz"}:${JSON.stringify(rules)}`;
     setBusy(true);
     setError(null);
     try {
-      await replaceWeeklyRules(intent, staffMemberId, rules);
-      setSaved(next);
-      setWeek(next);
+      const out = await replaceWeeklyRules(intent, staffMemberId, rules);
+      setSaved(stored);
+      setWeek(stored);
+      setImpact(out.impact ?? null);
+      setProfileOffer(staffMemberId === null && rules.length > 0 ? "offer" : null);
       if (staffMemberId !== null && rules.length === 0) {
         const business = await getAvailability(null).catch(() => null);
         if (business) setInherited(weekOf(business.rules));
@@ -164,7 +203,7 @@ export function HoursEditor({ staffMemberId, onSaved, onDirty }: { staffMemberId
                   <span className={s.rangeKind}>{i === 0 ? "" : "אחרי הפסקה"}</span>
                   <TimeSelect kind="start" value={r.startMinute} label={`יום ${DAY_NAMES[d]}, טווח ${i + 1}, משעה`} onChange={(m) => setDay(d, ranges.map((x, k) => (k === i ? { ...x, startMinute: m } : x)))} />
                   <span aria-hidden="true">–</span>
-                  <TimeSelect kind="end" value={r.endMinute} label={`יום ${DAY_NAMES[d]}, טווח ${i + 1}, עד שעה`} onChange={(m) => setDay(d, ranges.map((x, k) => (k === i ? { ...x, endMinute: m } : x)))} />
+                  <TimeSelect kind={i === ranges.length - 1 ? "overnight" : "end"} value={r.endMinute} label={`יום ${DAY_NAMES[d]}, טווח ${i + 1}, עד שעה`} onChange={(m) => setDay(d, ranges.map((x, k) => (k === i ? { ...x, endMinute: m } : x)))} />
                   <button type="button" className={s.iconBtn} aria-label={`הסרת הטווח ${i + 1} ביום ${DAY_NAMES[d]}`} onClick={() => setDay(d, ranges.filter((_, k) => k !== i))}><IconX size={18} /></button>
                 </div>
               ))}
@@ -197,7 +236,28 @@ export function HoursEditor({ staffMemberId, onSaved, onDirty }: { staffMemberId
           </div>
         ))}
       </div>
+      <p className={s.hint}>פתוח אחרי חצות? בטווח האחרון של היום בוחרים שעת סיום „(למחרת)” — היא נשמרת כהמשך ביום שאחרי, מ־00:00.</p>
       {error ? <p className={s.fieldErr} role="alert">{error}</p> : null}
+      {!dirty ? <ImpactNote impact={impact} /> : null}
+      {!dirty && profileOffer ? (
+        <div className={`${s.banner} ${s.bannerInfo}`} role="status">
+          <span className={s.bannerText}>
+            {profileOffer === "done" ? <strong>שעות הפתיחה בפרופיל העסק עודכנו.</strong>
+              : profileOffer === "none" ? <strong>לא נמצא פרופיל עסק לעדכן — אפשר להשלים אותו בהגדרות העסק.</strong>
+              : profileOffer === "error" ? <strong>לא הצלחתי לעדכן את הפרופיל. אפשר לנסות שוב.</strong>
+              : <><strong>לעדכן גם את שעות הפתיחה בפרופיל העסק?</strong><span>כך מה שהעסק עונה ללקוחות על שעות הפתיחה יתאים ליומן. אם אישרת קודם את שעות הפתיחה לפרסום, יהיה צריך לאשר אותן שוב.</span></>}
+          </span>
+          {profileOffer === "offer" || profileOffer === "busy" || profileOffer === "error" ? (
+            <span className={s.confirmRow}>
+              <button type="button" className={`${s.btn} ${s.btnSm} ${s.btnSoft}`} disabled={profileOffer === "busy"} onClick={async () => {
+                setProfileOffer("busy");
+                try { const r = await syncProfileHours(); setProfileOffer(r.updated ? "done" : "none"); } catch { setProfileOffer("error"); }
+              }}>{profileOffer === "busy" ? "מעדכן…" : "לעדכן גם את שעות הפתיחה בפרופיל העסק"}</button>
+              <button type="button" className={`${s.btn} ${s.btnSm}`} disabled={profileOffer === "busy"} onClick={() => setProfileOffer(null)}>לא עכשיו</button>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       <div className={s.saveBar}>
         <button type="button" className={`${s.btn} ${s.btnPri}`} disabled={busy || !dirty} onClick={() => void save()}>{busy ? "שומר…" : "שמירת השעות"}</button>
         {dirty ? <button type="button" className={s.btn} disabled={busy} onClick={() => { setWeek(saved); setDayErrors({}); setError(null); if (staffMemberId !== null && savedEmpty) setEditing(false); }}>ביטול השינויים</button> : <span className={s.hint}>אין שינויים שלא נשמרו.</span>}
@@ -224,6 +284,7 @@ export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: numbe
   const [confirming, setConfirming] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [impact, setImpact] = useState<ImpactWire | null>(null);
   const scope = staffMemberId ?? "biz";
 
   useEffect(() => {
@@ -246,7 +307,8 @@ export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: numbe
     setBusy(true);
     setError(null);
     try {
-      await addException(intent, body);
+      const out = await addException(intent, body);
+      setImpact(out.impact ?? null);
       setLabel("");
       setKind("ALL");
       setDay(addCalendarDays(today, 1));
@@ -263,6 +325,7 @@ export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: numbe
   return (
     <div className={s.sheet}>
       {loadError ? <LoadError text={`לא הצלחתי לטעון את הימים המיוחדים. ${loadError}`} onRetry={() => setStamp((x) => x + 1)} /> : null}
+      <ImpactNote impact={impact} />
       {!loadError && list === null ? <Loading label="טוען ימים מיוחדים" rows={2} /> : null}
       {list?.length ? (
         <ul className={s.list} aria-label="ימים מיוחדים קרובים">
@@ -278,7 +341,7 @@ export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: numbe
                   <button type="button" className={`${s.btn} ${s.btnDangerFill} ${s.btnSm}`} disabled={busy} onClick={async () => {
                     const intent = `exception:remove:${x.id}`;
                     setBusy(true);
-                    try { await removeException(intent, x.id); setConfirming(null); setStamp((v) => v + 1); onChanged("היום המיוחד הוסר"); } catch (e) { forgetIntent(intent); setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK")); } finally { setBusy(false); }
+                    try { const out = await removeException(intent, x.id); setImpact(out.impact ?? null); setConfirming(null); setStamp((v) => v + 1); onChanged("היום המיוחד הוסר"); } catch (e) { forgetIntent(intent); setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK")); } finally { setBusy(false); }
                   }}>כן, להסיר</button>
                   <button type="button" className={`${s.btn} ${s.btnSm}`} disabled={busy} onClick={() => setConfirming(null)}>חזרה</button>
                 </span>

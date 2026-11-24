@@ -23,6 +23,9 @@ export async function POST(
 ) {
   const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.INBOX);
   if (featureDenied) return featureDenied;
+  // G22: an appointment is created here, so the calendar feature must be on too (the Inbox gate stays).
+  const appointmentsDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.APPOINTMENTS);
+  if (appointmentsDenied) return appointmentsDenied;
   try {
     const user = await getCurrentUser(req);
     if (!user) {
