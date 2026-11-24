@@ -1,0 +1,113 @@
+# #1264 rename proof (CI only; changes nothing). Same four builds/servers as i18n-en-chunk-proof.yml (copied verbatim
+# below); the last step runs .sdui/rename-proof.mts, which proves the ONLY MAIN↔BRANCH difference is the module rename.
+# Runs on push to the sd-ui/rename-proof branch only (no PR). Synthetic CI-only credentials; ZERO secrets; ZERO Production.
+
+name: SD rename proof — MAIN vs BRANCH (PG17)
+
+on:
+  push:
+    branches: [sd-ui/rename-proof]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The TypeScript check (tsc / next build) needs more than Node's default ~4 GB heap on this codebase: main alone sits at
+  # the limit (clean build, Node 22). The runner has 16 GB. Measured 2026-11-14 on CI preview #1160.
+  NODE_OPTIONS: --max-old-space-size=6144
+
+jobs:
+  proof:
+    name: SD rename proof — MAIN vs BRANCH (PG17)
+    runs-on: ubuntu-24.04 # pinned: Playwright cannot install Chromium on ubuntu-26.04 (ubuntu-latest) yet
+    timeout-minutes: 120
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fx_owner
+          POSTGRES_PASSWORD: fx_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_fx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fx_owner -d dubiz_fx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      DIRECT_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      AUTH_DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      TEST_DATABASE_URL: postgresql://fx_owner:fx_ci_synthetic_owner_pw@localhost:5432/dubiz_fx
+      AUTH_TOKEN_SECRET: fx_ci_auth_secret_synthetic_at_least_32_chars
+      CRON_SECRET: fx_ci_cron_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Report directory
+        shell: bash
+        run: |
+          echo "PERF_OUT=$RUNNER_TEMP/perf" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/perf"
+
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+
+      # All builds BEFORE the Chromium install (see i18n-multicurrency-ci.yml: next/font breaks after it).
+      - name: Build BRANCH (flag ON)
+        shell: bash
+        env:
+          DUBIZ_I18N_ENABLED: "true"
+        run: npm run build > "$PERF_OUT/build-branch-on.log" 2>&1 || { tail -n 80 "$PERF_OUT/build-branch-on.log"; exit 1; }
+
+      - name: Build BRANCH (flag OFF), MAIN (flag OFF), MAIN (flag ON) in worktrees
+        shell: bash
+        run: |
+          git worktree add --detach ../branch-off HEAD
+          git worktree add --detach ../main-off origin/main
+          git worktree add --detach ../main-on origin/main
+          git -C ../main-off log --oneline -1 | tee "$PERF_OUT/main-commit.txt"
+          git log --oneline -1 | tee "$PERF_OUT/branch-commit.txt"
+          (cd ../branch-off && npm ci --no-audit --no-fund >/dev/null && npm run build > "$PERF_OUT/build-branch-off.log" 2>&1) || { tail -n 80 "$PERF_OUT/build-branch-off.log"; exit 1; }
+          (cd ../main-off && npm ci --no-audit --no-fund >/dev/null && npm run build > "$PERF_OUT/build-main-off.log" 2>&1) || { tail -n 80 "$PERF_OUT/build-main-off.log"; exit 1; }
+          (cd ../main-on && npm ci --no-audit --no-fund >/dev/null && DUBIZ_I18N_ENABLED=true npm run build > "$PERF_OUT/build-main-on.log" 2>&1) || { tail -n 80 "$PERF_OUT/build-main-on.log"; exit 1; }
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start the four servers
+        shell: bash
+        run: |
+          (DUBIZ_I18N_ENABLED=true nohup npx next start -p 3611 > "$PERF_OUT/server-branch-on.log" 2>&1 &)
+          (cd ../branch-off && nohup npx next start -p 3612 > "$PERF_OUT/server-branch-off.log" 2>&1 &)
+          (cd ../main-off && nohup npx next start -p 3621 > "$PERF_OUT/server-main-off.log" 2>&1 &)
+          (cd ../main-on && DUBIZ_I18N_ENABLED=true nohup npx next start -p 3622 > "$PERF_OUT/server-main-on.log" 2>&1 &)
+          for p in 3611 3612 3621 3622; do for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:$p/login && break; sleep 2; done; done
+          ss -Htlnp | grep -E ':36(11|12|21|22)' || true
+
+      - name: Proof — bytes, chunk + cache, identity, timings
+        run: npx tsx .sdui/rename-proof.mts
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: '[ -f "$PERF_OUT/rename-proof.md" ] && cat "$PERF_OUT/rename-proof.md" >> "$GITHUB_STEP_SUMMARY" || true'
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sd-rename-proof
+          path: ${{ runner.temp }}/perf
+          if-no-files-found: ignore
