@@ -626,6 +626,76 @@ async function main() {
       await cn.close();
     }
 
+    // ── Israel time whatever the device's zone (owner 2026-11-24): a phone set to New York still reads Israel time ──
+    {
+      const cz = await browser.newContext({ baseURL: BASE, locale: "he-IL", timezoneId: "America/New_York", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+      await cz.addCookies([{ name: "dz_locale", value: "he", url: BASE }]);
+      await cz.addInitScript((t) => { try { localStorage.setItem("token", t); } catch { /* opaque */ } }, seed.tokenA);
+      const pz = await cz.newPage();
+      current = pz;
+      const il = (z: string, tz = "Asia/Jerusalem") => {
+        const d = new Date(z);
+        const day = (x: Date, zone: string) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(x);
+        return day(d, tz) === day(new Date(), tz)
+          ? new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: tz }).format(d)
+          : new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: tz }).format(d);
+      };
+      const iso = async (sql: string, id: number) => String((await own(seed.bizA, sql, id))[0].z);
+      await check("TZ1 a device set to New York: the list and the history show Israel time (Asia/Jerusalem), not the device's", async () => {
+        const upd = await iso(`SELECT to_char("updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') z FROM "ServiceCase" WHERE id = $1`, seed.c4);
+        const last = await iso(`SELECT to_char(max("occurredAt") AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') z FROM "ServiceCaseEvent" WHERE "caseId" = $1`, seed.c4);
+        if (!(await pz.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).includes("New_York")) throw new Error("the device zone is not New York");
+        await pz.goto("/service-desk");
+        const row = pz.locator(`a[href="/service-desk/cases/${seed.c4}"]`).first();
+        await row.waitFor({ timeout: 120_000 });
+        const rowText = await row.innerText();
+        if (!rowText.includes(il(upd))) throw new Error(`list row shows «${rowText.replace(/\s+/g, " ")}», Israel time is ${il(upd)}`);
+        if (il(upd) !== il(upd, "America/New_York") && rowText.includes(il(upd, "America/New_York"))) throw new Error("the list shows the device's time");
+        await shot(pz, "tz-newyork-list");
+        await openCase(pz, seed.c4);
+        const hist = pz.locator("section[aria-label='היסטוריה']");
+        await hist.waitFor({ timeout: 60_000 });
+        const histText = await hist.innerText();
+        if (!histText.includes(il(last))) throw new Error(`history shows «${histText.replace(/\s+/g, " ").slice(0, 200)}», the last event in Israel time is ${il(last)}`);
+        await shot(pz, "tz-newyork-case");
+      });
+      await cz.close();
+    }
+
+    // ── 360 / 390 / 1440: no sideways scroll, the main action reachable and not covered, fresh screenshots ──
+    for (const size of [{ width: 360, height: 780, phone: true }, PHONE, DESKTOP] as const) {
+      const cv = await ctx(browser, seed.tokenA, size);
+      const pv = await cv.newPage();
+      current = pv;
+      await check(`VP${size.width} list, opening form, settings and every seeded case at ${size.width} px: no sideways scroll; the main action is inside the screen and nothing covers it`, async () => {
+        const pages: [string, string][] = [["list", "/service-desk"], ["open", "/service-desk/new"], ["settings", "/service-desk/settings"],
+          ...([["c1", seed.c1], ["c2", seed.c2], ["c3", seed.c3], ["c4", seed.c4], ["c6", seed.c6]] as const).map(([k, id]) => [k, `/service-desk/cases/${id}`] as [string, string])];
+        for (const [k, url] of pages) {
+          await pv.goto(url);
+          await pv.locator("main h1").first().waitFor({ timeout: 120_000 });
+          await pv.waitForLoadState("networkidle").catch(() => undefined);
+          const over = await pv.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - document.documentElement.clientWidth);
+          if (over > 1) throw new Error(`${k} scrolls sideways by ${over}px`);
+          // the main action of a case (or the list's «new case»): inside the screen width, and nothing on top of it once scrolled to
+          const main = k.startsWith("c")
+            ? pv.locator("section[aria-label='מצב ופעולה הבאה']").locator("button, a").first()
+            : k === "list" ? pv.getByRole("link", { name: /תיק שירות חדש/ }).first() : null;
+          if (main && (await main.count())) {
+            const r = await main.evaluate((el) => {
+              el.scrollIntoView({ block: "center" });
+              const b = el.getBoundingClientRect();
+              const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+              return { left: b.left, right: b.right, w: document.documentElement.clientWidth, covered: !(hit && (hit === el || el.contains(hit))) };
+            });
+            if (r.left < -0.5 || r.right > r.w + 0.5) throw new Error(`${k}: the main action is cut (${Math.round(r.left)}–${Math.round(r.right)} of ${r.w})`);
+            if (r.covered) throw new Error(`${k}: the main action is covered`);
+          }
+          if (size.width !== 360 || k === "settings") await shot(pv, `vp${size.width}-${k}`);
+        }
+      });
+      await cv.close();
+    }
+
     // ── business B: the module is off ──
     const b = await ctx(browser, seed.tokenB, PHONE);
     const pb = await b.newPage();
