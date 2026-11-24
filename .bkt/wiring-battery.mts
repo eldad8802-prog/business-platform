@@ -228,7 +228,7 @@ async function main() {
   console.log("\n— I2 a declared business: v2, and history stays history");
   const a = await business();
   const v1Id = await declare(a);
-  const docIds = [await issuedDoc(a, "RECEIPT"), await issuedDoc(a, "RECEIPT"), await issuedDoc(a, "PRICE_QUOTE")];
+  const docIds = [await issuedDoc(a, "RECEIPT"), await issuedDoc(a, "RECEIPT"), await issuedDoc(a, "QUOTE")];
   const before = { d: await rows("BusinessIssuerDeclaration", a.businessId, "version"), docs: await rows("BillingDocument", a.businessId) };
   const seqBefore = json(await rows("BillingDocumentNumberSequence", a.businessId));
   const fp0 = await fingerprint([a.businessId]);
