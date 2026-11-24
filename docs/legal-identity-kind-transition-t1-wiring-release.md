@@ -8,7 +8,7 @@
 | PR | Content | Effect in Production when merged |
 | --- | --- | --- |
 | #1266 | migration `20261225090000_kind_transition_issuer_declaration_wiring`; read-only preflight + post-apply proof; lab tooling (`.bkt/`), the lab workflow; rollback script | none until the migration is applied by `release-migrate` |
-| #1267 | `lib/legal-identity/kind-transition.ts` (eligibility, status mapping, Hebrew texts), the confirm route's log line, tests, app battery A18–A20, the e2e workflow on the wired lab. Stacked on #1266 | none while `BUSINESS_KIND_TRANSITION_ENABLED` is off (every route answers 404) |
+| #1267 | `lib/legal-identity/kind-transition.ts` (eligibility, status mapping, Hebrew texts), the confirm route's log line, tests, app battery A18–A20, the e2e workflow (wired lab when the migration is in the tree). No migration (migration-first rule) | none while `BUSINESS_KIND_TRANSITION_ENABLED` is off (every route answers 404) |
 
 The migration replaces one function, `business_kind_transition_to_authorized`. Its code equals
 `.billing-4a/t1-wiring.proposed.sql` (comments aside; the lab workflow fails otherwise). It is byte-identical to
@@ -71,7 +71,9 @@ The intended differences all concern an exempt business with a live declaration:
    - INFO 10 (STATUS_CHANGE rows) is expected to be 0 while the flag is off.
    - Expected: `issuer-status-change-production-evidence.sql` check 11 ("still inert") now FAILs. That is by design,
      because this migration is what makes the transition use the writer.
-6. **Merge #1267** after rebasing it onto main. Production deploys with the flag off.
+6. **Merge #1267** after rebasing it onto main. Once #1266 is in the tree, its e2e workflow runs the app battery on the
+   wired lab (A18/A19) as well as the unwired one (A20); both must be green before the merge. Production deploys with
+   the flag off.
    - Check: every kind-transition route answers 404.
    - Check: 0 new errors.
 7. **Before the flag** (not part of this release):
