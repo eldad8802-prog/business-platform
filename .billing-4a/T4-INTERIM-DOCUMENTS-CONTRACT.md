@@ -18,7 +18,7 @@ each needs its own approval.
 | `cursor=…` | The previous page's `nextCursor`. |
 
 - **Flag OFF** (`BUSINESS_KIND_TRANSITION_ENABLED` ≠ `"true"`): **404**, before the session is read.
-- **Auth:** a Bearer session (the same `getAuthContext` as the transition routes). The business is the session's. A
+- **Auth:** a Bearer session (`getCurrentUser`, as every Billing route; the route file derives the tenant from `user.businessId`). The business is the session's. A
   `businessId` in the query is ignored.
 - **Read:** inside the business's tenant transaction (FORCE RLS). Nothing is written.
 - **`from` validation:** the transition's own rule. It must be a real date, not before 2000-01-01, and not after

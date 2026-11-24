@@ -159,7 +159,7 @@ export async function readInterimDocumentsTx(
       LEFT JOIN LATERAL (
         SELECT sum(x."totalAmount") AS credited, count(*) AS cn FROM "BillingDocument" x
          WHERE x."businessId" = d."businessId" AND x."documentType" = 'CREDIT_NOTE'::"BillingDocumentType"
-           AND x."status" = 'ISSUED'::"BillingDocumentStatus" AND x."referenceDocumentId" = d."id") c ON true
+           AND x."status" = 'ISSUED'::"BillingDocumentStatus" AND x."referenceDocumentId" = d."id" AND x."currency" = d."currency") c ON true
      WHERE d."businessId" = ${args.businessId}
        AND d."status" = 'ISSUED'::"BillingDocumentStatus"
        AND d."documentType" IN (${typesSql})
@@ -185,7 +185,7 @@ export async function readInterimDocumentsTx(
       LEFT JOIN LATERAL (
         SELECT sum(x."totalAmount") AS credited, count(*) AS cn FROM "BillingDocument" x
          WHERE x."businessId" = d."businessId" AND x."documentType" = 'CREDIT_NOTE'::"BillingDocumentType"
-           AND x."status" = 'ISSUED'::"BillingDocumentStatus" AND x."referenceDocumentId" = d."id") c ON true
+           AND x."status" = 'ISSUED'::"BillingDocumentStatus" AND x."referenceDocumentId" = d."id" AND x."currency" = d."currency") c ON true
      WHERE d."businessId" = ${args.businessId}
        AND d."status" = 'ISSUED'::"BillingDocumentStatus"
        AND d."documentType" IN (${typesSql})
