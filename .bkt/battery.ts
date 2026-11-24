@@ -222,7 +222,7 @@ async function main() {
     // Wired (20261225090000): a live declaration is no longer a refusal by itself; the 4a writer decides. Its refusals
     // are returned as ISSUER_DECLARATION_<status> and write nothing — not v2, not the history row, not the profile.
     const b = await business();
-    await declaration(b.businessId, b.userId, false, "now() + interval '10 minutes'");
+    await declaration(b.businessId, b.userId, false, "now() + interval '4 minutes'");
     const before = await snap(b.businessId);
     const r = await transition(b);
     ok("K3 live declaration not yet effective → ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE, nothing written",
