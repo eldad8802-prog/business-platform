@@ -26,7 +26,7 @@ import {
   sendCaseQuote, ServiceDeskApiError, setCaseFields, setTaskLink,
   type CaseChargeView, type CaseFields, type CaseQa, type CaseTask, type Loan, type PickupCall, type QuoteDoc, type QuoteSummary, type SettlementDoc,
 } from "./service-desk-client";
-import { errorView } from "./service-desk-errors";
+import { errorView, partialFailureReason } from "./service-desk-errors";
 import { LoadError, Loading, NotOpen } from "./ui";
 import { useServiceDeskAccess } from "./use-service-desk-access";
 import s from "./cases.module.css";
@@ -180,7 +180,7 @@ export function CaseScreen({ caseId }: { caseId: number }) {
       await runCaseAction(caseId, then === "PASS" ? { type: "PASS_QA", outcome: "REPAIRED" } : { type: "FAIL_QA" }, fresh.version ?? 0);
       setMessage({ tone: "ok", text: then === "PASS" ? "הבדיקות נשמרו ואושרו. התיק מוכן למסירה." : "הבדיקות נשמרו. התיק חזר לעבודה." });
     } catch (e) {
-      setMessage({ tone: "error", text: saved ? `הבדיקות נשמרו, אבל ${then === "PASS" ? "האישור" : "ההחזרה לעבודה"} לא עבר: ${errorView(e).text}` : errorView(e).text });
+      setMessage({ tone: "error", text: saved ? `הבדיקות נשמרו, אבל ${then === "PASS" ? "האישור" : "ההחזרה לעבודה"} לא עבר: ${partialFailureReason(e)}` : errorView(e).text });
     } finally {
       await load();
       setBusyId(null);
