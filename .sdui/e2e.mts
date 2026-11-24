@@ -113,7 +113,7 @@ async function main() {
       current = p;
       await check(`L1-${tag} the list shows the cases, attention first, with reasons`, async () => {
         await p.goto("/service-desk");
-        await p.getByRole("heading", { name: "תיקי שירות" }).waitFor({ timeout: 180_000 });
+        await p.getByRole("heading", { name: "תיקונים ושירות" }).waitFor({ timeout: 180_000 });
         await p.getByText("דורשים טיפול").first().waitFor();
         await p.getByText("מוכן ולא נאסף").or(p.getByText("מוכן — לעדכן את הלקוח")).first().waitFor();
         await p.getByText("ממתין לחלקים").first().waitFor();
@@ -257,7 +257,7 @@ async function main() {
         if (tag === "phone") return;
         await pc.getByRole("checkbox", { name: /^שירות/ }).check();
         await pc.getByRole("button", { name: /לשמור ולהתחיל/ }).click();
-        await pc.getByRole("heading", { name: "תיקי שירות" }).waitFor({ timeout: 60_000 });
+        await pc.getByRole("heading", { name: "תיקונים ושירות" }).waitFor({ timeout: 60_000 });
         await until(async () => {
           const s = (await own(seed.bizC, `SELECT "serviceProfileKey" k, "profileOverrides" o FROM "ServiceSettings" WHERE "businessId" = $1`, seed.bizC))[0] as { k?: string; o?: { offeredTracks?: string[] } } | undefined;
           return s?.k === "garage" && !!s.o?.offeredTracks?.includes("T5");
@@ -265,7 +265,7 @@ async function main() {
         const ev = Number((await own(seed.bizC, `SELECT count(*)::int n FROM "ServiceSettingsEvent" WHERE "businessId" = $1`, seed.bizC))[0].n);
         if (ev < 1) throw new Error("not journaled");
         await pc.reload();
-        await pc.getByRole("heading", { name: "תיקי שירות" }).waitFor();
+        await pc.getByRole("heading", { name: "תיקונים ושירות" }).waitFor();
         await sleep(1500);
         if (await pc.locator("[data-setup-banner]").count()) throw new Error("banner still shown");
       });

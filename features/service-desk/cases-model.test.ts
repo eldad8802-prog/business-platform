@@ -23,8 +23,10 @@ const row = (over: Partial<CaseRowData>): CaseRowData => ({
 // ── labels and tones ──
 ok("L1 every status has a Hebrew label", (["OPEN", "SCHEDULED", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "QA", "READY", "DELIVERED", "CLOSED", "CANCELLED", "ABANDONED", "WORK_DONE"] as const)
   .every((s) => /[֐-׿]/.test(statusLabel(s))));
-ok("L2 tones: ready / done / attention / active", statusTone("READY") === "ready" && statusTone("WORK_DONE") === "ready" && statusTone("CLOSED") === "done"
-  && statusTone("QUOTE_PENDING") === "attention" && statusTone("IN_REPAIR", "PARTS") === "attention" && statusTone("DIAGNOSING") === "active");
+ok("L2 tones: ready / done / attention / active / new / danger", statusTone("READY") === "ready" && statusTone("WORK_DONE") === "ready" && statusTone("CLOSED") === "done"
+  && statusTone("DELIVERED") === "done" && statusTone("QUOTE_PENDING") === "attention" && statusTone("IN_REPAIR", "PARTS") === "attention"
+  && statusTone("DIAGNOSING") === "active" && statusTone("QA") === "active" && statusTone("OPEN") === "new" && statusTone("CHECKED_IN") === "new"
+  && statusTone("CANCELLED") === "danger" && statusTone("ABANDONED") === "danger");
 ok("L3 a service call is a קריאה, a repair at the business a תיק", caseNoun("FIELD") === "קריאה" && caseNoun("REMOTE") === "קריאה" && caseNoun("IN_SHOP") === "תיק");
 ok("L4 closed statuses", isClosed("DELIVERED") && isClosed("CANCELLED") && !isClosed("READY") && !isClosed("WORK_DONE"));
 

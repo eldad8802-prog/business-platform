@@ -104,7 +104,7 @@ export function ServiceSettingsScreen() {
   return (
     <main className={readOnly ? s.screen : `${s.screen} ${s.withSaveBar}`} data-page-intent="content">
       <div className={s.narrow}>
-        <ScreenHead title="הגדרות שירות" subtitle="איש מקצוע ברירת מחדל ואחריות על השירות" fallback="/service-desk" fallbackLabel="לשירות ואחריות" onBeforeLeave={beforeLeave} />
+        <ScreenHead title="הגדרות שירות" subtitle="איש מקצוע ברירת מחדל ואחריות על השירות" fallback="/service-desk" fallbackLabel="לתיקונים ושירות" onBeforeLeave={beforeLeave} />
         {access.status === "loading" ? (
           <Loading />
         ) : access.status === "error" ? (

@@ -36,7 +36,7 @@ export function CasesScreen() {
         <div className={s.wrap}>
           <header className={s.head}>
             <BackButton fallback="/app" fallbackLabel="לבית" />
-            <div className={s.headTitles}><h1 className={s.title}>תיקי שירות</h1></div>
+            <div className={s.headTitles}><h1 className={s.title}>תיקונים ושירות</h1></div>
           </header>
           {access.status === "loading" ? <Loading /> : access.status === "error" ? (
             <LoadError text="לא הצלחנו לבדוק אם מערכת השירות פתוחה לעסק." onRetry={retry} />
