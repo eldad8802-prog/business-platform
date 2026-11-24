@@ -152,7 +152,13 @@ jobs:
             import { classify } from "./scripts/ci/migration-security-classifier.mjs";
             import { readdirSync, readFileSync } from "node:fs";
             const d = readdirSync("prisma/migrations").filter((n) => /^\d{14}_/.test(n)).sort().reverse();
-            console.log(d.find((n) => !classify(readFileSync(`prisma/migrations/${n}/migration.sql`, "utf8")).length));')
+            // A plain migration that an owner-bound releaseSet holds may only be released with its whole set
+            // (step 6 proves that refusal), so the "plain alone" case below takes the newest plain one that no
+            // record binds.
+            const bound = new Set(readdirSync("ops/release-approvals").filter((f) => f.endsWith(".json"))
+              .flatMap((f) => JSON.parse(readFileSync(`ops/release-approvals/${f}`, "utf8")).releaseSet ?? []));
+            console.log(d.find((n) => !bound.has(n) && !classify(readFileSync(`prisma/migrations/${n}/migration.sql`, "utf8")).length) ?? "");')
+          test -n "$plain" || { echo "FAIL: no plain migration outside an owner-bound release set"; exit 1; }
           echo "a plain migration ($plain) needs no record (it must still be named)"
           node scripts/ci/release-migrate-gate.mjs plan --expected "$plain" | sed 's/^/    | /'
 

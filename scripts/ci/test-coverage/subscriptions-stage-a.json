@@ -1,0 +1,10 @@
+{
+  "note": "Subscriptions stage A (owner-approved 2026-11-24): the plan catalog (Basic / Advanced / Premium per the approved matrix of 2026-11-20) and the plan entitlement layer on top of feature access. SHADOW ONLY: the guard logs subscription_would_deny and never refuses on the plan; SUBSCRIPTION_ENFORCEMENT has no enforce mode. No migration.",
+  "tests": {
+    "lib/services/subscriptions/subscriptions-entitlement.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network): the catalog covers every feature key; the owner's approved decisions pinned (online booking Advanced+, quotes and payment link Basic, WhatsApp Advanced, content and AI Premium, activity packs free, Premium not commercially open); rights floor (billing, documents, reports never fully closed in FREE_LIMITED); a flag refusal is final for every subscription shape; no record / tester / internal = today's access; the full matrix of keys x flag answers x subscription shapes against the plan document's table; no enforce mode; the capabilities answer never writes subscription.state"
+    }
+  }
+}
