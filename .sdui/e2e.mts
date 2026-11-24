@@ -170,7 +170,7 @@ async function main() {
       await shot(p360, "w360-intake");
       await c360.close();
     });
-    await check("IN1 the details' save fails → nothing is confirmed, the screen does not claim a save; the case stays OPEN", async () => {
+    await check("IN1 the details' save fails → nothing is confirmed, the screen does not claim a save, the typed note stays; the case stays OPEN", async () => {
       const v0 = await versionOf(seed.c1);
       await p.locator("textarea").first().fill("סדק בפינה הימנית העליונה · נבדק בקליטה");
       await p.route("**/api/service-desk/cases/*/intake", (r) => r.request().method() === "PUT" ? failWith500(r) : r.continue());
@@ -178,6 +178,9 @@ async function main() {
       await confirmBtn().waitFor();
       await p.unroute("**/api/service-desk/cases/*/intake");
       if (await p.getByText(/הקליטה אושרה|פרטי הקליטה נשמרו/).count()) throw new Error("the screen claims a save or a confirmation");
+      // what the owner typed is still there after the reload (a failed save wrote nothing; the text must not vanish)
+      await p.waitForTimeout(1500);
+      if ((await p.locator("textarea").first().inputValue()) !== "סדק בפינה הימנית העליונה · נבדק בקליטה") throw new Error("the typed note was lost after the failed save");
       if ((await statusOf(seed.c1)) !== "OPEN" || (await checkIns(seed.c1)) !== 0 || (await versionOf(seed.c1)) !== v0) throw new Error("something was written");
     });
     await check("IN2 saved, then the confirmation fails → the screen says the details were saved and the confirmation did not pass; nothing confirmed", async () => {
