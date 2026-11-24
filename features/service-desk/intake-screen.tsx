@@ -8,7 +8,7 @@
  * server allows it (IntakeView.allowed) and the access is FULL; a refused action is explained.
  */
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { confirmIntake, createSlip, fetchIntakeBlob, getIntake, saveIntakeData, uploadPhoto, type IntakeView } from "./intake-client";
 import { PHOTO_JPEG_QUALITY, confirmBlocker, currentSection, downscaleTarget, historyLine, israelDateTime } from "./intake-model";
@@ -66,11 +66,26 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
   const [tick, setTick] = useState(0);
   /** Reload the intake from the server (after every action, and on "retry"). */
   const load = useCallback(() => setTick((t) => t + 1), []);
+  /**
+   * The server's intake as the form last took it. A reload keeps what the owner typed when the server's details did not
+   * change (a failed save wrote nothing — the typed text must not vanish); when they changed, the server's are shown.
+   */
+  const serverForm = useRef<Form | null>(null);
   useEffect(() => {
     if (access.status !== "open") return;
     let alive = true;
     getIntake(caseId).then(
-      (v) => { if (alive) { setLoadFailed(false); setView(v); setForm(formOf(v)); } },
+      (v) => {
+        if (!alive) return;
+        const fresh = formOf(v);
+        const before = serverForm.current;
+        const unchanged = !!before && before.conditionNote === fresh.conditionNote && before.accessoriesNote === fresh.accessoriesNote
+          && before.conditionRecorded === fresh.conditionRecorded && before.accessoriesRecorded === fresh.accessoriesRecorded;
+        serverForm.current = fresh;
+        setLoadFailed(false);
+        setView(v);
+        setForm((cur) => (cur && unchanged ? cur : fresh));
+      },
       () => { if (alive) setLoadFailed(true); },
     );
     return () => { alive = false; };
