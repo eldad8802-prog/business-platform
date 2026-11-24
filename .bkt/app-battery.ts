@@ -49,6 +49,9 @@
  *       the new document inside its own transaction → 409, nothing written; confirm again with the new number → 200
  *   T7  the real issuance racing the real confirm (both orders possible): 200 → the number sent equals the documents
  *       counted for the window afterwards; 409 → nothing written, and the new number then succeeds
+ *   T7b the other order, made deterministic: the transition is queued for the key (an empty shared holder), a real
+ *       issuance queues behind it; on release the transition commits first (200, the number unchanged) and the
+ *       receipt freezes AUTHORIZED_DEALER, outside the window
  *   T8  after the transition, the route answers from the history row (TRANSITION_RECORD; a date sent is ignored) with
  *       the number the owner confirmed
  *
@@ -624,6 +627,41 @@ async function main() {
     }
     console.log(`  [OBSERVED] T7 rounds (issuance:frozen kind/confirm): ${outcomes.join(" | ")}`);
     ok("T7 every round consistent: 200 ⇒ the receipt froze AUTHORIZED and the record counts 0; 409 ⇒ froze EXEMPT, nothing written, the new number → 200", consistent);
+  }
+
+  console.log("T7b the transition first (deterministic order)");
+  {
+    const { issueBillingDocument } = await import("@/lib/services/billing/billing-issue.service");
+    const { createReceiptDraft } = await import("@/lib/services/billing/receipt/billing-receipt-draft.service");
+    const issueDeps = { executeApproval: async () => ({ outcome: "completed_approved", billingDocumentId: 0, submissionId: -1, allocationNumber: null, safeToRetry: false }) } as never;
+    const b = await business();
+    const customer = await owner.customer.create({ data: { businessId: b.businessId, name: "לקוח פרטי" } });
+    const draft = (await createReceiptDraft({ businessId: b.businessId, actorUserId: b.userId, documentType: "RECEIPT", customerId: customer.id, currency: "ILS",
+      paymentLines: [{ method: "CASH", amount: "10.00", paymentDate: new Date().toISOString() }] } as never)).id;
+    const cookie = await passwordProof(b);
+    const keyWaiters = async () => Number(((await owner.$queryRawUnsafe(
+      `SELECT count(*)::int n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND (classid::bigint << 32 | objid::bigint) = hashtextextended('legal_identity:' || $1::int, 0)`, b.businessId)) as Rows)[0].n);
+    const waitFor = async (n: number) => { for (let i = 0; i < 100 && (await keyWaiters()) < n; i++) await sleep(50); return (await keyWaiters()) >= n; };
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const holder = owner.$transaction(async (t) => {
+      await t.$executeRawUnsafe(`SELECT pg_advisory_xact_lock_shared(hashtextextended('legal_identity:' || $1::int, 0))`, b.businessId);
+      await gate;
+    }, { timeout: 30_000, maxWait: 30_000 });
+    await sleep(200);
+    const confirming = confirmWith(b, cookie, 0);
+    const transitionQueued = await waitFor(1);
+    const issuing = issueBillingDocument({ businessId: b.businessId, billingDocumentId: draft, actorUserId: b.userId }, issueDeps);
+    const issuanceQueued = await waitFor(2);
+    release();
+    await holder;
+    const [c, i] = await Promise.allSettled([confirming, issuing]);
+    const frozen = ((await owner.$queryRawUnsafe(`SELECT "issuedSnapshot"->'extensions'->>'billingBusinessKind' k FROM "BillingDocument" WHERE id = $1 AND status = 'ISSUED'`, draft)) as Rows)[0]?.k ?? "not issued";
+    const after = await interim(b, "");
+    ok("T7b both queued behind the key, the transition first", transitionQueued && issuanceQueued, `${transitionQueued}/${issuanceQueued}`);
+    ok("T7b confirm 200 with the number unchanged (0); the receipt issued after it froze AUTHORIZED_DEALER; the record counts 0",
+      c.status === "fulfilled" && c.value.r.status === 200 && i.status === "fulfilled" && frozen === "AUTHORIZED_DEALER" && after.body.count === 0,
+      JSON.stringify({ c: c.status === "fulfilled" ? c.value.r.status : String(c.reason), i: i.status, frozen, count: after.body.count }));
   }
 
   console.log("T8 after the transition: the route answers from the history row");
