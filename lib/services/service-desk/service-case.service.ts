@@ -259,6 +259,12 @@ export type CaseSummary = {
   openedAt: string; updatedAt: string;
   /** List only (UI 1.3, read-only): a short excerpt of the problem, the subject's name and the M1 work type. */
   problemExcerpt?: string | null; subjectName?: string | null; workType?: string | null;
+  /**
+   * List only (UI, read-only, owner decision 2026-11-24): when the case entered its current state — the latest journal
+   * event that changed the status or set / cleared a hold; the opening time when the journal has none. A record that
+   * changes nothing of the state (location, loan, task, intake details) never moves it, so "waiting N days" is honest.
+   */
+  statusSince?: string;
 };
 
 const SUMMARY_COLUMNS = Prisma.sql`c.id, c."caseNumber", c.kind::text AS kind, c.status::text AS status, c."holdReason"::text AS "holdReason",
@@ -285,7 +291,11 @@ export async function listCases(businessId: number, q: { status?: unknown; befor
   if (status !== undefined && !/^[A-Z_]{2,20}$/.test(status)) throw new ServiceDeskError("INVALID_INPUT", { field: "status" });
   return tenantTx(businessId, async (tx) => {
     const rows = await tx.$queryRaw<Record<string, unknown>[]>`
-      SELECT ${SUMMARY_COLUMNS}, left(c."problemDescription", 140) AS "problemExcerpt", d."displayName" AS "subjectName", c."workType"::text AS "workType"
+      SELECT ${SUMMARY_COLUMNS}, left(c."problemDescription", 140) AS "problemExcerpt", d."displayName" AS "subjectName", c."workType"::text AS "workType",
+             to_char(COALESCE((SELECT max(e."occurredAt") FROM "ServiceCaseEvent" e
+                                WHERE e."businessId" = c."businessId" AND e."caseId" = c.id AND e."toStatus" = c.status
+                                  AND (e."fromStatus" IS DISTINCT FROM e."toStatus" OR e."eventType"::text IN ('hold.set', 'hold.cleared'))),
+                              c."openedAt") AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "statusSince"
         FROM "ServiceCase" c LEFT JOIN "Customer" cu ON cu.id = c."customerId" AND cu."businessId" = c."businessId"
         LEFT JOIN "ServiceDevice" d ON d.id = c."deviceId" AND d."businessId" = c."businessId"
        WHERE c."businessId" = ${businessId}::int
@@ -295,6 +305,7 @@ export async function listCases(businessId: number, q: { status?: unknown; befor
     const cases = rows.slice(0, limit).map((r) => ({
       ...toSummary(r),
       problemExcerpt: (r.problemExcerpt as string) ?? null, subjectName: (r.subjectName as string) ?? null, workType: (r.workType as string) ?? null,
+      statusSince: String(r.statusSince),
     }));
     return { cases, nextBeforeId: rows.length > limit ? cases[cases.length - 1].id : null };
   });
