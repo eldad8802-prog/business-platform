@@ -201,6 +201,8 @@ on:
           - 'ops/evidence/business-kind-transition-production-evidence.sql'
           - 'ops/evidence/issuer-status-change-preflight.sql'
           - 'ops/evidence/issuer-status-change-production-evidence.sql'
+          - 'ops/evidence/kind-transition-wiring-preflight.sql'
+          - 'ops/evidence/kind-transition-wiring-production-evidence.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-preflight.sql'
           - 'ops/evidence/service-desk-ui-erasure-text-production-evidence.sql'
           - 'ops/evidence/service-desk-case-records-preflight.sql'
