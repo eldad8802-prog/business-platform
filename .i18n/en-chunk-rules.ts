@@ -109,6 +109,55 @@ export function tasksPushChunkExceptionVerdict(route: string, main: MeasuredPage
   };
 }
 
+/**
+ * The owner-approved module rename (owner, 2026-11-24, option B for #1264): the Service Desk is renamed
+ * «שירות ואחריות» → «תיקונים ושירות» (en: "Service & warranty" → "Repairs & service") in the shared navigation.
+ * Evidence before approval: a dedicated proof over the same 20 routes × 3 widths × 5 variants (300 pages) found no
+ * difference other than this rename (CI run 45302213017).
+ *
+ * It applies to the identity check ONLY when the strict comparison fails and EVERY condition holds; otherwise the
+ * strict rule stands:
+ *   - MAIN still shows the old name (at least once) — not cumulative: once the rename is on main, MAIN has nothing to
+ *     rename and the strict rule applies to every later change;
+ *   - BRANCH shows the old name nowhere (the page is fully renamed);
+ *   - at most maxOccurrencesPerPage occurrences on the page (measured: 1, the sidebar item);
+ *   - with the rename applied to MAIN's text and DOM they equal BRANCH's — structure, links, attributes and every
+ *     other text — exactly, or up to the same volatile-clock normalization the strict check already allows.
+ * Meta (status, path, lang, dir, title) and the hydration check are not touched: they stay strict.
+ */
+export const APPROVED_SERVICE_DESK_RENAME = Object.freeze({
+  approvedOn: "2026-11-24",
+  pairs: Object.freeze([
+    Object.freeze({ from: "שירות ואחריות", to: "תיקונים ושירות" }),
+    Object.freeze({ from: "Service &amp; warranty", to: "Repairs &amp; service" }), // as the DOM serialises it
+    Object.freeze({ from: "Service & warranty", to: "Repairs & service" }), // as the text reads
+  ]),
+  maxOccurrencesPerPage: 2,
+});
+
+export type PageSnapshot = { text: string; dom: string };
+
+export function approvedRenameVerdict(main: PageSnapshot, branch: PageSnapshot, normalize: (s: string) => string = (s) => s) {
+  const x = APPROVED_SERVICE_DESK_RENAME;
+  const apply = (s: string) => {
+    let n = 0;
+    let out = s;
+    for (const p of x.pairs) { const parts = out.split(p.from); n += parts.length - 1; out = parts.join(p.to); }
+    return { out, n };
+  };
+  const dom = apply(main.dom);
+  const text = apply(main.text);
+  const ws = (s: string) => s.replace(/\s+/g, " ").trim();
+  const exactAfter = dom.out === branch.dom && ws(text.out) === ws(branch.text);
+  const conditions = {
+    mainShowsTheOldName: dom.n >= 1,
+    branchShowsTheOldNameNowhere: !x.pairs.some((p) => branch.dom.includes(p.from) || branch.text.includes(p.from)),
+    withinTheOccurrenceLimit: dom.n <= x.maxOccurrencesPerPage,
+    equalAfterTheRename: exactAfter || (normalize(dom.out) === normalize(branch.dom) && normalize(text.out) === normalize(branch.text)),
+  };
+  return { ok: Object.values(conditions).every(Boolean), occurrences: dom.n, conditions };
+}
+
 /** The two assertions the proof makes on the selection. Both must hold; an empty selection fails both. */
 export function dictionaryChunkVerdict(chunkCount: number, coveredCount: number, sentinelCount: number) {
   return {
