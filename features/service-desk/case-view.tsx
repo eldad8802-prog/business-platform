@@ -148,7 +148,7 @@ export function CaseView(p: CaseViewProps) {
             <h1 className={s.caseTitle}>{title}</h1>
             <div className={s.caseMeta}>
               <span>{meta}</span>
-              <span className={s.pill} data-tone={tone}>{statusLabel(card.status)}</span>
+              <span className={s.pill} data-tone={tone}>{statusLabel(card.status, card.holdReason)}</span>
             </div>
           </div>
           {p.callHref ? (
