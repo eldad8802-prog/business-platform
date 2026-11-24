@@ -1,5 +1,7 @@
 /** Service Desk UI 1.3 — activation and case-panel models. Pure: `npx tsx features/service-desk/case-extras-model.test.ts`. */
 import { canSave, chooseProfile as choose, initialSetup as init, toggleTrack, tracksOfProfile as tracksOf } from "./setup-model";
+import { partialFailureReason } from "./service-desk-errors";
+import { ServiceDeskApiError } from "./service-desk-client";
 const CAT = { general: ["T1", "T3", "T5", "T6", "T7"], device_lab: ["T1", "T7", "T3", "T6"], garage: ["T2", "T7", "T3"] };
 const initialSetup = (c: { key: string; offeredTracks: string[] | null }) => init({ ...c, catalog: CAT });
 const chooseProfile = (d: Parameters<typeof choose>[1], k: Parameters<typeof choose>[2]) => choose(CAT, d, k);
@@ -57,6 +59,10 @@ ok("Q5 quote step: send while diagnosing / repairing, revise while waiting", quo
   ok("P7 qaProgress: complete only with no failed check", qaProgress(items, { a: "PASS", b: "FAIL" }, true).complete === false && qaProgress(items, { a: "PASS", b: "PASS" }, true).complete === true);
 }
 ok("P8 balance UNKNOWN blocks the handover (never bypassed); a failed read blocks too", chargeSummary({ state: "UNKNOWN", openBalanceAgorot: null, reason: "NO_CHARGE_DECISION" }).blocksHandover && chargeSummary(null).blocksHandover);
+ok("P8b a service call speaks of closing, never of a handover (UX review 2026-11-23)",
+  chargeSummary({ state: "UNKNOWN", openBalanceAgorot: null, reason: "NO_CHARGE_DECISION" }, { field: true }).text.includes("לפני הסגירה")
+  && !chargeSummary({ state: "UNKNOWN", openBalanceAgorot: null, reason: "NO_CHARGE_DECISION" }, { field: true }).text.includes("מסירה")
+  && chargeSummary({ state: "UNKNOWN", openBalanceAgorot: null, reason: "NO_CHARGE_DECISION" }).text.includes("לפני המסירה"));
 ok("P9 NO_CHARGE / SETTLED hand over freely; OPEN / not documented ask for the owner's reason",
   !chargeSummary({ state: "NO_CHARGE", openBalanceAgorot: 0 }).blocksHandover && !chargeSummary({ state: "SETTLED", openBalanceAgorot: 0 }).needsDebtReason
   && chargeSummary({ state: "OPEN", openBalanceAgorot: 5000 }).needsDebtReason && chargeSummary({ state: "CHARGE_NOT_DOCUMENTED", openBalanceAgorot: 5000, detail: { chargeAgorot: 5000, overpaidAgorot: 0 } }).needsDebtReason
@@ -65,5 +71,10 @@ ok("P10 shekels to agorot: positive, at most 2 decimals; anything else refused",
   && parseShekels("0") === null && parseShekels("-3") === null && parseShekels("1.234") === null && parseShekels("abc") === null);
 ok("P11 a quote document already on another case is not offered again", offerableQuoteDocs([{ id: 1, status: "DRAFT", converted: false }, { id: 2, status: "DRAFT", converted: false }], [], [2]).map((d) => d.id).join(",") === "1");
 
+// ── a partial save never says «nothing was saved» (UX review 2026-11-24) ──
+{
+  const e500 = new ServiceDeskApiError(500, null);
+  ok("PF1 after a partial save the reason drops «לא נשמר דבר»", partialFailureReason(e500) === "שגיאה בשרת. נסה שוב." && !partialFailureReason(e500).includes("לא נשמר"));
+}
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

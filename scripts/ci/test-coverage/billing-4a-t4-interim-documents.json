@@ -1,0 +1,9 @@
+{
+  "note": "4a T4: documents issued between the official status date and the Dubiz update (owner decisions 2026-11-24). Database bounds, RLS, read-only and concurrency with issuance are proven by .billing-4a/t4-interim-documents.battery.mts (lab).",
+  "tests": {
+    "lib/services/billing/kind-transition/interim-documents.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): the from-date rule, Israel calendar days, the credit-state rule and the route handler with injected dependencies (flag OFF 404, 401, 400s, the session's business only); the DB side is the lab battery 35/35"
+    }
+  }
+}

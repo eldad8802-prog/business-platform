@@ -27,6 +27,13 @@
  *   A15 tenant isolation: business B's GET / confirm never touch A; B stays exempt
  *   A16 after the transition the legal name / id number still cannot be changed (DZL04)
  *   A17 several users → GET explains, confirm refused (NOT_SOLE_USER), nothing written
+ *   A18 (wired lab, 20261225090000) a business with a live issuer declaration: GET eligible; password → preview →
+ *       confirm 200; declaration v2 STATUS_CHANGE with the history row's digest / method / instant; v1 and an issued
+ *       receipt byte-identical; the proof is spent
+ *   A19 (wired) the declaration writer's refusals through the real route: not yet effective → 409 "בעוד כמה דקות";
+ *       the sole user is not the declaration's authorized user → 409; nothing written, the proof kept
+ *   A20 (unwired lab: the application deployed before the migration) a declared business: GET eligible, confirm →
+ *       409 ISSUER_DECLARATION_ACTIVE with a Hebrew text, nothing written
  *
  * env: OWNER_URL, DATABASE_URL (runtime), AUTH_DATABASE_URL, AUTH_TOKEN_SECRET, AUTH_PLANE_ENABLED=true,
  *      RATE_LIMIT_BACKEND=memory.   Synthetic only. ZERO network.
@@ -127,7 +134,19 @@ async function passwordProof(b: Biz): Promise<string> {
 }
 const profile = async (businessId: number) => ((await owner.$queryRawUnsafe(`SELECT * FROM "BusinessProfile" WHERE "businessId" = $1`, businessId)) as Rows)[0];
 const history = async (businessId: number) => (await owner.$queryRawUnsafe(`SELECT * FROM "BusinessKindTransition" WHERE "businessId" = $1`, businessId)) as Rows;
-const snap = async (businessId: number) => JSON.stringify({ p: await profile(businessId), h: await history(businessId) });
+const declarations = async (businessId: number) =>
+  (await owner.$queryRawUnsafe(`SELECT * FROM "BusinessIssuerDeclaration" WHERE "businessId" = $1 ORDER BY "version"`, businessId)) as Rows;
+const snap = async (businessId: number) => JSON.stringify({ p: await profile(businessId), h: await history(businessId), d: await declarations(businessId) });
+/** An exempt declaration v1 as the emailed-link flow records it (INITIAL, SOLE_USER_VERIFIED, EMAIL_LINK). */
+async function declare(b: Biz, effectiveFrom = "now() - interval '1 day'") {
+  await owner.$executeRawUnsafe(
+    `INSERT INTO "BusinessIssuerDeclaration" ("businessId","version","kind","track","legalForm","vatStatus","legalName","idType","idNumber",
+       "address","phone","email","effectiveFrom","authorizedUserId","authorityBasis","declaredByUserId","declarantName","declarantCapacity",
+       "statementVersion","statementSha256","reauthMethod","reauthAt")
+     VALUES ($1, 1, 'INITIAL', 'EXEMPT_DEALER', 'INDIVIDUAL', 'EXEMPT', $2, 'ISRAELI_ID', $3, 'הרצל 1, תל אביב', '0501234567', 'biz@lab.invalid',
+       ${effectiveFrom}, $4, 'SOLE_USER_VERIFIED', $4, 'דנה כהן', 'בעלים', 'issuer-statement-v1', $5, 'EMAIL_LINK', now() - interval '1 day')`,
+    b.businessId, LEGAL, b.taxId, b.userId, "c".repeat(64));
+}
 
 async function main() {
   console.log("A1 flag OFF");
@@ -321,6 +340,86 @@ async function main() {
     const before17 = await snap(m.businessId);
     const r = await read(await handleKindTransitionConfirm(req(m, "", { ...input(m), statementSha256: shaFor(m) }, cookie), deps()));
     ok("A17 confirm refused, nothing written", r.status === 409 && (await snap(m.businessId)) === before17, JSON.stringify(r.body));
+  }
+
+  const WIRED = ((await owner.$queryRawUnsafe(
+    `SELECT position('issuer_declaration_status_change' IN pg_get_functiondef(p.oid)) > 0 AS w FROM pg_proc p WHERE p.proname = 'business_kind_transition_to_authorized'`)) as Rows)[0]?.w === true;
+  console.log(`lab: ${WIRED ? "WIRED (20261225090000 applied)" : "20261221090000 only (not wired)"}`);
+  const cleared = (res: Response) => (res.headers.getSetCookie?.() ?? []).some((c) => c.startsWith(`${COOKIE}=`) && /Max-Age=0/i.test(c));
+  const anyProofCookie = (res: Response) => (res.headers.getSetCookie?.() ?? []).some((c) => c.startsWith(`${COOKIE}=`));
+  if (WIRED) {
+    console.log("A18 a declared business, end to end");
+    {
+      const d = await business();
+      await declare(d);
+      const v1 = JSON.stringify((await declarations(d.businessId))[0]);
+      const doc = (await owner.$queryRawUnsafe(
+        `INSERT INTO "BillingDocument" ("businessId","documentType","status","documentNumber","issuedAt","issuedSnapshot","legalSnapshotHash","updatedAt")
+         VALUES ($1,'RECEIPT','ISSUED',77, now() - interval '3 days', $2::jsonb, $3, now() - interval '3 days') RETURNING id`,
+        d.businessId, JSON.stringify({ issuer: { legalName: LEGAL, taxId: d.taxId }, extensions: { billingBusinessKind: "EXEMPT_DEALER" } }), "b".repeat(64))) as Rows;
+      const docOf = async () => JSON.stringify(((await owner.$queryRawUnsafe(`SELECT * FROM "BillingDocument" WHERE id = $1`, Number(doc[0].id))) as Rows)[0]);
+      const docBefore = await docOf();
+      const g = await read(await handleKindTransitionGet(req(d, ""), deps()));
+      ok("A18 GET: eligible with a live declaration", (g.body.eligibility as { eligible: boolean }).eligible === true, JSON.stringify(g.body.eligibility));
+      const cookie = await passwordProof(d);
+      const pv = await read(await handleKindTransitionPreview(req(d, "/preview", input(d)), deps()));
+      ok("A18 preview digest = the server's statement", pv.status === 200 && pv.body.statementSha256 === shaFor(d), JSON.stringify(pv.body));
+      const res = await handleKindTransitionConfirm(req(d, "", { ...input(d), statementSha256: pv.body.statementSha256 }, cookie), deps());
+      const r = await read(res.clone());
+      const ds = await declarations(d.businessId);
+      const h = (await history(d.businessId))[0] ?? {};
+      const p = await profile(d.businessId);
+      ok("A18 confirm 200 TRANSITIONED", r.status === 200 && r.body.code === "TRANSITIONED", JSON.stringify(r.body));
+      ok("A18 declaration v2 STATUS_CHANGE, authorized, VAT = id; v1 byte-identical",
+        ds.length === 2 && ds[1].kind === "STATUS_CHANGE" && ds[1].vatStatus === "AUTHORIZED" && ds[1].vatRegistrationNumber === d.taxId && JSON.stringify(ds[0]) === v1);
+      ok("A18 v2 and history: one digest (the one the owner previewed), PASSWORD, one instant; effectiveFrom = confirmedAt",
+        ds[1]?.statementSha256 === shaFor(d) && h.statementSha256 === shaFor(d) && ds[1]?.reauthMethod === "PASSWORD" && h.reauthMethod === "PASSWORD"
+          && new Date(String(ds[1]?.reauthAt)).getTime() === new Date(String(h.reauthAt)).getTime()
+          && new Date(String(ds[1]?.effectiveFrom)).getTime() === new Date(String(h.confirmedAt)).getTime());
+      ok("A18 profile AUTHORIZED_DEALER; name and id number unchanged", p.billingBusinessKind === "AUTHORIZED_DEALER" && p.billingLegalName === LEGAL && p.billingTaxId === d.taxId);
+      ok("A18 the issued receipt is byte-identical", (await docOf()) === docBefore);
+      ok("A18 the proof is spent (cleared on success)", cleared(res));
+    }
+    console.log("A19 the declaration writer's refusals through the route");
+    {
+      const f = await business();
+      await declare(f, "now() + interval '4 minutes'");
+      const cookie = await passwordProof(f);
+      const before = await snap(f.businessId);
+      const res = await handleKindTransitionConfirm(req(f, "", { ...input(f), statementSha256: shaFor(f) }, cookie), deps());
+      const r = await read(res.clone());
+      ok("A19 not yet effective → 409 ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE, 'בעוד כמה דקות', nothing written, proof kept",
+        r.status === 409 && r.body.code === "ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE" && /בעוד כמה דקות/.test(String(r.body.error))
+          && (await snap(f.businessId)) === before && !anyProofCookie(res), JSON.stringify(r.body));
+      // The declared owner left; another person is now the only user. Same name and id on the file — the writer refuses.
+      const m = await business();
+      await declare(m);
+      const other = await business();
+      const hash = await bcrypt.hash(PASSWORD, 4);
+      const nu = (await owner.$queryRawUnsafe(`INSERT INTO "User" ("email","password","name","businessId","updatedAt") VALUES ($1,$2,'בני',$3, now()) RETURNING id`,
+        `bkt-app-${Date.now()}-a19@lab.invalid`, hash, m.businessId)) as Rows;
+      await owner.$executeRawUnsafe(`UPDATE "User" SET "businessId" = $1 WHERE id = $2`, other.businessId, m.userId);
+      const s2 = await session(Number(nu[0].id));
+      const mb: Biz = { ...m, userId: Number(nu[0].id), token: s2.token, sessionId: s2.sessionId, userIds: [Number(nu[0].id)] };
+      const c2 = await passwordProof(mb);
+      const before2 = await snap(m.businessId);
+      const r2 = await read(await handleKindTransitionConfirm(req(mb, "", { ...input(mb), statementSha256: shaFor(mb) }, c2), deps()));
+      ok("A19 sole user ≠ the declaration's authorized user → 409 ISSUER_DECLARATION_NOT_AUTHORIZED_USER, nothing written",
+        r2.status === 409 && r2.body.code === "ISSUER_DECLARATION_NOT_AUTHORIZED_USER" && /לא נשמר שום שינוי/.test(String(r2.body.error)) && (await snap(m.businessId)) === before2, JSON.stringify(r2.body));
+    }
+  } else {
+    console.log("A20 application before the migration: a declared business");
+    {
+      const d = await business();
+      await declare(d);
+      const g = await read(await handleKindTransitionGet(req(d, ""), deps()));
+      const cookie = await passwordProof(d);
+      const before = await snap(d.businessId);
+      const r = await read(await handleKindTransitionConfirm(req(d, "", { ...input(d), statementSha256: shaFor(d) }, cookie), deps()));
+      ok("A20 GET eligible; confirm → 409 ISSUER_DECLARATION_ACTIVE with a Hebrew text, nothing written",
+        (g.body.eligibility as { eligible: boolean }).eligible === true && r.status === 409 && r.body.code === "ISSUER_DECLARATION_ACTIVE"
+          && /לא נשמר שום שינוי/.test(String(r.body.error)) && (await snap(d.businessId)) === before, JSON.stringify(r.body));
+    }
   }
 
   console.log(`\n${pass} passed, ${failures.length} failed`);

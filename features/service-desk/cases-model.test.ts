@@ -2,8 +2,10 @@
  * Service Desk UI 1.3 — cases list / case screen view model. Pure: run with `npx tsx features/service-desk/cases-model.test.ts`.
  */
 import {
-  attentionReason, buildListSections, caseNoun, caseSections, eventLabel, historyItems, isClosed, matchesQuery,
-  journaledLoanIds, mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
+  qaHeadline,
+  formatShortDate,
+  attentionReason, buildListSections, nextStepHint, caseNoun, caseSections, eventLabel, historyItems, isClosed, matchesQuery,
+  actorText, journaledLoanIds, telHref, mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
 } from "./cases-model";
 
 let passed = 0;
@@ -23,17 +25,34 @@ const row = (over: Partial<CaseRowData>): CaseRowData => ({
 // ── labels and tones ──
 ok("L1 every status has a Hebrew label", (["OPEN", "SCHEDULED", "CHECKED_IN", "DIAGNOSING", "QUOTE_PENDING", "IN_REPAIR", "EXTERNAL", "QA", "READY", "DELIVERED", "CLOSED", "CANCELLED", "ABANDONED", "WORK_DONE"] as const)
   .every((s) => /[֐-׿]/.test(statusLabel(s))));
-ok("L2 tones: ready / done / attention / active", statusTone("READY") === "ready" && statusTone("WORK_DONE") === "ready" && statusTone("CLOSED") === "done"
-  && statusTone("QUOTE_PENDING") === "attention" && statusTone("IN_REPAIR", "PARTS") === "attention" && statusTone("DIAGNOSING") === "active");
+ok("L2 tones: ready / done / attention / active / new / danger", statusTone("READY") === "ready" && statusTone("WORK_DONE") === "ready" && statusTone("CLOSED") === "done"
+  && statusTone("DELIVERED") === "done" && statusTone("QUOTE_PENDING") === "attention" && statusTone("IN_REPAIR", "PARTS") === "attention"
+  && statusTone("DIAGNOSING") === "active" && statusTone("QA") === "active" && statusTone("OPEN") === "new" && statusTone("CHECKED_IN") === "new"
+  && statusTone("CANCELLED") === "danger" && statusTone("ABANDONED") === "danger");
 ok("L3 a service call is a קריאה, a repair at the business a תיק", caseNoun("FIELD") === "קריאה" && caseNoun("REMOTE") === "קריאה" && caseNoun("IN_SHOP") === "תיק");
 ok("L4 closed statuses", isClosed("DELIVERED") && isClosed("CANCELLED") && !isClosed("READY") && !isClosed("WORK_DONE"));
 
 // ── attention: explained, never a score ──
-ok("A1 ready and not picked up for 3 days says so", attentionReason(row({ status: "READY", updatedAt: daysAgo(3) }), NOW) === "מוכן ולא נאסף · 3 ימים");
-ok("A2 a fresh READY asks to tell the customer", attentionReason(row({ status: "READY", updatedAt: daysAgo(0) }), NOW) === "מוכן — לעדכן את הלקוח");
-ok("A3 a pending quote names the wait", (attentionReason(row({ status: "QUOTE_PENDING", updatedAt: daysAgo(2) }), NOW) ?? "").includes("יומיים"));
-ok("A4 an OPEN field call asks for a visit; an OPEN repair for the intake",
-  attentionReason(row({ status: "OPEN", kind: "FIELD" }), NOW) === "צריך לתאם ביקור" && attentionReason(row({ status: "OPEN" }), NOW) === "צריך לקלוט את הפריט");
+// «ממתינים לך» (owner decision 2026-11-24): the next step is ours and overdue, or a finished call to close.
+ok("A1 ready and not picked up for 3 days says so, with what to do", attentionReason(row({ status: "READY", updatedAt: daysAgo(3) }), NOW) === "מוכן ולא נאסף · 3 ימים — להתקשר ללקוח");
+ok("A2 READY waits from 2 days on; a fresh one does not", attentionReason(row({ status: "READY", updatedAt: daysAgo(0) }), NOW) === null
+  && attentionReason(row({ status: "READY", updatedAt: daysAgo(1) }), NOW) === null && attentionReason(row({ status: "READY", updatedAt: daysAgo(2) }), NOW) !== null);
+ok("A3 a pending quote waits from 3 days on", attentionReason(row({ status: "QUOTE_PENDING", updatedAt: daysAgo(2) }), NOW) === null
+  && (attentionReason(row({ status: "QUOTE_PENDING", updatedAt: daysAgo(3) }), NOW) ?? "").includes("3 ימים"));
+ok("A4 OPEN waits from a day on: a field call is not coordinated, a repair not taken in",
+  attentionReason(row({ status: "OPEN", kind: "FIELD", updatedAt: daysAgo(0) }), NOW) === null && attentionReason(row({ status: "OPEN", updatedAt: daysAgo(0) }), NOW) === null
+  && attentionReason(row({ status: "OPEN", kind: "FIELD", updatedAt: daysAgo(1) }), NOW) === "לא תואם · מאתמול" && attentionReason(row({ status: "OPEN", updatedAt: daysAgo(1) }), NOW) === "לא נקלט · מאתמול");
+ok("A7 the days count from entering the state (statusSince), not from the last update",
+  attentionReason(row({ status: "READY", updatedAt: daysAgo(0), statusSince: daysAgo(3) }), NOW) !== null
+  && attentionReason(row({ status: "READY", updatedAt: daysAgo(5), statusSince: daysAgo(0) }), NOW) === null);
+ok("A8 thresholds: WORK_DONE at once, EXTERNAL from 7, QA from 1, a hold from 3",
+  attentionReason(row({ status: "WORK_DONE", kind: "FIELD", updatedAt: daysAgo(0) }), NOW) !== null
+  && attentionReason(row({ status: "EXTERNAL", updatedAt: daysAgo(6) }), NOW) === null && attentionReason(row({ status: "EXTERNAL", updatedAt: daysAgo(7) }), NOW) !== null
+  && attentionReason(row({ status: "QA", updatedAt: daysAgo(0) }), NOW) === null && attentionReason(row({ status: "QA", updatedAt: daysAgo(1) }), NOW) !== null
+  && attentionReason(row({ holdReason: "PARTS", updatedAt: daysAgo(2) }), NOW) === null && attentionReason(row({ holdReason: "PARTS", updatedAt: daysAgo(3) }), NOW) !== null);
+ok("A9 every active case not waiting has a next-step line; closed ones have none",
+  nextStepHint(row({ status: "OPEN" })) === "הבא: לקלוט את הפריט" && nextStepHint(row({ status: "OPEN", kind: "REMOTE" })) === "הבא: לתאם ולהתחיל"
+  && nextStepHint(row({ status: "IN_REPAIR", holdReason: "PARTS" })) === "הבא: להחזיר לעבודה" && nextStepHint(row({ status: "DELIVERED" })) === null);
 ok("A5 a hold names its reason", (attentionReason(row({ holdReason: "PARTS", updatedAt: daysAgo(4) }), NOW) ?? "").startsWith("ממתין לחלקים"));
 ok("A6 ordinary work needs nothing", attentionReason(row({ status: "IN_REPAIR" }), NOW) === null && attentionReason(row({ status: "DIAGNOSING" }), NOW) === null);
 
@@ -54,14 +73,23 @@ const rows: CaseRowData[] = [
 ok("S1 search by number, with or without #", matchesQuery(rows[1], "1002") && matchesQuery(rows[1], "#1002") && !matchesQuery(rows[0], "1002"));
 ok("S2 search by customer / subject / problem", matchesQuery(rows[1], "יוסי") && matchesQuery(rows[1], "macbook") && matchesQuery(rows[4], "מזגן"));
 const all = buildListSections(rows, { filter: "all", query: "", now: NOW });
-ok("S3 'all': attention first with reasons, closed hidden", all.attention.map((a) => a.row.id).join(",") === "3,1"
-  && all.rest.map((r) => r.id).join(",") === "5,2" && all.shown === 4 && all.total === 5, JSON.stringify(all.attention.map((a) => a.row.id)));
+ok("S3 'all': «ממתינים לך» first (only the overdue READY), the rest by update, closed hidden", all.attention.map((a) => a.row.id).join(",") === "1"
+  && all.rest.map((r) => r.id).join(",") === "5,2,3" && all.shown === 4 && all.total === 5, JSON.stringify([all.attention.map((a) => a.row.id), all.rest.map((r) => r.id)]));
+{
+  const w = buildListSections([
+    row({ id: 7, caseNumber: 7, status: "READY", statusSince: daysAgo(3) }),
+    row({ id: 8, caseNumber: 8, status: "QUOTE_PENDING", statusSince: daysAgo(4) }),
+    row({ id: 9, caseNumber: 9, status: "WORK_DONE", kind: "FIELD", statusSince: daysAgo(0) }),
+    row({ id: 6, caseNumber: 6, status: "READY", statusSince: daysAgo(3) }),
+  ], { filter: "all", query: "", now: NOW });
+  ok("S9 «ממתינים לך» order: longest wait first, a tie by case number", w.attention.map((a) => a.row.id).join(",") === "8,6,7,9", JSON.stringify(w.attention.map((a) => a.row.id)));
+}
 ok("S4 'closed' shows only closed", buildListSections(rows, { filter: "closed", query: "", now: NOW }).rest.map((r) => r.id).join(",") === "4");
 ok("S5 a search also finds closed cases", buildListSections(rows, { filter: "all", query: "רון", now: NOW }).rest.map((r) => r.id).join(",") === "4");
 ok("S6 'ready' and 'active'", buildListSections(rows, { filter: "ready", query: "", now: NOW }).rest.map((r) => r.id).join(",") === "1"
   && buildListSections(rows, { filter: "active", query: "", now: NOW }).rest.map((r) => r.id).sort().join(",") === "2,3,5");
 ok("S7 'attention' shows only cases with a reason", buildListSections(rows, { filter: "attention", query: "", now: NOW }).rest.length === 0
-  && buildListSections(rows, { filter: "attention", query: "", now: NOW }).attention.length === 2);
+  && buildListSections(rows, { filter: "attention", query: "", now: NOW }).attention.length === 1);
 ok("S8 row description: subject · problem, or a fallback", rowDescription(rows[1]) === "MacBook Air · לא נטען" && rowDescription(rows[4]) === "מזגן מטפטף"
   && rowDescription({ subjectName: null, problemExcerpt: null }) === "ללא תיאור");
 
@@ -82,9 +110,10 @@ ok("E9 a record names what was recorded; an unknown event is a plain update", ev
 {
   const N = new Date("2026-11-21T12:00:00.000Z");
   const row = (p: Partial<CaseRowData>): CaseRowData => ({ id: 1, caseNumber: 1, kind: "IN_SHOP", status: "OPEN", holdReason: null, customerName: "x", openedAt: N.toISOString(), updatedAt: N.toISOString(), ...p });
-  ok("H1 a case waiting for diagnosis (CHECKED_IN) is in needs-attention with its reason", (attentionReason(row({ status: "CHECKED_IN" }), N) ?? "").startsWith("ממתין לאבחון")
-    && buildListSections([row({ status: "CHECKED_IN" })], { filter: "attention", query: "", now: N }).attention.length === 1);
-  ok("H2 a REMOTE call waiting at OPEN is coordinated, never take-the-item-in", attentionReason(row({ kind: "REMOTE" }), N) === "צריך לתאם ביקור");
+  const dayAgo = new Date(N.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  ok("H1 a case waiting a day for diagnosis (CHECKED_IN) is in «ממתינים לך» with its reason", (attentionReason(row({ status: "CHECKED_IN", statusSince: dayAgo }), N) ?? "").startsWith("ממתין לאבחון")
+    && buildListSections([row({ status: "CHECKED_IN", statusSince: dayAgo })], { filter: "attention", query: "", now: N }).attention.length === 1);
+  ok("H2 a REMOTE call waiting at OPEN is coordinated, never take-the-item-in", attentionReason(row({ kind: "REMOTE", statusSince: dayAgo }), N) === "לא תואם · מאתמול");
   ok("H3 a recorded intake: the next step is its confirmation, not the intake again", nextActionLabel("OPEN", "IN_SHOP", null, { intakeReady: true }) === "לאשר את הקליטה"
     && nextActionLabel("OPEN", "IN_SHOP") === "לקלוט את הפריט");
   ok("H4 READY with no charge: the next step names the charge first", (nextActionLabel("READY", "IN_SHOP", null, { chargeMissing: true }) ?? "").includes("חיוב"));
@@ -108,5 +137,31 @@ ok("J2 a loan / task line takes its name from what the screen holds; without it,
   && eventLabel({ eventType: "task.unlinked", toStatus: "READY", payload: { taskId: 3 } }) === "הוסר קישור למשימה");
 ok("J3 journaled loans are known, so their side lines are not repeated", [...journaledLoanIds([{ seq: 4, eventType: "loan.lent", toStatus: "READY", occurredAt: "2026-11-22T10:00:00.000Z", actor: "OWNER_USER", payload: { loanId: 7 } }])].join(",") === "7");
 
+// ── who acted (owner decision 2026-11-24) ──
+ok("W1 the history names who acted; clear words when the name is not available; system / customer keep their words",
+  actorText({ actor: "OWNER_USER", actorUserId: 7, actorName: "שירה כהן", actorKnown: true }) === "שירה כהן"
+  && actorText({ actor: "OWNER_USER", actorUserId: 7, actorName: null, actorKnown: true }) === "משתמש ללא שם"
+  && actorText({ actor: "OWNER_USER", actorUserId: null, actorName: null, actorKnown: false }) === "משתמש לא מזוהה"
+  && actorText({ actor: "SYSTEM", actorUserId: null, actorName: null, actorKnown: false }) === "המערכת"
+  && actorText({ actor: "CUSTOMER_LINK" }) === "הלקוח" && actorText({ actor: "OWNER_USER" }) === "בעל העסק");
+ok("W2 the merged history carries the name", mergedHistory([{ seq: 1, eventType: "case.opened", toStatus: "OPEN", occurredAt: "2026-11-19T10:00:00.000Z", actor: "OWNER_USER", actorUserId: 3, actorName: "רון לוי", actorKnown: true }], [])[0].actor === "רון לוי");
+ok("T1 a call link only for a plausible phone, digits only", telHref("050-123 4567") === "tel:0501234567" && telHref("+972 50 1234567") === "tel:+972501234567" && telHref("12") === null && telHref(null) === null);
+// ── QA heading follows the marks (owner 2026-11-24): ready / remaining / failed — never «complete» over a full list ──
+ok("QH1 every required check passed → the heading says they can be confirmed", nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "ready", remaining: 0 } }) === "כל בדיקות החובה עברו — אפשר לאשר");
+ok("QH2 checks left → how many", nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "incomplete", remaining: 3 } }) === "נותרו 3 בדיקות לסמן"
+  && qaHeadline({ state: "incomplete", remaining: 1 }) === "נותרה בדיקה אחת לסמן");
+ok("QH3 one failed check → named, and back to work", nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "failed", failedLabels: ["המסך נקי"] } }) === "הבדיקה «המסך נקי» לא עברה — להחזיר לעבודה");
+ok("QH4 several failed → the count, and back to work", qaHeadline({ state: "failed", failedLabels: ["א", "ב"] }) === "2 בדיקות לא עברו — להחזיר לעבודה");
+ok("QH5 the heading never says «complete the checks» once every required check passed", !(nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "ready" } }) ?? "").includes("להשלים"));
+// ── Israel time on every screen (owner 2026-11-24): the day and the time are Asia/Jerusalem, across both clock changes ──
+const at = (z: string) => new Date(z);
+ok("TZ1 just after midnight in Israel (22:30 UTC the day before) is today → the time", formatShortDate("2026-11-23T22:30:00.000Z", at("2026-11-24T08:00:00.000Z")) === "00:30");
+ok("TZ2 late evening in Israel, now just after midnight → yesterday → the date", formatShortDate("2026-11-24T21:30:00.000Z", at("2026-11-24T22:30:00.000Z")) === "24.11");
+ok("TZ3 summer time (UTC+3): 21:30 UTC is 00:30 the next day in Israel", formatShortDate("2026-07-01T21:30:00.000Z", at("2026-07-02T06:00:00.000Z")) === "00:30");
+ok("TZ4 the spring change (27.3.2026, 02:00 → 03:00): before and after", formatShortDate("2026-03-26T23:30:00.000Z", at("2026-03-27T10:00:00.000Z")) === "01:30"
+  && formatShortDate("2026-03-27T00:30:00.000Z", at("2026-03-27T10:00:00.000Z")) === "03:30");
+ok("TZ5 the autumn change (25.10.2026, 02:00 → 01:00): 01:30 happens twice, both read 01:30 on the same day", formatShortDate("2026-10-24T22:30:00.000Z", at("2026-10-25T09:00:00.000Z")) === "01:30"
+  && formatShortDate("2026-10-24T23:30:00.000Z", at("2026-10-25T09:00:00.000Z")) === "01:30");
+ok("TZ6 the date across the year end stays the Israel date", formatShortDate("2026-12-31T22:30:00.000Z", at("2027-01-02T10:00:00.000Z")) === "1.1");
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

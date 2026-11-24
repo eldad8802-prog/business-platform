@@ -10,14 +10,14 @@
  * before a quote is attached (and honest words: the system does not deliver it to the customer), the QA "passed" step
  * explained when it cannot pass, success messages that clear themselves, and the history with the stored side records.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import BackButton from "@/components/ui/back-button";
 
 import { CaseActionDialog, ConfirmDialog, type DialogResult } from "./case-action-dialog";
 import { buildActionBody, caseActions, needsDebtDecision, type CaseActionDef } from "./case-actions-model";
-import { isClosed, journaledLoanIds, type CaseCardData, type JournalItem, type SideHistoryItem } from "./cases-model";
-import { CaseView } from "./case-view";
+import { caseNoun, isClosed, journaledLoanIds, telHref, type CaseCardData, type JournalItem, type SideHistoryItem } from "./cases-model";
+import { CaseView, DetailsBody, IntakeBody, type MoreItem, type Step } from "./case-view";
 import { chargeSummary, docName, ils, loanReminder, parseShekels, pickupSummary, PICKUP_OUTCOME_TEXT, qaBody, qaPassBlocker, quoteMode, type QaResults } from "./case-extras-model";
 import { ChargePanel, FieldsPanel, LoansPanel, PickupPanel, QaPanel, QuotePanel, TasksPanel } from "./case-panels";
 import {
@@ -26,7 +26,7 @@ import {
   sendCaseQuote, ServiceDeskApiError, setCaseFields, setTaskLink,
   type CaseChargeView, type CaseFields, type CaseQa, type CaseTask, type Loan, type PickupCall, type QuoteDoc, type QuoteSummary, type SettlementDoc,
 } from "./service-desk-client";
-import { errorView } from "./service-desk-errors";
+import { errorView, partialFailureReason } from "./service-desk-errors";
 import { LoadError, Loading, NotOpen } from "./ui";
 import { useServiceDeskAccess } from "./use-service-desk-access";
 import s from "./cases.module.css";
@@ -85,6 +85,7 @@ type PanelDialog =
   | { kind: "quote"; doc: QuoteDoc; revise: boolean }
   | { kind: "amount" }
   | { kind: "noCharge" }
+  | { kind: "charge" }
   | { kind: "link"; doc: SettlementDoc };
 
 export function CaseScreen({ caseId }: { caseId: number }) {
@@ -97,22 +98,46 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const [message, setMessage] = useState<Message | null>(null);
   const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
   const [loadingExtras, setLoadingExtras] = useState(true);
+  /** The case version the panels were read for (the charge is "being checked" until it matches the case on screen). */
+  const [extrasFor, setExtrasFor] = useState<number | null>(null);
   const [pickupAttempt, setPickupAttempt] = useState(0);
   const [qaDraft, setQaDraft] = useState<QaResults | undefined>(undefined);
 
+  /**
+   * The case is read first: once it is on screen (fresh version), the action buttons are released. The panels follow in
+   * the background (UX review 2026-11-23: a slow panel read kept the button on «שומר…»); a newer load always wins, so a
+   * slow older answer never overwrites a newer one.
+   */
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++loadSeq.current;
     try {
       const [card, events] = await Promise.all([getCase(caseId), listCaseEvents(caseId)]);
+      if (mine !== loadSeq.current) return;
       setData({ card, events });
       setError("none");
-      setExtras(await loadExtras(card)); // each panel restarts only when its own server data changed (keys below)
-      setQaDraft(undefined);
+      void loadExtras(card).then((x) => {
+        if (mine !== loadSeq.current) return;
+        setExtras(x); // each panel restarts only when its own server data changed (keys below)
+        setQaDraft(undefined);
+        setExtrasFor(card.version ?? 0);
+      }, () => {
+        if (mine === loadSeq.current) setExtrasFor(card.version ?? 0); // a failed read says so (never "checking" forever)
+      }).finally(() => { if (mine === loadSeq.current) setLoadingExtras(false); });
     } catch (e) {
+      if (mine !== loadSeq.current) return;
       setError(e instanceof ServiceDeskApiError && e.status === 404 ? "missing" : "failed");
-    } finally {
       setLoadingExtras(false);
     }
   }, [caseId]);
+  /** The case changed elsewhere (another device or tab): nothing was saved, the screen was read again. */
+  const [conflict, setConflict] = useState(false);
+  const fail = useCallback((e: unknown, prefix = "") => {
+    const ev = errorView(e);
+    if (ev.reload && !prefix) { setConflict(true); setMessage(null); return; }
+    // after a partial save (a prefix says what WAS saved) the reason never adds «לא נשמר דבר»
+    setMessage({ tone: "error", text: prefix ? prefix + partialFailureReason(e) : ev.text });
+  }, []);
   useEffect(() => { if (access.status === "open") void load(); }, [access.status, load]);
   // A success line does not stay on screen for ever (pilot review 2026-11-21); an error stays until the next action.
   useEffect(() => {
@@ -126,6 +151,7 @@ export function CaseScreen({ caseId }: { caseId: number }) {
     const card = data.card;
     setBusyId(def.id);
     setMessage(null);
+    setConflict(false);
     try {
       if (def.target.endpoint === "quote") {
         const quotes = await listQuotes(caseId);
@@ -144,33 +170,75 @@ export function CaseScreen({ caseId }: { caseId: number }) {
         setPending({ def, debtMode: true }); // the owner decides, with a documented reason
       } else {
         setPending(null);
-        setMessage({ tone: "error", text: errorView(e).text });
+        fail(e);
       }
     } finally {
       await load();
       setBusyId(null); // only after the fresh case is on screen: no action runs on a stale version
     }
-  }, [caseId, data, load]);
+  }, [caseId, data, load, fail]);
 
   const charge = extras.charge;
-  const balance = chargeSummary(charge?.balance ?? null);
+  const fieldCase = data ? caseNoun(data.card.kind) === "קריאה" : false;
+  // The panels follow the case in the background: until they are read for this version of the case, the charge is
+  // "being checked" — not "could not be read" (that is only for a read that really failed). The handover waits either way.
+  const extrasPending = !!data && extrasFor !== (data.card.version ?? 0);
+  const balance = extrasPending
+    ? { text: "בודקים את מצב החיוב…", blocksHandover: true, needsDebtReason: false }
+    : chargeSummary(charge?.balance ?? null, { field: fieldCase });
+
+  /**
+   * QA in one action (owner decision 2026-11-24): the marked checks are saved, then QA is passed or failed — two existing
+   * server steps, the second on the fresh version. If the second is refused, the screen says the checks were saved and
+   * why the step did not go through; nothing is invented and nothing is rolled back behind the owner's back.
+   */
+  const sendQa = useCallback(async (def: CaseActionDef, then: "PASS" | "FAIL") => {
+    if (!data) return;
+    const card = data.card;
+    const qa = extras.qa;
+    setBusyId(def.id);
+    setMessage(null);
+    setConflict(false);
+    let saved = false;
+    try {
+      const marks = qaDraft ?? qa?.results;
+      const changed = !!qa?.template && !!marks && qa.template.items.some((i) => (marks[i.key] ?? null) !== (qa.results[i.key] ?? null));
+      if (qa?.template && marks && changed) {
+        await recordQa(card.id, qaBody(qa.template.items, marks), card.version ?? 0);
+        saved = true;
+      }
+      const fresh = saved ? await getCase(caseId) : card;
+      await runCaseAction(caseId, then === "PASS" ? { type: "PASS_QA", outcome: "REPAIRED" } : { type: "FAIL_QA" }, fresh.version ?? 0);
+      setMessage({ tone: "ok", text: then === "PASS" ? "הבדיקות נשמרו ואושרו. התיק מוכן למסירה." : "הבדיקות נשמרו. התיק חזר לעבודה." });
+    } catch (e) {
+      if (saved) fail(e, `הבדיקות נשמרו, אבל ${then === "PASS" ? "האישור" : "ההחזרה לעבודה"} לא עבר: `);
+      else fail(e);
+    } finally {
+      await load();
+      setBusyId(null);
+    }
+  }, [caseId, data, extras.qa, qaDraft, load, fail]);
 
   const onAction = useCallback((def: CaseActionDef) => {
+    if (def.target.endpoint === "charge") { setPanelDialog({ kind: "charge" }); return; }
+    if (def.target.endpoint === "scroll") { document.getElementById(def.target.to)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    if (def.target.endpoint === "qa") { void sendQa(def, def.target.then); return; }
     if (def.target.endpoint === "link" || def.blockedReason) return;
     // The handover dialog asks for the debt reason up front when the balance is known to be open (no refusal round-trip).
     const debtUpFront = (def.id === "deliver" || def.id === "complete") && balance.needsDebtReason;
     if (def.input.kind === "none" && !debtUpFront) void send(def, {});
     else setPending({ def, debtMode: debtUpFront });
-  }, [send, balance.needsDebtReason]);
+  }, [send, sendQa, balance.needsDebtReason]);
 
   /** One panel write: the server answers, the case is read again, a refusal is shown in Hebrew. */
   const panelWrite = useCallback(async (id: string, f: () => Promise<unknown>, ok = "נשמר.") => {
     setBusyId(id);
     setMessage(null);
+    setConflict(false);
     try { await f(); setMessage({ tone: "ok", text: ok }); }
-    catch (e) { setMessage({ tone: "error", text: errorView(e).text }); }
+    catch (e) { fail(e); }
     finally { setPanelDialog(null); await load(); setBusyId(null); }
-  }, [load]);
+  }, [load, fail]);
 
   const back = <BackButton fallback="/service-desk" fallbackLabel="לתיקים" />;
   if (access.status !== "open" || !data || error !== "none") {
@@ -191,9 +259,16 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const card = data.card;
   const finished = isClosed(card.status);
   const handoverStep = card.status === "READY" || card.status === "WORK_DONE";
+  const chargeUndecided = handoverStep && !!charge && !charge.current;
   const qaBlocker = card.status === "QA" ? qaPassBlocker(extras.qa, qaDraft) : null;
-  const handoverBlocker = handoverStep && balance.blocksHandover ? balance.text : null;
-  const actions = full ? caseActions(card, { qaMode: extras.qa?.mode, qaBlocker, handoverBlocker }) : [];
+  const handoverBlocker = handoverStep && !chargeUndecided && balance.blocksHandover ? balance.text : null;
+  // QA: the checklist as marked on screen decides the main action (owner decision 2026-11-24).
+  const qaItems = extras.qa?.template?.items ?? null;
+  const qaMarks = qaDraft ?? extras.qa?.results ?? {};
+  const qaState: "incomplete" | "ready" | "failed" | undefined = card.status !== "QA" || !qaItems ? undefined
+    : qaItems.some((i) => qaMarks[i.key] === "FAIL") ? "failed"
+    : qaItems.filter((i) => i.required || extras.qa!.template!.everyCheckRecorded).every((i) => qaMarks[i.key] === "PASS") ? "ready" : "incomplete";
+  const actions = full ? caseActions(card, { qaMode: extras.qa?.mode, qaBlocker, qaState, handoverBlocker, chargeUndecided }) : [];
   const now = new Date();
   const v = card.version ?? 0;
   const busy = busyId !== null;
@@ -204,49 +279,108 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const nextCtx = {
     intakeReady,
     chargeMissing: handoverStep && balance.blocksHandover,
-    qaFailed: card.status === "QA" && !!extras.qa && Object.values(extras.qa.results).includes("FAIL"),
+    qaFailed: card.status === "QA" && qaState === "failed",
+    qa: card.status === "QA" && qaState && qaItems ? {
+      state: qaState,
+      remaining: qaItems.filter((i) => (i.required || extras.qa!.template!.everyCheckRecorded) && !qaMarks[i.key]).length,
+      failedLabels: qaItems.filter((i) => qaMarks[i.key] === "FAIL").map((i) => i.label),
+    } : undefined,
   };
   const caseHref = `/service-desk/cases/${card.id}`;
   const newQuoteHref = card.customerId
     ? `/billing?create=QUOTE&customerId=${card.customerId}${card.customerName ? `&customerName=${encodeURIComponent(card.customerName)}` : ""}&returnTo=${encodeURIComponent(caseHref)}`
     : "/billing?create=QUOTE";
-  const extraMain = (
-    <div style={{ display: "contents" }}>
-      {card.status === "QA" && extras.qa && extras.qa.template ? (
-        <QaPanel key={sig(extras.qa)} qa={extras.qa} editable={full} busy={busy} onDraft={setQaDraft}
-          onSave={(r) => void panelWrite("qa", () => recordQa(card.id, qaBody(extras.qa!.template!.items, r), v), "הבדיקות נשמרו.")} />
-      ) : null}
-      {charge && (handoverStep || charge.current) ? (
-        <ChargePanel key={sig([charge, extras.settlementDocs])} charge={charge} settlementDocs={extras.settlementDocs} editable={full && !finished} busy={busy}
-          onAmount={() => setPanelDialog({ kind: "amount" })} onNoCharge={() => setPanelDialog({ kind: "noCharge" })} onLink={(doc) => setPanelDialog({ kind: "link", doc })} />
-      ) : null}
-      <QuotePanel key={sig([qMode, extras.quoteDocs, extras.caseQuotes, extras.otherCaseDocIds])} mode={qMode} docs={extras.quoteDocs} caseQuotes={extras.caseQuotes}
-        otherCaseDocIds={extras.otherCaseDocIds} editable={full} busy={busy} now={now} newQuoteHref={newQuoteHref}
-        onPick={(doc) => setPanelDialog({ kind: "quote", doc, revise: qMode === "revise" })} />
-      {card.status === "READY" ? (
-        <PickupPanel key={sig(extras.calls)} calls={extras.calls} now={now} editable={full} busy={busy}
-          onRecord={(o, note) => { setPickupAttempt((n) => n + 1); void panelWrite("pickup", () => recordPickupCall(card.id, o, note, pickupAttempt), "השיחה תועדה."); }} />
-      ) : null}
-    </div>
-  );
-  const extraSide = (
+  const chargeWords = charge?.current ? (charge.current.mode === "NO_CHARGE" ? "ללא חיוב" : ils(charge.current.amountAgorot ?? 0)) : null;
+  const steps: Step[] | undefined = handoverStep && charge ? [
+    { label: "לקבוע חיוב", detail: chargeWords ?? "סכום או «ללא חיוב»", state: charge.current ? "done" : "current" },
+    { label: fieldCase ? "לסגור את הקריאה" : "למסור ללקוח", state: charge.current ? "current" : "todo" },
+  ] : undefined;
+
+  // The panels, each built once; the stage decides which are in ③ («עכשיו») and which wait in ④ («עוד»).
+  const openLoans = extras.loans.loans.filter((l) => !l.returnedAt).length;
+  const qaPanel = card.status === "QA" && extras.qa && extras.qa.template ? (
+    <QaPanel key={sig(extras.qa)} qa={extras.qa} editable={full} busy={busy} onDraft={setQaDraft}
+      onSave={(r) => void panelWrite("qa", () => recordQa(card.id, qaBody(extras.qa!.template!.items, r), v), "הבדיקות נשמרו.")} />
+  ) : null;
+  const chargePanel = charge && (handoverStep || charge.current) ? (
+    <ChargePanel key={sig([charge, extras.settlementDocs])} charge={charge} settlementDocs={extras.settlementDocs} editable={full && !finished} busy={busy} field={fieldCase}
+      onAmount={() => setPanelDialog({ kind: "amount" })} onNoCharge={() => setPanelDialog({ kind: "noCharge" })} onLink={(doc) => setPanelDialog({ kind: "link", doc })} />
+  ) : null;
+  const quotePanel = qMode || extras.caseQuotes.length ? (
+    <QuotePanel key={sig([qMode, extras.quoteDocs, extras.caseQuotes, extras.otherCaseDocIds])} mode={qMode} docs={extras.quoteDocs} caseQuotes={extras.caseQuotes}
+      otherCaseDocIds={extras.otherCaseDocIds} editable={full} busy={busy} now={now} newQuoteHref={newQuoteHref}
+      onPick={(doc) => setPanelDialog({ kind: "quote", doc, revise: qMode === "revise" })} />
+  ) : null;
+  const pickupPanel = card.status === "READY" || extras.calls.length ? (
+    <PickupPanel key={sig(extras.calls)} calls={extras.calls} now={now} editable={full && card.status === "READY"} busy={busy}
+      onRecord={(o, note) => { setPickupAttempt((n) => n + 1); void panelWrite("pickup", () => recordPickupCall(card.id, o, note, pickupAttempt), "השיחה תועדה."); }} />
+  ) : null;
+  const fieldsPanel = extras.fields ? <FieldsPanel key={sig(extras.fields)} fields={extras.fields} editable={full && !finished} busy={busy} held={held}
+    onSave={(loc, d) => void panelWrite("fields", () => setCaseFields(card.id, loc, d))} /> : null;
+  const loansPanel = extras.loans.available ? (
+    <LoansPanel key={sig(extras.loans)} available={extras.loans.available} loans={extras.loans.loans} now={now} editable={full} finished={finished} busy={busy}
+      onLend={(name, note) => void panelWrite("loan", () => lendItem(card.id, name, note), "נרשם.")}
+      onReturn={(id) => void panelWrite("loan", () => returnLoan(card.id, id), "סומן כהוחזר.")} />
+  ) : null;
+  const tasksPanel = extras.tasks.available ? (
+    <TasksPanel key={sig(extras.tasks)} available={extras.tasks.available} linked={extras.tasks.linked} open={extras.tasks.open} editable={full} finished={finished} busy={busy}
+      onLink={(id, link) => void panelWrite("task", () => setTaskLink(card.id, id, link), link ? "המשימה קושרה." : "הקישור הוסר.")} />
+  ) : null;
+  const detailsCard = <section className={s.infoCard} aria-label={held ? "הפריט והתקלה" : "פרטי העבודה"}><p className={s.infoTitle}>{held ? "הפריט והתקלה" : "פרטי העבודה"}</p><DetailsBody card={card} now={now} /></section>;
+
+  const st = card.status;
+  const early = st === "OPEN" || st === "SCHEDULED" || st === "CHECKED_IN";
+  const diagnosing = st === "DIAGNOSING" || st === "QUOTE_PENDING";
+  const working = st === "IN_REPAIR" || st === "EXTERNAL";
+  const inNow = {
+    details: early || diagnosing || finished,
+    quote: diagnosing && !!quotePanel,
+    tasks: working,
+    loans: working || (handoverStep && openLoans > 0),
+    fields: working,
+    qa: st === "QA",
+    pickup: st === "READY",
+    charge: handoverStep || (finished && !!charge?.current),
+  };
+  const nowPanels = (
     <div style={{ display: "contents" }}>
       {loadingExtras ? <Loading /> : null}
-      {extras.fields ? <FieldsPanel key={sig(extras.fields)} fields={extras.fields} editable={full && !finished} busy={busy} held={held}
-        onSave={(loc, d) => void panelWrite("fields", () => setCaseFields(card.id, loc, d))} /> : null}
-      <LoansPanel key={sig(extras.loans)} available={extras.loans.available} loans={extras.loans.loans} now={now} editable={full} finished={finished} busy={busy}
-        onLend={(name, note) => void panelWrite("loan", () => lendItem(card.id, name, note), "נרשם.")}
-        onReturn={(id) => void panelWrite("loan", () => returnLoan(card.id, id), "סומן כהוחזר.")} />
-      <TasksPanel key={sig(extras.tasks)} available={extras.tasks.available} linked={extras.tasks.linked} open={extras.tasks.open} editable={full} finished={finished} busy={busy}
-        onLink={(id, link) => void panelWrite("task", () => setTaskLink(card.id, id, link), link ? "המשימה קושרה." : "הקישור הוסר.")} />
+      {inNow.qa ? qaPanel : null}
+      {inNow.pickup ? pickupPanel : null}
+      {inNow.charge ? chargePanel : null}
+      {inNow.details ? detailsCard : null}
+      {inNow.quote ? quotePanel : null}
+      {inNow.tasks ? tasksPanel : null}
+      {inNow.loans ? loansPanel : null}
+      {inNow.fields ? fieldsPanel : null}
     </div>
   );
+  const fieldsSummary = extras.fields && (extras.fields.itemLocationNote || extras.fields.estimatedReadyOn)
+    ? [extras.fields.itemLocationNote, extras.fields.estimatedReadyOn ? `סיום משוער ${extras.fields.estimatedReadyOn.split("-").reverse().slice(0, 2).map(Number).join(".")}` : null].filter(Boolean).join(" · ")
+    : "לא נקבע";
+  const more: MoreItem[] = [
+    ...(!inNow.details ? [{ key: "details", title: held ? "הפריט והתקלה" : "פרטי העבודה", summary: card.problemDescription?.slice(0, 40) ?? null, body: <DetailsBody card={card} now={now} /> }] : []),
+    ...(held ? [{ key: "intake", title: "פרטי הקליטה", summary: card.intake ? (intakeReady ? "הושלמה" : "חסרים פרטים") : "עוד לא בוצעה", body: <IntakeBody card={card} /> }] : []),
+    ...(quotePanel && !inNow.quote ? [{ key: "quote", title: "הצעת מחיר", summary: extras.caseQuotes.length ? `${extras.caseQuotes.length} בתיק` : "אין", body: quotePanel }] : []),
+    ...(tasksPanel && !inNow.tasks && (!finished || extras.tasks.linked.length) ? [{ key: "tasks", title: "משימות", summary: extras.tasks.linked.length ? `${extras.tasks.linked.length}` : "אין", body: tasksPanel }] : []),
+    ...(loansPanel && !inNow.loans && (!finished || extras.loans.loans.length) ? [{ key: "loans", title: "ציוד חלופי", summary: openLoans ? `${openLoans} אצל הלקוח` : extras.loans.loans.length ? "הוחזר" : "לא ניתן", body: loansPanel }] : []),
+    ...(fieldsPanel && !inNow.fields && !finished ? [{ key: "fields", title: "מיקום ותאריך משוער", summary: fieldsSummary, body: fieldsPanel }] : []),
+    ...(pickupPanel && !inNow.pickup ? [{ key: "pickup", title: "תזכורות איסוף", summary: `${extras.calls.length}`, body: pickupPanel }] : []),
+    ...(chargePanel && !inNow.charge ? [{ key: "charge", title: "חיוב ותשלום", summary: chargeWords, body: chargePanel }] : []),
+  ];
   return (
     <>
       <CaseView card={card} events={data.events} sideHistory={sideHistory(extras, data.events)}
         historyNames={{ loans: Object.fromEntries(extras.loans.loans.map((l) => [l.id, l.itemName])), tasks: Object.fromEntries([...extras.tasks.linked, ...extras.tasks.open].map((t) => [t.id, t.title])) }}
         nextCtx={nextCtx} now={now} back={back} actions={actions} onAction={onAction}
-        busyId={busyId} message={message} notes={notes} extraMain={extraMain} extraSide={extraSide} />
+        busyId={busyId} message={message} notes={notes} steps={steps} nowPanels={nowPanels} more={more} callHref={telHref(card.customerPhone)}
+        banner={conflict ? (
+          <div className={s.conflict} role="alert">
+            <strong>התיק עודכן ממקום אחר</strong>
+            <span>הפעולה לא נשמרה, כדי לא לדרוס את השינוי. המסך כבר מציג את המצב העדכני — בודקים ומנסים שוב.</span>
+            <button type="button" className={s.secondary} onClick={() => { setConflict(false); void load(); }}>לרענן שוב</button>
+          </div>
+        ) : null} />
       {pending ? (
         <CaseActionDialog def={pending.def} debtMode={pending.debtMode} busy={busyId !== null}
           onCancel={() => setPending(null)} onSubmit={(r) => void send(pending.def, r)} />
@@ -272,6 +406,7 @@ function PanelDialogView({ dialog, card, charge, busy, onCancel, onQuote, onChar
 }) {
   const [amount, setAmount] = useState(charge?.current?.mode === "CHARGEABLE" && charge.current.amountAgorot ? String(charge.current.amountAgorot / 100) : "");
   const [reason, setReason] = useState("");
+  const [chargeMode, setChargeMode] = useState<"amount" | "noCharge">("amount");
   const hasCharge = !!charge?.current;
   if (dialog.kind === "quote") {
     const d = dialog.doc;
@@ -295,14 +430,22 @@ function PanelDialogView({ dialog, card, charge, busy, onCancel, onQuote, onChar
       </ConfirmDialog>
     );
   }
-  const reasonNeeded = dialog.kind === "noCharge" || hasCharge;
+  // "charge" (the main action of a case waiting for its charge) offers both in one sheet; the panel's buttons open one.
+  const kind: "amount" | "noCharge" = dialog.kind === "charge" ? chargeMode : dialog.kind === "noCharge" ? "noCharge" : "amount";
+  const reasonNeeded = kind === "noCharge" || hasCharge;
   const agorot = parseShekels(amount);
   const reasonOk = !reasonNeeded || reason.trim().length > 0;
   return (
-    <ConfirmDialog title={dialog.kind === "noCharge" ? "לקבוע: ללא חיוב" : hasCharge ? "לשנות את סכום החיוב" : "לקבוע סכום לחיוב"}
-      confirmLabel="לשמור" busy={busy} confirmDisabled={!reasonOk || (dialog.kind === "amount" && agorot === null)} onCancel={onCancel}
-      onConfirm={() => onCharge(dialog.kind === "noCharge" ? { mode: "NO_CHARGE", reason: reason.trim() } : { mode: "CHARGEABLE", amountAgorot: agorot!, ...(reason.trim() ? { reason: reason.trim() } : {}) })}>
-      {dialog.kind === "amount" ? (
+    <ConfirmDialog title={dialog.kind === "charge" ? "לקבוע חיוב" : kind === "noCharge" ? "לקבוע: ללא חיוב" : hasCharge ? "לשנות את סכום החיוב" : "לקבוע סכום לחיוב"}
+      confirmLabel="לשמור" busy={busy} confirmDisabled={!reasonOk || (kind === "amount" && agorot === null)} onCancel={onCancel}
+      onConfirm={() => onCharge(kind === "noCharge" ? { mode: "NO_CHARGE", reason: reason.trim() } : { mode: "CHARGEABLE", amountAgorot: agorot!, ...(reason.trim() ? { reason: reason.trim() } : {}) })}>
+      {dialog.kind === "charge" ? (
+        <div className={s.segment} role="group" aria-label="סוג החיוב">
+          <button type="button" aria-pressed={chargeMode === "amount"} onClick={() => setChargeMode("amount")}>סכום לחיוב</button>
+          <button type="button" aria-pressed={chargeMode === "noCharge"} onClick={() => setChargeMode("noCharge")}>ללא חיוב</button>
+        </div>
+      ) : null}
+      {kind === "amount" ? (
         <label className={s.label}>
           סכום לחיוב (₪, כולל מע&quot;מ)
           <input className={s.input} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="למשל 350" aria-invalid={amount !== "" && agorot === null} />
@@ -313,7 +456,7 @@ function PanelDialogView({ dialog, card, charge, busy, onCancel, onQuote, onChar
       )}
       {reasonNeeded ? (
         <label className={s.label}>
-          {dialog.kind === "noCharge" ? "סיבה (חובה)" : "סיבת השינוי (חובה)"}
+          {kind === "noCharge" ? "סיבה (חובה)" : "סיבת השינוי (חובה)"}
           <textarea className={s.textarea} value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} />
         </label>
       ) : null}

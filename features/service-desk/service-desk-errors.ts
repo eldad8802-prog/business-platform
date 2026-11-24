@@ -126,3 +126,11 @@ export function errorView(e: unknown): ErrorView {
   if (e.status >= 500) return { text: "שגיאה בשרת. לא נשמר דבר — נסה שוב." };
   return { text: GENERIC };
 }
+
+/**
+ * The reason after a PARTIAL save (the first step was saved, the next did not pass): the error's words without
+ * «לא נשמר דבר» — something WAS saved, and the screen says so right before (UX review 2026-11-24).
+ */
+export function partialFailureReason(e: unknown): string {
+  return errorView(e).text.replace(/\s*לא נשמר דבר\s*—\s*/g, " ").replace(/\s+/g, " ").trim();
+}
