@@ -1,0 +1,151 @@
+# Platform subscriptions / migration 20261224090000_platform_subscriptions — proof on PostgreSQL 17 BEFORE it reaches
+# Production. Migration-only PR (subscriptions stage B): PlatformSubscription (one row per business) and
+# PlatformSubscriptionEvent (append-only), FORCE RLS, every existing business backfilled as a tester. The Prisma models
+# and the code that reads them come in a separate PR, after the owner approves applying this migration.
+#
+#   1. Current schema (prisma db push of this branch) + the app_runtime and app_ctlplane roles, as in Production, and
+#      three businesses that exist BEFORE the migration (two ordinary, one platform system business).
+#   2. The read-only preflight passes (nothing of the migration exists yet).
+#   3. The migration applies in ONE transaction; applying it again is refused and changes nothing.
+#   4. The lab: backfill, FORCE RLS, exact privileges, runtime read-only, control-plane GUC isolation, append-only log,
+#      one row per business, integrity, provider-event uniqueness, cascade, no silent record for a new business.
+#   5. The read-only evidence passes after the migration.
+#   6. The evidence catches a customer row and a business left without a row; the preflight FAILS once applied.
+#   7. Rollback restores the previous state; the preflight passes again; apply again; lab and evidence again.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network beyond the image and npm.
+
+name: platform subscriptions — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261224090000_platform_subscriptions/**"
+      - ".platform-subscriptions/**"
+      - "ops/evidence/platform-subscriptions-*.sql"
+      - ".github/workflows/platform-subscriptions-migration-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: platform subscriptions migration (PG17, one transaction, isolation, append-only, rollback)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_owner
+          POSTGRES_PASSWORD: ps_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_ps
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_owner -d dubiz_ps"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: lab_owner
+      PGDATABASE: dubiz_ps
+      PGPASSWORD: ps_ci_synthetic_owner_pw
+      OWNER_URL: postgresql://lab_owner:ps_ci_synthetic_owner_pw@localhost:5432/dubiz_ps
+      MIGRATION: prisma/migrations/20261224090000_platform_subscriptions/migration.sql
+      LEDGER_ROW: >-
+        INSERT INTO "_prisma_migrations" (id, checksum, finished_at, migration_name, applied_steps_count)
+        VALUES ('platform-subscriptions-lab', md5('x'), now(), '20261224090000_platform_subscriptions', 1);
+      BUSINESSES: >-
+        INSERT INTO "Business" ("id", "name", "createdAt", "updatedAt") VALUES
+        (920001, 'lab A', now() - interval '1 hour', now()), (920002, 'lab B', now() - interval '1 hour', now()),
+        (920003, '__PLATFORM_SYSTEM__', now() - interval '1 hour', now());
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. current schema, Production's roles, a ledger like Production's, businesses that exist before
+        run: |
+          DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma db push --skip-generate
+          # A branch stacked on this one carries the Prisma models, so db push builds copies of the tables: drop them, so
+          # the migration (the real thing) is what creates them — exactly as in Production.
+          psql -v ON_ERROR_STOP=1 -c 'DROP TABLE IF EXISTS "PlatformSubscriptionEvent";' -c 'DROP TABLE IF EXISTS "PlatformSubscription";'
+          psql -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE app_ctlplane NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime, app_ctlplane;"
+          psql -v ON_ERROR_STOP=1 -c 'CREATE TABLE "_prisma_migrations" (id varchar(36) PRIMARY KEY, checksum varchar(64) NOT NULL, finished_at timestamptz, migration_name varchar(255) NOT NULL, logs text, rolled_back_at timestamptz, started_at timestamptz NOT NULL DEFAULT now(), applied_steps_count integer NOT NULL DEFAULT 0);'
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d"); case "$n" in 20261224090000_platform_subscriptions) continue;; esac
+            echo "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (md5('$n')::varchar(36), md5('$n'), now(), '$n', 1);"
+          done | psql -v ON_ERROR_STOP=1 -q
+          psql -v ON_ERROR_STOP=1 -c "$BUSINESSES"
+
+      - name: 2. preflight (read-only) passes before the migration — no FAIL cell, at least one PASS
+        run: |
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/platform-subscriptions-preflight.sql | tee pre.out
+          if grep -qE "\|FAIL\|" pre.out; then echo "FAIL row in pre.out"; exit 1; fi
+          grep -qE "\|PASS\|" pre.out
+
+      - name: 3. migration in one transaction; a second run is refused and changes nothing
+        run: |
+          psql -1 -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -c "$LEDGER_ROW"
+          before=$(psql -tAc 'SELECT count(*) FROM "PlatformSubscriptionEvent"')
+          if psql -1 -v ON_ERROR_STOP=1 -f "$MIGRATION" 2> second.err; then echo "second run was accepted"; exit 1; fi
+          grep -q "PLATFORM_SUBSCRIPTIONS: a subscription table already exists" second.err
+          test "$(psql -tAc 'SELECT count(*) FROM "PlatformSubscriptionEvent"')" = "$before"
+
+      - name: 4. lab — backfill, FORCE RLS, privileges, isolation, append-only, integrity, cascade
+        run: psql -v ON_ERROR_STOP=1 -tA -f .platform-subscriptions/migration-lab.sql | tee lab.out && grep -q "^MIGRATION_LAB_OK$" lab.out
+
+      - name: 5. evidence (read-only) passes after the migration — no FAIL cell, at least one PASS
+        run: |
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/platform-subscriptions-production-evidence.sql | tee ev.out
+          if grep -qE "\|FAIL\|" ev.out; then echo "FAIL row in ev.out"; exit 1; fi
+          grep -qE "\|PASS\|" ev.out
+
+      - name: 6. the evidence catches a customer row and an unrecorded old business; the preflight FAILS once applied
+        run: |
+          set -euo pipefail
+          row() { awk -F'|' -v n="$2" '$1==n{print $2}' "$1"; }
+          psql -v ON_ERROR_STOP=1 -c "INSERT INTO \"Business\" (\"id\", \"name\", \"createdAt\", \"updatedAt\") VALUES (920010, 'lab bad', now() - interval '2 hours', now());" \
+            -c "INSERT INTO \"Business\" (\"id\", \"name\", \"createdAt\", \"updatedAt\") VALUES (920011, 'lab customer', now() - interval '2 hours', now());" \
+            -c "INSERT INTO \"PlatformSubscription\" (\"businessId\", \"accountType\", \"status\", \"plan\", \"catalogVersion\", \"source\", \"updatedAt\") VALUES (920011, 'CUSTOMER', 'ACTIVE', 'BASIC', '2026-11-20', 'ADMIN', now());"
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/platform-subscriptions-production-evidence.sql | tee bad.out
+          test "$(row bad.out 14)" = "FAIL"   # 920010 existed at release time and has no row
+          test "$(row bad.out 15)" = "FAIL"   # 920011 is a customer
+          test "$(row bad.out 17)" = "FAIL"   # 920011 has no BACKFILL log row
+          psql -v ON_ERROR_STOP=1 -c 'DELETE FROM "Business" WHERE "id" IN (920010, 920011);'
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/platform-subscriptions-production-evidence.sql > ev-clean.out
+          if grep -qE "\|FAIL\|" ev-clean.out; then cat ev-clean.out; echo "evidence did not return to clean"; exit 1; fi
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/platform-subscriptions-preflight.sql | tee pre2.out
+          grep -qE "\|FAIL\|" pre2.out
+
+      - name: 7. rollback restores the previous state; preflight passes again; apply again; lab and evidence again
+        run: |
+          psql -1 -v ON_ERROR_STOP=1 -tA -f .platform-subscriptions/rollback.sql | grep -q "^ROLLBACK_OK$"
+          psql -v ON_ERROR_STOP=1 -c "DELETE FROM \"_prisma_migrations\" WHERE migration_name = '20261224090000_platform_subscriptions';"
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/platform-subscriptions-preflight.sql | tee pre3.out
+          if grep -qE "\|FAIL\|" pre3.out; then echo "FAIL row in pre3.out"; exit 1; fi
+          psql -v ON_ERROR_STOP=1 -c 'DELETE FROM "Business" WHERE "id" BETWEEN 920001 AND 920099;' -c "$BUSINESSES"
+          psql -1 -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -c "$LEDGER_ROW"
+          psql -v ON_ERROR_STOP=1 -tA -f .platform-subscriptions/migration-lab.sql | grep -q "^MIGRATION_LAB_OK$"
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/platform-subscriptions-production-evidence.sql | tee ev2.out
+          if grep -qE "\|FAIL\|" ev2.out; then echo "FAIL row in ev2.out"; exit 1; fi
+          grep -qE "\|PASS\|" ev2.out
