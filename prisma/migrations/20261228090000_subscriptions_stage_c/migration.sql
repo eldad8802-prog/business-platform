@@ -346,7 +346,7 @@ GRANT EXECUTE ON FUNCTION public.subscription_signup_open(integer, jsonb, intege
 
 -- ── A4. Trial expiry recorder. Only TRIALING rows whose trialEndsAt has passed; nothing else can be moved by it. ──
 
-CREATE OR REPLACE FUNCTION public.subscription_expire_due_trials(p_max integer)
+CREATE OR REPLACE FUNCTION public.subscription_expire_due_trials(p_max integer DEFAULT 200)
 RETURNS integer
 LANGUAGE plpgsql
 VOLATILE
