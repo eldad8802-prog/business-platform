@@ -146,10 +146,15 @@ declaration. T1 removes this limit.
   - T2-4: businesses that did not transition are byte-identical, and the 9 existing uniform tests pass.
   - T2-5: three simulator packages (`docs/compliance/tax-authority/t2-kind-transition/`).
 - **No change to the export code.**
-- **External verification is still open.** Until it is done, the accounting requirement is not stated as verified:
-  - the owner runs the three packages in the ITA simulator;
-  - the accountant confirms the two questions in that README (the id number in the "מספר עוסק מורשה" fields for an
-    exempt dealer; one file across the transition).
+- **Closure (owner, final, 2026-11-24).** The authority for the uniform structure is the Tax Authority; an
+  accountant's confirmation is not a condition. The id number stays the same; one file for a range across the
+  transition; each document keeps its own VAT; numbering stays continuous in every series. T2 closes when:
+  1. the three v2 packages (≥ 2,000 records each, `t2-simulator-packages-v2.zip`) pass the official ITA simulator;
+  2. no contradiction with the original spec 1.31 is found. The README holds the field-by-field check against the
+     original: identity fields, 1015, 1011/1023, 1024/1025, the path, the document codes 305/320/330/400 and the
+     1306 payment codes. The spec has no instruction to split files on a change from exempt to authorized.
+  A Tax Authority inquiry is drafted (`ITA-INQUIRY-DRAFT.md`) only for the point the spec does not address in words:
+  the "מספר עוסק מורשה" fields for an exempt dealer.
 
 ### T3 — 0%-VAT drafts must be reviewed before issuing (Gate; owner 11-21)
 
