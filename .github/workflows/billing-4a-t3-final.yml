@@ -1,0 +1,103 @@
+# TEMPORARY — 4a T3 final verification only, on the branch verify/t3-final (never merged; not a permanent CI job).
+# The full billing document page in a PRODUCTION build (next build + next start) on an ephemeral PG17 with Production's
+# role topology (.billing-4a/lab.sh), a real session, Chromium phone + desktop; screenshots uploaded as an artifact.
+# Synthetic only. ZERO secrets. ZERO network beyond localhost (and the npm / Playwright downloads). ZERO Production.
+
+name: billing-4a T3 — final verification (temporary, verify branch)
+
+on:
+  push:
+    branches: [verify/t3-final]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: T3 draft VAT review — full page, production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: t3_e2e_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: t3_e2e_synthetic_super_pw
+      LAB_PASSWORD: t3_e2e_synthetic_role_pw
+      OWNER_URL: postgresql://lab_owner:t3_e2e_synthetic_role_pw@localhost:5432/t3_e2e
+      DATABASE_URL: postgresql://app_runtime_prod:t3_e2e_synthetic_role_pw@localhost:5432/t3_e2e?connection_limit=20
+      DIRECT_URL: postgresql://app_runtime_prod:t3_e2e_synthetic_role_pw@localhost:5432/t3_e2e
+      AUTH_DATABASE_URL: postgresql://lab_owner:t3_e2e_synthetic_role_pw@localhost:5432/t3_e2e
+      AUTH_TOKEN_SECRET: t3-e2e-synthetic-auth-token-secret-0123456789
+      TASK_REQUEST_HMAC_KEY: t3-e2e-synthetic-request-hmac-key-0123456789abcdef
+      TASK_REQUEST_HMAC_KEY_ID: lab1
+      CRON_SECRET: t3_e2e_ci_cron_secret_synthetic_at_least_32
+      AUTH_PLANE_ENABLED: "true"
+      RATE_LIMIT_BACKEND: memory
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_ROOT: /tmp/t3-e2e-store
+      BILLING_PDF_STORAGE_ROOT: /tmp/t3-e2e-store
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: --max-old-space-size=6144
+      E2E_BASE: http://localhost:3797
+      OUT: /tmp/t3-e2e
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab (Production role topology; issuer declaration + transition + DZ010 by migrate deploy)
+        run: bash .billing-4a/lab.sh t3_e2e
+      - name: Lab batteries — T3 (incl. V11 quotes), T4 interim documents, T5 numbering
+        env:
+          DATABASE_URL: postgresql://app_runtime_prod:t3_e2e_synthetic_role_pw@localhost:5432/t3_e2e?connection_limit=20&pool_timeout=30
+          DIRECT_URL: postgresql://lab_owner:t3_e2e_synthetic_role_pw@localhost:5432/t3_e2e
+        run: |
+          set -euo pipefail
+          mkdir -p "$LOCAL_STORAGE_ROOT"
+          npx tsx .billing-4a/t3-draft-vat-review.battery.mts | tee /tmp/t3.out
+          grep -q "T3 draft-vat-review battery: [0-9]* passed, 0 failed" /tmp/t3.out
+          npx tsx .billing-4a/t4-interim-documents.battery.mts | tee /tmp/t4.out
+          grep -q "T4 interim-documents battery: [0-9]* passed, 0 failed" /tmp/t4.out
+          npx tsx .billing-4a/t5-numbering.battery.mts | tee /tmp/t5.out
+          grep -q "T5: [0-9]* passed, 0 failed" /tmp/t5.out
+      - name: Pure suites — A0 golden, PDF render, T3/T4 unit, uniform, route map, exempt rule
+        run: |
+          set -euo pipefail
+          for t in .billing-a0/golden.test.ts .billing-a0/pdf-render.test.ts lib/services/billing/kind-transition/draft-vat-review.test.ts lib/services/billing/kind-transition/interim-documents.test.ts lib/billing/business-identity.exempt-dealer.test.ts lib/services/feature-access/route-feature-map.test.ts lib/services/billing/uniform/*.test.ts; do echo "== $t"; npx tsx "$t" | tail -2; done
+      - name: Production build
+        run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Full page e2e (next start)
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT" "$LOCAL_STORAGE_ROOT"
+          (nohup npx next start -p 3797 > "$OUT/server.log" 2>&1 &)
+          for i in $(seq 1 120); do curl -sf -o /dev/null http://localhost:3797/login && break; sleep 2; done
+          npx tsx .billing-4a/t3-page-e2e.mts
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: t3-page-e2e
+          path: /tmp/t3-e2e
+          retention-days: 14
+      - name: Server log (on failure)
+        if: failure()
+        run: tail -n 150 "$OUT/server.log" 2>/dev/null || true
