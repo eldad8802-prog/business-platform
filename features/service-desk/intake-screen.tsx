@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { confirmIntake, createSlip, fetchIntakeBlob, getIntake, saveIntakeData, uploadPhoto, type IntakeView } from "./intake-client";
 import { PHOTO_JPEG_QUALITY, confirmBlocker, currentSection, downscaleTarget, historyLine, israelDateTime } from "./intake-model";
-import { errorView } from "./service-desk-errors";
+import { errorView, partialFailureReason } from "./service-desk-errors";
 import s from "./sd.module.css";
 import { LoadError, Loading, NotOpen, ReadOnlyBanner, ScreenHead } from "./ui";
 import { useServiceDeskAccess } from "./use-service-desk-access";
@@ -153,7 +153,7 @@ export function IntakeScreen({ caseId }: { caseId: number }) {
       setMessage("הקליטה אושרה והפריט התקבל לטיפול.");
       setOkMessage(true);
     } catch (e) {
-      setMessage(saved ? `פרטי הקליטה נשמרו, אבל האישור לא עבר: ${errorView(e).text}` : errorView(e).text);
+      setMessage(saved ? `פרטי הקליטה נשמרו, אבל האישור לא עבר: ${partialFailureReason(e)}` : errorView(e).text);
       setOkMessage(false);
     } finally {
       setBusy(null);
