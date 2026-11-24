@@ -32,11 +32,7 @@ import {
   mapExecutionResultToAuthorityOutcome,
   type AuthorityIssueOutcome,
 } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
-import {
-  AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE,
-  AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE,
-  resolveIssueAllocationGate,
-} from "@/lib/services/billing/authority/billing-authority-issue-gate";
+import { resolveIssueAllocationGate } from "@/lib/services/billing/authority/billing-authority-issue-gate";
 import {
   assertCanReferenceSourceInvoice,
   assertCreditAmountWithinRemaining,
@@ -801,12 +797,15 @@ export async function issueBillingDocumentTx(
   }
 
   // An invoice that needs an allocation number is not issued while sending that
-  // request is known to be closed: refused here, before the number sequence, so
-  // the draft keeps no number and no undeliverable invoice is created. Only a
-  // person's issuance can need one — a system issuance is a pure receipt.
+  // request is known to be closed — nor, in the PRODUCTION pilot, when it is not
+  // the document authorized in advance (N10): refused here, before the number
+  // sequence, so the draft keeps no number and no undeliverable invoice is
+  // created. Only a person's issuance can need one — a system issuance is a pure
+  // receipt.
   if (core.actor.kind === "USER") {
     const gate = resolveIssueAllocationGate({
       businessId: input.businessId,
+      billingDocumentId: doc.id,
       documentType: doc.documentType,
       invoiceDate: issuedAt,
       vatAmount: issuedTotals.vatAmount,
@@ -816,10 +815,7 @@ export async function issueBillingDocumentTx(
       customerTaxId: customerData?.taxId ?? null,
     });
     if (gate.blocked) {
-      throw new ConflictError(
-        AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE,
-        AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE
-      );
+      throw new ConflictError(gate.code, gate.message);
     }
   }
 
