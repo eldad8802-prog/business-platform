@@ -5,17 +5,22 @@
  *                                                  ENFORCE — effective only up to the server ceiling USAGE_QUOTA_MODE).
  * No deploy needed; every change is versioned, logged and audited in the database.
  */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
+import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";
 import { adminRead, adminWrite } from "@/lib/services/platform-admin/subscriptions-admin-http";
 import { loadQuotaMatrix, setQuotaPolicy, setUsageMode } from "@/lib/services/platform-admin/subscriptions-admin.service";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  return adminRead(req, () => loadQuotaMatrix());
+  const auth = await requirePlatformAdminOrResponse(req);
+  if (auth instanceof NextResponse) return auth;
+  return adminRead(auth.id, () => loadQuotaMatrix());
 }
 
 export async function PATCH(req: NextRequest) {
-  return adminWrite(req, (adminId, body) => ("mode" in body ? setUsageMode(adminId, body) : setQuotaPolicy(adminId, body)));
+  const auth = await requirePlatformAdminOrResponse(req);
+  if (auth instanceof NextResponse) return auth;
+  return adminWrite(req, auth.id, (adminId, body) => ("mode" in body ? setUsageMode(adminId, body) : setQuotaPolicy(adminId, body)));
 }

@@ -137,14 +137,20 @@ for (const p of ["app/api/business/landing-blueprint/route.ts", "app/api/busines
   ok(`6 internal AI ${p}: measured AND rate-limited (LANDING_COMPOSE)`, /measuredInternalAi\(/.test(read(p)) && /bucket: "LANDING_COMPOSE"/.test(read(p)));
 }
 ok("6 the knowledge Brain: measured, secret-gated, cooldown", /measuredInternalAi\(/.test(read("app/api/knowledge/derive/route.ts")) && /KNOWLEDGE_DERIVE_SECRET/.test(read("app/api/knowledge/derive/route.ts")));
-ok("6 the bot-draft LLM is not reachable from any route or service", src.every((p) => p.includes("llm-draft/") || !/conversation\/llm-draft/.test(read(p))));
+const llmDraftImporters = src.filter((p) => !/llm-draft/.test(p) && /conversation\/llm-draft/.test(read(p)));
+ok("6 the bot-draft LLM is not reachable from any route or service", llmDraftImporters.length === 0, llmDraftImporters);
 ok("6 the legacy weekly video counter is no longer called (decision 29)", !/usage\.service/.test(read("app/api/content/render/route.ts")) && /metric: "video_renders"/.test(read("app/api/content/render/route.ts")));
 const signup = read("lib/auth/signup.ts");
 ok("6 the trial opens in both signup paths, inside the account transaction", (signup.match(/openSignupSubscriptionInAccountTx\(tx,/g) ?? []).length === 2);
 ok("6 the email signup opens a trial only on the auth plane", /if \(isAuthPlaneActive\(\)\) await openSignupSubscriptionInAccountTx/.test(signup));
 ok("6 the signup form is untouched (no new field read)", !/trial|subscription/i.test(read("app/register/register-form.tsx")));
 ok("6 the meter never opens a second transaction inside an open one", /currentTenantTransaction\(\)/.test(read("lib/services/subscriptions/usage/usage-meter.ts")) && /SAVEPOINT/.test(read("lib/services/subscriptions/usage/usage-meter.ts")));
-ok("6 admin writes: platform admin → fresh second factor → kill switch", /requirePlatformAdminOrResponse[\s\S]*freshStepUpRefusal[\s\S]*isSubscriptionAdminChangesEnabled/.test(read("lib/services/platform-admin/subscriptions-admin-http.ts")));
+ok("6 admin writes: fresh second factor → kill switch, after the route's admin guard", /freshStepUpRefusal[\s\S]*isSubscriptionAdminChangesEnabled/.test(read("lib/services/platform-admin/subscriptions-admin-http.ts")));
+const adminRoutes = src.filter((p) => /app[\\/]api[\\/]platform-admin[\\/](subscriptions|businesses[\\/]\[id\][\\/]usage)[\\/]/.test(p));
+ok("6 every subscriptions admin handler awaits the platform-admin guard first", adminRoutes.length === 8 && adminRoutes.every((p) => {
+  const handlers = read(p).split(/export async function (?:GET|POST|PATCH)\(/).slice(1);
+  return handlers.length > 0 && handlers.every((h) => /^[^\n]*\)\s*\{\n\s*const auth = await requirePlatformAdminOrResponse\(req\);\s*if \(auth instanceof NextResponse\) return auth;/.test(h));
+}), adminRoutes);
 ok("6 the admin service writes only through definer functions", !/INSERT INTO|UPDATE "|DELETE FROM/.test(read("lib/services/platform-admin/subscriptions-admin.service.ts")));
 
 console.log(`subscriptions stage C: ${pass} passed, ${failed} failed`);

@@ -82,7 +82,9 @@ async function main() {
   const warn = console.warn;
   console.warn = (...a: unknown[]) => { logs.push(a.map(String).join(" ")); };
   __setFeatureGuardSessionForTests(async () => 930001);
-  const denied = await guardFeature(new Request("https://lab.invalid/api/inbox/conversations"), PLATFORM_FEATURE_KEYS.INBOX);
+  // A WRITE: since stage C the plan gate keeps reads open (FREE_LIMITED / lower plans read what they have); writes are
+  // what enforce would refuse, so they are what shadow logs.
+  const denied = await guardFeature(new Request("https://lab.invalid/api/inbox/conversations", { method: "POST" }), PLATFORM_FEATURE_KEYS.INBOX);
   __setFeatureGuardSessionForTests(null);
   console.warn = warn;
   ok("D5 guard lets the request through", denied === null);

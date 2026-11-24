@@ -696,7 +696,6 @@ const INTERNAL: Record<string, ModelCoverage> = {
   PlatformSubscriptionRequest: internal("the business's own plan-interest / quota-increase request to Dubiz (enums, an optional short note, the admin's handling)"),
   PlatformQuotaPolicy: internal("global quota per metric and tier — no business data"),
   PlatformQuotaPolicyEvent: internal("append-only history of quota policy changes (the admin's user id and reason) — no business data"),
-  PlatformUsageMetricMode: internal("global activation mode per quota metric — no business data"),
   BusinessQuotaAdjustment: internal("per-business quota additions / special quotas set by the admin (metric, amount, dates, reason)"),
   BusinessUsageCounter: internal("per-business usage counters (metric, period, amount) — counts only"),
   BusinessUsageEvent: internal("per-business usage ledger: metric, amount, state and a unit key (a document id, a storage key, a content hash) — identifiers and amounts only, never content"),

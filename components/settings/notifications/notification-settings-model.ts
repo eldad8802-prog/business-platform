@@ -49,6 +49,7 @@ export const HIDDEN_CATEGORIES: Readonly<Record<string, string>> = {
   "security.new_device": "no producer exists today (nothing writes it) and there is no security email — not promised",
   "digest.daily": "the daily summary itself — controlled by the daily-summary switch, not a type",
   "system.test": "the test notification — the test button, not a type",
+  "subscription.usage": "subscriptions stage C usage alerts (80/90/100%) — the owner-facing wording and screen wait for the owner-screen design approval",
 };
 
 /** The order the types screen groups domains in (the approved design's order, then the remaining domains). */
