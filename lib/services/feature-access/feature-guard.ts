@@ -107,6 +107,11 @@ export function __setFeatureGuardResolverForTests(next: Resolver | null): void {
   cache.clear();
 }
 
+/** Drop one business's cached resolution on this instance (after an admin changes its subscription). */
+export function forgetFeatureGuardBusiness(businessId: number): void {
+  cache.delete(businessId);
+}
+
 /** Tests only: replace the session lookup. Pass null to restore the real one (getCurrentUser). */
 export function __setFeatureGuardSessionForTests(next: SessionBusiness | null): void {
   sessionBusiness = next ?? defaultSessionBusiness;
