@@ -1,0 +1,79 @@
+# TEMPORARY — 4a T4 verification only, on the branch verify/t4-lock-benchmark (never merged; not a permanent CI job).
+# Controlled comparison of issuance WITH the shared transition key (this branch) and WITHOUT it (main's
+# billing-issue.service.ts), alternating, each run on a fresh clone of the same lab database (ephemeral PG17,
+# Production role topology). No timeout or issuance setting is changed. Results uploaded as an artifact.
+
+name: billing-4a T4 — lock benchmark (temporary, verify branch)
+
+on:
+  push:
+    branches: [verify/t4-lock-benchmark]
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: T4 shared key — with vs without, alternating
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: t4_bench_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: t4_bench_synthetic_super_pw
+      LAB_PASSWORD: t4_bench_synthetic_role_pw
+      AUTH_TOKEN_SECRET: t4-bench-synthetic-auth-token-secret-0123456789
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_ROOT: /tmp/t4-bench-store
+      BILLING_PDF_STORAGE_ROOT: /tmp/t4-bench-store
+      OUT: /tmp/t4-bench
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Lab template (Production role topology)
+        run: bash .billing-4a/lab.sh bench_tpl
+      - name: Alternating runs (A = main's issuance, no key; B = this branch, key)
+        run: |
+          set -uo pipefail
+          mkdir -p "$OUT" "$LOCAL_STORAGE_ROOT"
+          cp lib/services/billing/billing-issue.service.ts /tmp/issue.key.ts
+          git show origin/main:lib/services/billing/billing-issue.service.ts > /tmp/issue.main.ts
+          grep -c pg_advisory_xact_lock_shared /tmp/issue.key.ts /tmp/issue.main.ts || true
+          for run in 1 2 3 4 5 6 7 8; do
+            if [ $((run % 2)) -eq 1 ]; then mode=A_no_key; cp /tmp/issue.main.ts lib/services/billing/billing-issue.service.ts; else mode=B_key; cp /tmp/issue.key.ts lib/services/billing/billing-issue.service.ts; fi
+            psql -X -q "postgresql://lab_super:${PGPASSWORD}@localhost:5432/postgres" -c "DROP DATABASE IF EXISTS bench" -c "CREATE DATABASE bench TEMPLATE bench_tpl OWNER lab_owner"
+            MODE=$mode OWNER_URL="postgresql://lab_owner:${LAB_PASSWORD}@localhost:5432/bench" \
+            DATABASE_URL="postgresql://app_runtime_prod:${LAB_PASSWORD}@localhost:5432/bench?connection_limit=20&pool_timeout=30" \
+            DIRECT_URL="postgresql://lab_owner:${LAB_PASSWORD}@localhost:5432/bench" OUT_JSON="$OUT/run$run-$mode.json" \
+              npx tsx .billing-4a/t4-lock-benchmark.mts > "$OUT/run$run.log" 2>&1; echo "run $run $mode rc=$?"
+          done
+          cp /tmp/issue.key.ts lib/services/billing/billing-issue.service.ts
+          for f in "$OUT"/*.json; do echo "== $f"; cat "$f"; done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: t4-lock-benchmark
+          path: /tmp/t4-bench
+          retention-days: 14
