@@ -518,6 +518,10 @@ async function main() {
       current = pp;
       await check("P1 c3 (READY): a pickup call 'no answer' → one reminder row, the counter 1, the header summary", async () => {
         await openCase(pp, seed.c3);
+        // The case head offers a call when the customer's phone is known (owner 2026-11-24).
+        const call = pp.locator("header[aria-label='כותרת התיק'] a[href^='tel:']");
+        await call.waitFor({ timeout: 30_000 });
+        if ((await call.getAttribute("href")) !== "tel:0501234567") throw new Error(`call link ${await call.getAttribute("href")}`);
         const panel = pp.locator("[data-panel=pickup]");
         await panel.waitFor({ timeout: 60_000 });
         await panel.getByRole("button", { name: "אין מענה" }).click();

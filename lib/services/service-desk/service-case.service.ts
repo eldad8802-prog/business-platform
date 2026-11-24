@@ -315,6 +315,8 @@ export type CaseCard = CaseSummary & {
   problemDescription: string | null; parentCaseId: number | null;
   /** The item / system the case is about (ServiceDevice.displayName) — the list showed it, the card did not (pilot 11-21). */
   subjectName: string | null;
+  /** The customer's phone (the same business's customer row, read-only) — the case head's call button (owner 2026-11-24). */
+  customerPhone: string | null;
   coverage: { source: string; decision: string } | null; pickupRemindersSent: number; cancellationRequested: boolean;
   stamps: Record<"checkedInAt" | "readyAt" | "deliveredAt" | "closedAt" | "cancelledAt" | "abandonedAt", string | null>;
   intake: { conditionNote: string | null; accessoriesNote: string | null; conditionRecorded: boolean; accessoriesRecorded: boolean; customerSigned: boolean; updatedAt: string } | null;
@@ -329,7 +331,7 @@ export async function getCase(businessId: number, caseId: unknown): Promise<Case
              c."checkedInAt", c."readyAt", c."deliveredAt", c."closedAt", c."cancelledAt", c."abandonedAt",
              i."conditionNote", i."accessoriesNote", i."conditionRecorded", i."accessoriesRecorded", i."customerSigned",
              to_char(i."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "intakeUpdatedAt", i.id AS "intakeId",
-             d."displayName" AS "subjectName"
+             d."displayName" AS "subjectName", NULLIF(btrim(cu.phone), '') AS "customerPhone"
         FROM "ServiceCase" c
         LEFT JOIN "Customer" cu ON cu.id = c."customerId" AND cu."businessId" = c."businessId"
         LEFT JOIN "ServiceDevice" d ON d.id = c."deviceId" AND d."businessId" = c."businessId"
@@ -341,7 +343,7 @@ export async function getCase(businessId: number, caseId: unknown): Promise<Case
     return {
       ...toSummary(r),
       problemDescription: (r.problemDescription as string) ?? null,
-      subjectName: (r.subjectName as string) ?? null,
+      customerPhone: (r.customerPhone as string) ?? null, subjectName: (r.subjectName as string) ?? null,
       parentCaseId: r.parentCaseId === null ? null : Number(r.parentCaseId),
       coverage: r.coverageSource ? { source: String(r.coverageSource), decision: String(r.coverageDecision) } : null,
       pickupRemindersSent: Number(r.pickupRemindersSent),
