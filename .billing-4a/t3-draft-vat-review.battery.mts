@@ -266,6 +266,44 @@ async function main() {
   ok("V10 another business can neither read nor confirm the review (not found), and nothing is recorded",
     /not found/i.test(xRead?.message ?? "") && /not found/i.test(xConf?.message ?? "") && (await events(eTir)).length === 0, { xRead, xConf });
 
+  // ================================================================== V11 quotes keep the issuer they were sent with
+  console.log("\n— V11 a quote sent before the transition keeps its issuer details; new quotes use the updated ones");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const pdfText = async (buf: Buffer) => {
+    const d = await pdfjs.getDocument({ data: new Uint8Array(buf), useSystemFonts: true }).promise;
+    let t = "";
+    for (let p = 1; p <= d.numPages; p++) t += (await (await d.getPage(p)).getTextContent()).items.map((i) => ("str" in i ? i.str : "")).join(" ") + "\n";
+    return t;
+  };
+  const occurrences = (text: string, s: string) => text.split(s).length - 1;
+  const Q = await business("EXEMPT_DEALER", "32000003");
+  const qLines = [{ description: "שירות", quantity: "1", unitPrice: "500", vatRatePercent: "18" }];
+  const qSentOld = await draft(Q, BillingDocumentType.QUOTE, qLines);
+  const qOldPdf1 = await getOrRenderQuotePdf({ businessId: Q.businessId, billingDocumentId: qSentOld, actorUserId: Q.userId });
+  const qNeverRendered = await draft(Q, BillingDocumentType.QUOTE, qLines);
+  const oldText1 = await pdfText(qOldPdf1.buffer);
+  observed("V11 the id number on the quote sent while exempt (before)", occurrences(oldText1, Q.taxId));
+  const qDate = israelToday();
+  const qSha = kindTransitionStatementSha256({ businessId: Q.businessId, actorUserId: Q.userId, legalName: "דנה כהן", taxId: Q.taxId, vatNumber: Q.taxId, statusEffectiveDate: qDate });
+  ok("setup V11: Q transitions", (await performKindTransition(Q.businessId, Q.userId, { vatNumber: Q.taxId, statusEffectiveDate: qDate, reauthMethod: "PASSWORD", reauthAt: new Date(), statementSha256: qSha })) === "TRANSITIONED");
+  const oldText2 = await pdfText((await getOrRenderQuotePdf({ businessId: Q.businessId, billingDocumentId: qSentOld, actorUserId: Q.userId })).buffer);
+  ok("V11 re-downloading the quote sent while exempt: the same issuer details as when it was sent (no VAT-number line added)",
+    occurrences(oldText2, Q.taxId) === occurrences(oldText1, Q.taxId), { before: occurrences(oldText1, Q.taxId), after: occurrences(oldText2, Q.taxId) });
+  const qNew = await draft(Q, BillingDocumentType.QUOTE, qLines);
+  const newText = await pdfText((await getOrRenderQuotePdf({ businessId: Q.businessId, billingDocumentId: qNew, actorUserId: Q.userId })).buffer);
+  ok("V11 a quote created and sent after the transition uses the updated details (the VAT-number line appears)",
+    occurrences(newText, Q.taxId) === occurrences(oldText1, Q.taxId) + 1, { sentOld: occurrences(oldText1, Q.taxId), newQuote: occurrences(newText, Q.taxId) });
+  const nrText = await pdfText((await getOrRenderQuotePdf({ businessId: Q.businessId, billingDocumentId: qNeverRendered, actorUserId: Q.userId })).buffer);
+  ok("V11 a quote never rendered before the transition (no first-render event) is not guessed: updated details",
+    occurrences(nrText, Q.taxId) === occurrences(oldText1, Q.taxId) + 1, occurrences(nrText, Q.taxId));
+  const qa = await draft(A, BillingDocumentType.QUOTE, qLines);
+  const aText1 = await pdfText((await getOrRenderQuotePdf({ businessId: A.businessId, billingDocumentId: qa, actorUserId: A.userId })).buffer);
+  const aText2 = await pdfText((await getOrRenderQuotePdf({ businessId: A.businessId, billingDocumentId: qa, actorUserId: A.userId })).buffer);
+  ok("V11 a business without a transition: its quote shows its VAT number as today, on every download",
+    occurrences(aText1, A.taxId) === occurrences(aText2, A.taxId) && occurrences(aText1, A.taxId) >= 2, [occurrences(aText1, A.taxId), occurrences(aText2, A.taxId)]);
+  ok("V11 no issued document or quote row was changed by the re-downloads (number, lines, status)",
+    (await doc(qSentOld)).documentNumberFormatted === (await owner.billingDocument.findUniqueOrThrow({ where: { id: qSentOld } })).documentNumberFormatted);
+
   ok("network: no fetch was attempted", networkAttempts === 0, networkAttempts);
   console.log(`\nT3 draft-vat-review battery: ${pass} passed, ${failures.length} failed`);
   if (failures.length) { console.log("FAILED:\n  " + failures.join("\n  ")); process.exitCode = 1; }

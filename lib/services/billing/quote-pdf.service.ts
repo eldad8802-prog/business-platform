@@ -12,6 +12,7 @@ import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
 import { allocateQuoteDocumentNumberIfMissing } from "@/lib/services/billing/quote-document-number";
 import { assertDraftVatReviewedTx } from "@/lib/services/billing/kind-transition/draft-vat-review";
+import { applyQuoteIssuerAsSent, decideQuoteIssuerAsSentTx } from "@/lib/services/billing/kind-transition/quote-issuer-as-sent";
 import { lockBillingDocumentRowsTx } from "@/lib/services/billing/receipt/billing-receipt-issuance-integrity";
 import { buildQuotePdfSnapshot } from "@/lib/services/billing/quote-pdf-snapshot";
 import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
@@ -187,11 +188,18 @@ export async function getOrRenderQuotePdf(
   const documentNumberFormatted =
     doc.documentNumberFormatted ?? allocated.documentNumberFormatted;
 
-  const business = await loadQuoteBusiness(input.businessId);
+  const liveBusiness = await loadQuoteBusiness(input.businessId);
 
-  if (!business) {
+  if (!liveBusiness) {
     throw new NotFoundError("Business not found");
   }
+
+  // 4a T3: a quote first rendered (sent) before "מעבר לעוסק מורשה" keeps the issuer it was sent with — no VAT number.
+  // No transition / no first-render event / first rendered after → the live profile, exactly as before.
+  const issuerDecision = await billingTenantTx(input.businessId, (tx) =>
+    decideQuoteIssuerAsSentTx(tx, { businessId: input.businessId, quoteId: doc.id })
+  );
+  const business = applyQuoteIssuerAsSent(liveBusiness, issuerDecision);
 
   let customerData:
     | {
