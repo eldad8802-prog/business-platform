@@ -12,6 +12,9 @@ BEGIN
     AND relname IN ('PlatformTrialClaim', 'PlatformSubscriptionRequest', 'PlatformQuotaPolicy', 'PlatformQuotaPolicyEvent',
                     'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent');
   IF n <> 7 THEN RAISE EXCEPTION 'L1: % of 7 tables', n; END IF;
+  IF (SELECT count(*) FROM "PlatformUsageMetricMode" WHERE "mode" = 'SHADOW') <> 8 OR (SELECT count(*) FROM "PlatformUsageMetricMode") <> 8 THEN
+    RAISE EXCEPTION 'L1: the eight quota metrics are not all SHADOW';
+  END IF;
   SELECT count(*) INTO n FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relrowsecurity AND relforcerowsecurity
     AND relname IN ('PlatformTrialClaim', 'PlatformSubscriptionRequest', 'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent');
   IF n <> 5 THEN RAISE EXCEPTION 'L1: % of 5 tenant tables are FORCE RLS', n; END IF;
@@ -37,7 +40,7 @@ END $$;
 DO $$
 DECLARE t text; p text; r text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['PlatformTrialClaim', 'PlatformQuotaPolicy', 'PlatformQuotaPolicyEvent', 'BusinessQuotaAdjustment',
+  FOREACH t IN ARRAY ARRAY['PlatformTrialClaim', 'PlatformQuotaPolicy', 'PlatformQuotaPolicyEvent', 'BusinessQuotaAdjustment', 'PlatformUsageMetricMode',
                            'BusinessUsageCounter', 'BusinessUsageEvent'] LOOP
     FOREACH r IN ARRAY ARRAY['app_runtime', 'app_auth', 'app_admin', 'app_ctlplane'] LOOP
       FOREACH p IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] LOOP
@@ -250,8 +253,16 @@ BEGIN
   IF NOT public.subscription_request_resolve(930101, (SELECT min("id") FROM "PlatformSubscriptionRequest"), 'HANDLED', 'assigned ADVANCED') THEN
     RAISE EXCEPTION 'L7: resolve';
   END IF;
-  IF (SELECT count(*) FROM "PlatformAuditEvent") - n_before <> 5 THEN
-    RAISE EXCEPTION 'L7: % audit rows, expected 5', (SELECT count(*) FROM "PlatformAuditEvent") - n_before;
+  -- activation mode: admin-managed, audited; setting the same mode again changes nothing
+  IF NOT public.usage_metric_mode_set(930101, 'video_renders', 'ENFORCE', 'lab: enforce video') THEN RAISE EXCEPTION 'L7: mode set'; END IF;
+  IF public.usage_metric_mode_set(930101, 'video_renders', 'ENFORCE', 'lab: again') THEN RAISE EXCEPTION 'L7: same mode audited twice'; END IF;
+  BEGIN
+    PERFORM public.usage_metric_mode_set(930101, 'video_renders', 'ON', 'lab: bad mode');
+    RAISE EXCEPTION 'L7: a bad mode was accepted';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF (SELECT count(*) FROM "PlatformAuditEvent") - n_before <> 6 THEN
+    RAISE EXCEPTION 'L7: % audit rows, expected 6', (SELECT count(*) FROM "PlatformAuditEvent") - n_before;
   END IF;
   IF (SELECT count(*) FROM "PlatformQuotaPolicyEvent" WHERE "actorUserId" = 930101) <> 1 THEN RAISE EXCEPTION 'L7: policy history'; END IF;
   -- the console reads across businesses, never writes
@@ -396,6 +407,7 @@ DELETE FROM "PlatformTrialClaim";
 DELETE FROM "BusinessUsageEvent";
 DELETE FROM "BusinessUsageCounter";
 UPDATE "PlatformQuotaPolicy" SET "quota" = 300, "version" = 1, "updatedByUserId" = NULL WHERE "metric" = 'ocr_pages' AND "tier" = 'BASIC';
+UPDATE "PlatformUsageMetricMode" SET "mode" = 'SHADOW', "updatedByUserId" = NULL WHERE "metric" = 'video_renders';
 -- (the append-only trigger refuses UPDATE only; removing the lab's history row is a DELETE, as the owner)
 DELETE FROM "PlatformQuotaPolicyEvent" WHERE "actorUserId" IS NOT NULL;
 SELECT 'MIGRATION_LAB_OK' AS result;

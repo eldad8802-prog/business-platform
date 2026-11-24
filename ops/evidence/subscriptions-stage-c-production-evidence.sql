@@ -1,28 +1,28 @@
 -- ============================================================================
 -- subscriptions-stage-c-production-evidence.sql — read-only EVIDENCE after migration
 --   20261228090000_subscriptions_stage_c
--- Proves the release did exactly what the migration says and nothing else: seven tables, FORCE RLS on the five tenant
--- tables, exact privileges, the definer functions and who may execute them, the owner's opening quota matrix, and NO
--- change to any business's subscription (the testers stay testers). Catalog, ledger and counts only — no row content.
--- Re-runnable later as the shadow monitor (rows 21-26).
+-- Proves the release did exactly what the migration says and nothing else: eight tables, FORCE RLS on the five tenant
+-- tables, exact privileges, the definer functions and who may execute them, the owner's opening quota matrix, every
+-- quota metric in SHADOW, and NO change to any business's subscription (the testers stay testers). Catalog, ledger and
+-- counts only — no row content. Re-runnable later as the shadow monitor (rows 21-27).
 -- OUTPUT: n | result | observed_count.
 -- ============================================================================
 \echo '== subscriptions stage C evidence: legend (n -> check) =='
 \echo ' 1 20261228090000_subscriptions_stage_c recorded once, finished, not rolled back'
 \echo ' 2 ledger: no unfinished and no rolled-back row'
-\echo ' 3 the seven stage C tables exist'
+\echo ' 3 the eight stage C tables exist'
 \echo ' 4 RLS enabled and forced on the five tenant tables'
 \echo ' 5 no FOR ALL policy on any stage C table'
-\echo ' 6 app_runtime may write none of: trial claims, quota policy and history, adjustments, counters, usage events'
+\echo ' 6 app_runtime may write none of: trial claims, quota policy and history, metric modes, adjustments, counters, usage events'
 \echo ' 7 app_runtime may file requests (INSERT) on its own business only: exactly one runtime INSERT policy, keyed on the business'
 \echo ' 8 no runtime policy on the trial claims (the runtime sees zero rows)'
-\echo ' 9 app_admin holds SELECT only (no INSERT / UPDATE / DELETE) on the nine subscription tables'
+\echo ' 9 app_admin holds SELECT only (no INSERT / UPDATE / DELETE) on the ten subscription tables'
 \echo '10 app_admin read policies (p7adm_read) on the seven tenant tables'
-\echo '11 the fourteen functions exist, all SECURITY DEFINER with a pinned search_path except the trigger function'
+\echo '11 the fifteen functions exist: all SECURITY DEFINER with a pinned search_path and TimeZone UTC, except the trigger function'
 \echo '12 PUBLIC may execute none of them'
 \echo '13 usage_consume / usage_settle / usage_mark_alert / usage_quota_snapshot / subscription_expire_due_trials: app_runtime only'
 \echo '14 subscription_signup_open: app_auth only'
-\echo '15 the five admin writers and usage_quota_context: app_admin only (no runtime, no auth)'
+\echo '15 the six admin writers and usage_quota_context: app_admin only (no runtime, no auth)'
 \echo '16 the append-only triggers exist and are enabled (policy history, trial claims)'
 \echo '17 the opening matrix: 40 policy rows (8 metrics x 5 tiers), each with one opening history row'
 \echo '18 the opening matrix values match the owner decision of 2026-11-24 (rows that differ)'
@@ -34,11 +34,13 @@
 \echo '24 usage counters (informational; shadow measurement)'
 \echo '25 usage units recorded OVER_SHADOW (informational: a customer would have been refused)'
 \echo '26 usage units left RESERVED for more than an hour (informational; reconciliation backlog)'
+\echo '27 quota metrics in ENFORCE (informational; 0 until a separate owner decision)'
+\echo '28 the eight quota metrics have a mode row, all SHADOW at release'
 WITH tbl AS (
   SELECT c.oid, c.relname FROM pg_class c
    WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
      AND c.relname IN ('PlatformTrialClaim', 'PlatformSubscriptionRequest', 'PlatformQuotaPolicy', 'PlatformQuotaPolicyEvent',
-                       'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent')
+                       'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent', 'PlatformUsageMetricMode')
 ),
 tenant AS (SELECT * FROM tbl WHERE relname IN ('PlatformTrialClaim', 'PlatformSubscriptionRequest', 'BusinessQuotaAdjustment',
                                                 'BusinessUsageCounter', 'BusinessUsageEvent')),
@@ -48,7 +50,7 @@ fn AS (
      AND p.proname IN ('subscription_signup_open', 'subscription_expire_due_trials', 'usage_quota_context', 'usage_quota_snapshot',
                        'usage_consume', 'usage_settle', 'usage_mark_alert', 'subscriptions_require_platform_admin', 'quota_policy_set',
                        'quota_adjustment_add', 'quota_adjustment_revoke', 'subscription_request_resolve', 'trial_claim_admin_record',
-                       'subscriptions_stage_c_append_only')
+                       'subscriptions_stage_c_append_only', 'usage_metric_mode_set')
 ),
 x AS (SELECT f.proname, r.rolname, has_function_privilege(r.oid, f.oid, 'EXECUTE') AS can
         FROM fn f CROSS JOIN pg_roles r WHERE r.rolname IN ('app_runtime', 'app_auth', 'app_admin', 'app_ctlplane')),
@@ -65,7 +67,7 @@ want(metric, tier, quota) AS (VALUES
 c AS (
   SELECT 1 AS n, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261228090000_subscriptions_stage_c' AND finished_at IS NOT NULL AND rolled_back_at IS NULL) AS observed, 1 AS want
   UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL), 0
-  UNION ALL SELECT 3, (SELECT count(*) FROM tbl), 7
+  UNION ALL SELECT 3, (SELECT count(*) FROM tbl), 8
   UNION ALL SELECT 4, (SELECT count(*) FROM pg_class WHERE oid IN (SELECT oid FROM tenant) AND relrowsecurity AND relforcerowsecurity), 5
   UNION ALL SELECT 5, (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN (SELECT relname FROM tbl) AND cmd = 'ALL'), 0
   UNION ALL SELECT 6, (SELECT count(*) FROM tbl t CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) v(priv)
@@ -77,19 +79,19 @@ c AS (
   UNION ALL SELECT 9, (SELECT count(*) FROM pg_class t CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) v(priv)
                          WHERE t.relnamespace = 'public'::regnamespace AND t.relkind = 'r'
                            AND t.relname IN ('PlatformSubscription', 'PlatformSubscriptionEvent', 'PlatformTrialClaim', 'PlatformSubscriptionRequest',
-                                             'PlatformQuotaPolicy', 'PlatformQuotaPolicyEvent', 'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent')
+                                             'PlatformQuotaPolicy', 'PlatformQuotaPolicyEvent', 'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent', 'PlatformUsageMetricMode')
                            AND has_table_privilege('app_admin', t.oid, v.priv)), 0
   UNION ALL SELECT 10, (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND policyname = 'p7adm_read' AND cmd = 'SELECT'
                           AND tablename IN ('PlatformSubscription', 'PlatformSubscriptionEvent', 'PlatformTrialClaim', 'PlatformSubscriptionRequest',
                                             'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent')), 7
   UNION ALL SELECT 11, (SELECT count(*) FROM fn WHERE (proname = 'subscriptions_stage_c_append_only' AND NOT prosecdef)
-                          OR (proname <> 'subscriptions_stage_c_append_only' AND prosecdef AND array_to_string(proconfig, ',') LIKE 'search_path=%')), 14
+                          OR (proname <> 'subscriptions_stage_c_append_only' AND prosecdef AND array_to_string(proconfig, ',') LIKE 'search_path=%' AND array_to_string(proconfig, ',') LIKE '%TimeZone=UTC%')), 15
   UNION ALL SELECT 12, (SELECT count(*) FROM fn WHERE has_function_privilege('public', oid, 'EXECUTE')), 0
   UNION ALL SELECT 13, (SELECT count(*) FROM x WHERE proname IN ('usage_consume', 'usage_settle', 'usage_mark_alert', 'usage_quota_snapshot', 'subscription_expire_due_trials')
                           AND can <> (rolname = 'app_runtime')), 0
   UNION ALL SELECT 14, (SELECT count(*) FROM x WHERE proname = 'subscription_signup_open' AND can <> (rolname = 'app_auth')), 0
   UNION ALL SELECT 15, (SELECT count(*) FROM x WHERE proname IN ('quota_policy_set', 'quota_adjustment_add', 'quota_adjustment_revoke',
-                                                                  'subscription_request_resolve', 'trial_claim_admin_record', 'usage_quota_context')
+                                                                  'subscription_request_resolve', 'trial_claim_admin_record', 'usage_quota_context', 'usage_metric_mode_set')
                           AND can <> (rolname = 'app_admin')), 0
   UNION ALL SELECT 16, (SELECT count(*) FROM pg_trigger WHERE tgname IN ('PlatformQuotaPolicyEvent_append_only', 'PlatformTrialClaim_append_only')
                           AND NOT tgisinternal AND tgenabled = 'O'), 2
@@ -105,6 +107,8 @@ c AS (
   UNION ALL SELECT 24, (SELECT count(*) FROM "BusinessUsageCounter"), NULL
   UNION ALL SELECT 25, (SELECT count(*) FROM "BusinessUsageEvent" WHERE "verdict" = 'OVER_SHADOW'), NULL
   UNION ALL SELECT 26, (SELECT count(*) FROM "BusinessUsageEvent" WHERE "state" = 'RESERVED' AND "createdAt" < (now() AT TIME ZONE 'UTC') - interval '1 hour'), NULL
+  UNION ALL SELECT 27, (SELECT count(*) FROM "PlatformUsageMetricMode" WHERE "mode" = 'ENFORCE'), NULL
+  UNION ALL SELECT 28, (SELECT count(*) FROM "PlatformUsageMetricMode" WHERE "mode" = 'SHADOW' AND "metric" IN (SELECT DISTINCT metric FROM want)), 8
 )
 SELECT n,
        CASE WHEN want IS NULL THEN 'INFO' WHEN observed = want THEN 'PASS' ELSE 'FAIL' END AS result,

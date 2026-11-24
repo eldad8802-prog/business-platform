@@ -10,8 +10,8 @@
 \echo ' 3 prerequisite 20261224090000_platform_subscriptions is recorded and finished'
 \echo ' 4 PlatformSubscription, PlatformSubscriptionEvent, PlatformAuditEvent and User exist'
 \echo ' 5 roles app_runtime, app_ctlplane, app_auth and app_admin all exist'
-\echo ' 6 none of the seven stage C tables exists yet'
-\echo ' 7 none of the fourteen stage C functions exists yet'
+\echo ' 6 none of the eight stage C tables exists yet'
+\echo ' 7 none of the fifteen stage C functions exists yet'
 \echo ' 8 the migrating role can read across businesses (superuser or BYPASSRLS) — the definer functions rely on it'
 \echo ' 9 no PlatformSubscription row is a customer, trialing or limited (stage B state: testers only)'
 \echo '10 subscription rows in total (informational)'
@@ -26,12 +26,12 @@ WITH c AS (
   UNION ALL SELECT 5, (SELECT count(*) FROM pg_roles WHERE rolname IN ('app_runtime', 'app_ctlplane', 'app_auth', 'app_admin')), 4
   UNION ALL SELECT 6, (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace
                         AND relname IN ('PlatformTrialClaim', 'PlatformSubscriptionRequest', 'PlatformQuotaPolicy', 'PlatformQuotaPolicyEvent',
-                                        'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent')), 0
+                                        'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent', 'PlatformUsageMetricMode')), 0
   UNION ALL SELECT 7, (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace
                         AND proname IN ('subscription_signup_open', 'subscription_expire_due_trials', 'usage_quota_context', 'usage_quota_snapshot',
                                         'usage_consume', 'usage_settle', 'usage_mark_alert', 'subscriptions_require_platform_admin',
                                         'quota_policy_set', 'quota_adjustment_add', 'quota_adjustment_revoke', 'subscription_request_resolve',
-                                        'trial_claim_admin_record', 'subscriptions_stage_c_append_only')), 0
+                                        'trial_claim_admin_record', 'subscriptions_stage_c_append_only', 'usage_metric_mode_set')), 0
   UNION ALL SELECT 8, (SELECT count(*) FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolbypassrls)), 1
   UNION ALL SELECT 9, (SELECT count(*) FROM "PlatformSubscription" WHERE "accountType" = 'CUSTOMER' OR "status" <> 'EXEMPT'), 0
   UNION ALL SELECT 10, (SELECT count(*) FROM "PlatformSubscription"), NULL

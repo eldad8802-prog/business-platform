@@ -14,6 +14,8 @@
 --      4. subscription_expire_due_trials()  records TRIALING → FREE_LIMITED for trials that ended (the state is
 --                                        already computed from trialEndsAt; this only writes the transition and its log).
 --   B. Central usage quotas (decisions 17–29)
+--      5b. "PlatformUsageMetricMode"     OFF / SHADOW / ENFORCE per quota metric (admin, no deploy); seeded SHADOW. The
+--                                        app takes the lower of this and its own server ceiling (env USAGE_QUOTA_MODE).
 --      5. "PlatformQuotaPolicy"          the quota per metric and tier (TRIAL / BASIC / ADVANCED / PREMIUM /
 --                                        FREE_LIMITED), seeded with the owner's opening matrix; admin-editable.
 --      6. "PlatformQuotaPolicyEvent"     append-only history of every policy change.
@@ -24,7 +26,8 @@
 --     10. usage_consume() / usage_settle()  the ONLY writers of 8 and 9: atomic (row lock on the counter), period and
 --                                        quota resolved inside the database from the subscription record, the policy
 --                                        and the adjustments; testers and internal accounts are never refused.
---     11. quota_policy_set(), quota_adjustment_add(), quota_adjustment_revoke(), subscription_request_resolve()
+--     11. quota_policy_set(), quota_adjustment_add(), quota_adjustment_revoke(), subscription_request_resolve(),
+--         usage_metric_mode_set(), trial_claim_admin_record()
 --                                        the admin writers, executable by app_admin only; each checks that the actor is
 --                                        a PLATFORM_ADMIN and writes a PlatformAuditEvent in the same statement.
 --   C. Admin console read (app_admin, read-only, additive p7adm_read policies) on the stage B tables and every new one.
@@ -46,7 +49,8 @@ BEGIN
     RAISE EXCEPTION 'SUBSCRIPTIONS_STAGE_C: one of app_runtime, app_ctlplane, app_auth, app_admin is missing; nothing was changed';
   END IF;
   IF to_regclass('public."PlatformTrialClaim"') IS NOT NULL OR to_regclass('public."PlatformQuotaPolicy"') IS NOT NULL
-     OR to_regclass('public."BusinessUsageCounter"') IS NOT NULL OR to_regclass('public."BusinessUsageEvent"') IS NOT NULL THEN
+     OR to_regclass('public."BusinessUsageCounter"') IS NOT NULL OR to_regclass('public."BusinessUsageEvent"') IS NOT NULL
+     OR to_regclass('public."PlatformUsageMetricMode"') IS NOT NULL THEN
     RAISE EXCEPTION 'SUBSCRIPTIONS_STAGE_C: a stage C table already exists; nothing was changed';
   END IF;
 END
@@ -168,6 +172,23 @@ CREATE TABLE "BusinessQuotaAdjustment" (
 CREATE INDEX "BusinessQuotaAdjustment_businessId_metric_idx" ON "BusinessQuotaAdjustment"("businessId", "metric");
 ALTER TABLE "BusinessQuotaAdjustment" ADD CONSTRAINT "BusinessQuotaAdjustment_businessId_fkey"
   FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- ── B5b. Activation mode per quota metric (OFF / SHADOW / ENFORCE), admin-managed without a deploy. The application
+--    takes the LOWER of this mode and its own server ceiling (env USAGE_QUOTA_MODE, default shadow): the database alone
+--    can never switch enforcement on. Seeded SHADOW for every quota metric (decision 25: measure first). ──
+
+CREATE TABLE "PlatformUsageMetricMode" (
+  "metric"          TEXT         NOT NULL,
+  "mode"            TEXT         NOT NULL,
+  "updatedByUserId" INTEGER,
+  "updatedAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "PlatformUsageMetricMode_pkey" PRIMARY KEY ("metric"),
+  CONSTRAINT "PlatformUsageMetricMode_metric" CHECK ("metric" ~ '^[a-z][a-z0-9_]{2,39}$'),
+  CONSTRAINT "PlatformUsageMetricMode_mode" CHECK ("mode" IN ('OFF', 'SHADOW', 'ENFORCE'))
+);
+INSERT INTO "PlatformUsageMetricMode" ("metric", "mode") VALUES
+  ('business_documents', 'SHADOW'), ('document_uploads', 'SHADOW'), ('ocr_pages', 'SHADOW'), ('storage_customer_bytes', 'SHADOW'),
+  ('accountant_packages', 'SHADOW'), ('accountant_emails', 'SHADOW'), ('ai_owner_actions', 'SHADOW'), ('video_renders', 'SHADOW');
 
 -- ── B8–B9. Counters and the unit ledger ──────────────────────────────────────────────────────────────────────
 
@@ -730,6 +751,38 @@ $fn$;
 REVOKE ALL ON FUNCTION public.subscription_request_resolve(integer, bigint, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.subscription_request_resolve(integer, bigint, text, text) TO app_admin;
 
+CREATE OR REPLACE FUNCTION public.usage_metric_mode_set(p_admin integer, p_metric text, p_mode text, p_reason text)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+SET TimeZone = 'UTC'
+AS $fn$
+DECLARE v_from text;
+BEGIN
+  PERFORM public.subscriptions_require_platform_admin(p_admin);
+  IF p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 500 THEN
+    RAISE EXCEPTION USING ERRCODE = 'DZQ02', MESSAGE = 'USAGE_MODE_REASON_REQUIRED';
+  END IF;
+  SELECT m."mode" INTO v_from FROM public."PlatformUsageMetricMode" m WHERE m."metric" = p_metric FOR UPDATE;
+  IF NOT FOUND THEN
+    INSERT INTO public."PlatformUsageMetricMode" ("metric", "mode", "updatedByUserId") VALUES (p_metric, p_mode, p_admin);
+  ELSIF v_from = p_mode THEN
+    RETURN false;
+  ELSE
+    UPDATE public."PlatformUsageMetricMode" SET "mode" = p_mode, "updatedByUserId" = p_admin, "updatedAt" = (now() AT TIME ZONE 'UTC')
+     WHERE "metric" = p_metric;
+  END IF;
+  INSERT INTO public."PlatformAuditEvent" ("actorUserId", "action", "targetType", "targetId", "metadata")
+  VALUES (p_admin, 'PLATFORM_USAGE_MODE_UPDATED', 'UsageMetric', p_metric,
+          jsonb_build_object('metric', p_metric, 'from', v_from, 'to', p_mode, 'reason', btrim(p_reason)));
+  RETURN true;
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.usage_metric_mode_set(integer, text, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.usage_metric_mode_set(integer, text, text, text) TO app_admin;
+
 -- An admin may record a claim by hand (a false-positive fix is done by opening a trial through the stage B admin
 -- path; recording a claim marks an identity as having had a trial).
 CREATE OR REPLACE FUNCTION public.trial_claim_admin_record(p_admin integer, p_business integer, p_kind text, p_digest text, p_key_version integer, p_reason text)
@@ -809,7 +862,7 @@ BEGIN
        AND c.relname IN ('PlatformTrialClaim', 'PlatformTrialClaim_id_seq', 'PlatformSubscriptionRequest', 'PlatformSubscriptionRequest_id_seq',
                          'PlatformQuotaPolicy', 'PlatformQuotaPolicyEvent', 'PlatformQuotaPolicyEvent_id_seq',
                          'BusinessQuotaAdjustment', 'BusinessQuotaAdjustment_id_seq', 'BusinessUsageCounter',
-                         'BusinessUsageEvent', 'BusinessUsageEvent_id_seq')
+                         'BusinessUsageEvent', 'BusinessUsageEvent_id_seq', 'PlatformUsageMetricMode')
        AND x.grantee <> c.relowner AND x.grantee <> 0
   LOOP
     EXECUTE format('REVOKE ALL ON %s %s FROM %I', r.kind, r.rel, r.grantee);
@@ -824,6 +877,7 @@ GRANT SELECT ON "PlatformTrialClaim" TO app_runtime;
 GRANT SELECT, INSERT ON "PlatformSubscriptionRequest" TO app_runtime;
 GRANT USAGE ON SEQUENCE "PlatformSubscriptionRequest_id_seq" TO app_runtime;
 GRANT SELECT ON "PlatformQuotaPolicy" TO app_runtime;
+GRANT SELECT ON "PlatformUsageMetricMode" TO app_runtime;
 GRANT SELECT ON "BusinessQuotaAdjustment" TO app_runtime;
 GRANT SELECT ON "BusinessUsageCounter" TO app_runtime;
 GRANT SELECT ON "BusinessUsageEvent" TO app_runtime;
@@ -832,4 +886,4 @@ GRANT SELECT ON "PlatformTrialClaim" TO app_ctlplane;
 -- Admin console: read everything of the stage (rows through the p7adm_read policies above).
 GRANT SELECT ON "PlatformSubscription", "PlatformSubscriptionEvent", "PlatformTrialClaim", "PlatformSubscriptionRequest",
                 "PlatformQuotaPolicy", "PlatformQuotaPolicyEvent", "BusinessQuotaAdjustment", "BusinessUsageCounter",
-                "BusinessUsageEvent" TO app_admin;
+                "BusinessUsageEvent", "PlatformUsageMetricMode" TO app_admin;

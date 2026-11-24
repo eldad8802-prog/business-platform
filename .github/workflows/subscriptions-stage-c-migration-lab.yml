@@ -89,7 +89,7 @@ jobs:
           # A stacked branch may carry Prisma models of these tables: drop every copy db push built, so the migrations
           # (the real thing) create them — exactly as in Production.
           psql -v ON_ERROR_STOP=1 \
-            -c 'DROP TABLE IF EXISTS "BusinessUsageEvent", "BusinessUsageCounter", "BusinessQuotaAdjustment", "PlatformQuotaPolicyEvent", "PlatformQuotaPolicy", "PlatformSubscriptionRequest", "PlatformTrialClaim", "PlatformSubscriptionEvent", "PlatformSubscription";'
+            -c 'DROP TABLE IF EXISTS "PlatformUsageMetricMode", "BusinessUsageEvent", "BusinessUsageCounter", "BusinessQuotaAdjustment", "PlatformQuotaPolicyEvent", "PlatformQuotaPolicy", "PlatformSubscriptionRequest", "PlatformTrialClaim", "PlatformSubscriptionEvent", "PlatformSubscription";'
           psql -v ON_ERROR_STOP=1 \
             -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
             -c "CREATE ROLE app_ctlplane NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
