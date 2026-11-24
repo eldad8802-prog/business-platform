@@ -8,6 +8,11 @@
  *   3. summary, effects, warnings, five confirmations, confirm
  *   → success (+ the history line on the business screen)
  *
+ * The documents issued as an exempt dealer since the chosen date (4a T4) are counted on steps 1 and 3 (again whenever
+ * the date changes) and on the success screen (from the history row); the list opens in a sheet. The confirmation
+ * carries the number shown, and the server counts again inside the transition: if it changed, nothing is written and
+ * step 3 shows the new number.
+ *
  * The screen explains; the server decides: OFF → every call answers 404 and this page says so; eligibility, the id
  * number match, the re-authentication, the digest and the transition itself are all re-checked on the server, and
  * the database function writes nothing unless every check passes.
@@ -17,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
+import { InterimDocumentsNote, InterimDocumentsSheet, type InterimState } from "@/components/legal-identity/kind-transition-interim";
 import {
   GoogleMark, IconAlert, IconBack, IconCheck, IconDoc, IconInfo, IconLock, IconPercent, IconPlus, IconSpinner, IconWarn,
   NewFileSheet, Note,
@@ -26,6 +32,7 @@ import {
   fetchKindTransitionInfo, GOOGLE_RETURN_MESSAGES, googleReturnOf, israelTodayClient, previewKindTransition,
   reauthWithPassword, sameTaxId, startedBeforeConfirmation, startGoogleReauth, type KindTransitionInfo,
 } from "@/lib/legal-identity/kind-transition-client";
+import { confirmableCount, fetchInterimDocuments, interimChangedMessage } from "@/lib/legal-identity/kind-transition-interim-client";
 
 import s from "./kind-transition.module.css";
 
@@ -64,6 +71,9 @@ export default function KindTransitionPage() {
   const [needsReverify, setNeedsReverify] = useState(false);
   const [blockMessage, setBlockMessage] = useState("");
   const [sheet, setSheet] = useState(false);
+  const [interimResult, setInterimResult] = useState<{ key: string; state: InterimState } | null>(null);
+  const [interimRetry, setInterimRetry] = useState(0);
+  const [listOpen, setListOpen] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const load = useCallback(async () => {
@@ -101,6 +111,30 @@ export default function KindTransitionPage() {
   useEffect(() => { headingRef.current?.focus(); }, [screen]);
 
   const ds = dateState(date, today);
+
+  // 4a T4: the documents issued as an exempt dealer since the date — on steps 1 and 3 from the chosen date (again on
+  // every change, after a short pause while typing), after the transition from the history row (no date sent).
+  const afterTransition = screen === "success" || screen === "done";
+  const interimFrom = afterTransition ? null : date;
+  const wantInterim = afterTransition || ((screen === "step1" || screen === "step3") && (ds === "today" || ds === "early"));
+  // One request per (date, screen, retry): a result is shown only for the request it answers, so a new date or a new
+  // screen shows "checking…" until its own answer arrives (never a number counted for another date).
+  const interimKey = wantInterim ? `${interimFrom ?? ""}|${screen}|${interimRetry}` : null;
+  const interim: InterimState = interimKey === null ? { status: "idle" } : interimResult?.key === interimKey ? interimResult.state : { status: "loading" };
+  useEffect(() => {
+    if (interimKey === null) return;
+    const ctl = new AbortController();
+    const t = window.setTimeout(() => {
+      fetchInterimDocuments({ from: interimFrom }, ctl.signal)
+        .then((r) => setInterimResult({ key: interimKey, state: r.ok ? { status: "ready", answer: r.answer } : { status: "error" } }))
+        .catch(() => { /* aborted: the date or the screen changed */ });
+    }, screen === "step1" ? 350 : 0);
+    return () => { window.clearTimeout(t); ctl.abort(); };
+  }, [interimKey, interimFrom, screen]);
+  const interimCount = interim.status === "ready" ? confirmableCount(interim.answer.count) : null;
+  const interimNote = (fromDate: string, hideWhenNone: boolean) => (
+    <InterimDocumentsNote state={interim} fromDate={fromDate} hideWhenNone={hideWhenNone} onRetry={() => setInterimRetry((n) => n + 1)} onOpenList={() => setListOpen(true)} />
+  );
   const stepNo = screen === "step1" ? 1 : screen === "step2" ? 2 : screen === "step3" ? 3 : 0;
   const isGoogle = info?.reauthMethod === "GOOGLE";
   const legalName = info?.identity.legalName ?? "";
@@ -169,13 +203,21 @@ export default function KindTransitionPage() {
   // ── step 3: the digest of exactly what is confirmed, then the transition ──
   const confirm = async () => {
     setConfirmError(""); setNeedsReverify(false);
+    if (interimCount === null) return; // the button is disabled until the number is on screen
     setScreen("working");
     try {
       const ids = acknowledgements.filter((a) => acks[a.id]).map((a) => a.id);
       const p = await previewKindTransition(input(ids));
       const sha = p.body.statementSha256;
-      const r = p.status === 200 && sha ? await confirmKindTransition({ ...input(ids), statementSha256: sha }) : p;
-      const o = confirmOutcome(r.status, r.body.code, r.body.error);
+      const r = p.status === 200 && sha ? await confirmKindTransition({ ...input(ids), statementSha256: sha, interimDocumentCount: interimCount }) : p;
+      const o = confirmOutcome(r.status, r.body.code, r.body.error, r.body as { count?: unknown });
+      if (o.kind === "interimChanged") {
+        // Nothing was written. Step 3 counts again on arrival (the note shows the current number); confirm again.
+        setConfirmError(interimChangedMessage(o.count, displayDate(date)));
+        setInterimRetry((n) => n + 1); // a fresh count, never the one shown before
+        setScreen("step3");
+        return;
+      }
       if (o.kind === "success") {
         clearDraft();
         await load();
@@ -240,6 +282,7 @@ export default function KindTransitionPage() {
             <div className={s.body}>
               <h2 ref={headingRef} tabIndex={-1} className={s.h2}>העסק כבר עבר לעוסק מורשה</h2>
               <Note tone="ok" role="status"><IconCheck size={18} /><span>עבר לעוסק מורשה ב-{displayInstant(info.history.confirmedAt)}. המעמד ברשות המסים מ-{displayDate(info.history.statusEffectiveDate)}.</span></Note>
+              {interimNote(info.history.statusEffectiveDate, true)}
               <Link href={BUSINESS_PAGE} className={s.link}>חזרה לפרטי העסק</Link>
             </div>
           </>
@@ -288,12 +331,7 @@ export default function KindTransitionPage() {
                   {dateError && ds !== "future" && ds !== "invalid" ? <p className={s.err} role="alert"><IconAlert />{dateError}</p> : null}
                 </div>
               </div>
-              {early ? (
-                <Note tone="warn" role="status">
-                  <IconWarn />
-                  <span data-testid="kt-early-warning"><strong>התאריך מוקדם מהיום.</strong> מסמכים שהפקתם מאז {displayDate(date)} כעוסק פטור לא ישתנו. כדאי לבדוק עם רואה החשבון איך לטפל בהם.</span>
-                </Note>
-              ) : null}
+              {ds === "today" || ds === "early" ? <div data-testid="kt-early-warning" aria-live="polite">{interimNote(date, ds === "today")}</div> : null}
             </main>
             <div className={s.footer}>
               <button type="button" className={s.btnPrimary} disabled={ds !== "today" && ds !== "early"} onClick={() => { setConfirmError(""); setScreen("step2"); }} data-testid="kt-step1-next">המשך</button>
@@ -400,7 +438,7 @@ export default function KindTransitionPage() {
                   <li className={s.li}><IconLock className={`${s.liIcon} ${s.brand}`} /><span>מסמכים קודמים<small>כל מה שהופק עד היום נשאר כמו שהוא — גם אם מפיקים ממנו PDF שוב.</small></span></li>
                 </ul>
               </section>
-              {early ? <Note tone="warn"><IconWarn /><span>מסמכים שהופקו כעוסק פטור מאז {displayDate(date)} לא ישתנו — כדאי לבדוק אותם עם רואה החשבון.</span></Note> : null}
+              <div aria-live="polite">{interimNote(date, !early)}</div>
               <Note tone="warn"><IconWarn /><span>טיוטות פתוחות בלי מע״מ: אחרי המעבר נבקש לבדוק כל אחת לפני שמפיקים אותה.</span></Note>
               <section className={s.card} aria-labelledby="kt-acks">
                 <h3 id="kt-acks" className={s.cardTitle}>אישורים</h3>
@@ -413,7 +451,7 @@ export default function KindTransitionPage() {
               </section>
             </main>
             <div className={s.footer}>
-              <button type="button" className={s.btnPrimary} onClick={confirm} disabled={!allAcks} data-testid="kt-confirm">אישור ומעבר לעוסק מורשה</button>
+              <button type="button" className={s.btnPrimary} onClick={confirm} disabled={!allAcks || interimCount === null} data-testid="kt-confirm">אישור ומעבר לעוסק מורשה</button>
               <button type="button" className={s.btnGhost} onClick={leave} data-testid="kt-cancel">ביטול</button>
             </div>
           </>
@@ -443,6 +481,7 @@ export default function KindTransitionPage() {
                   <li className={s.li} style={{ alignItems: "center" }}><span className={`${s.stepNum} ${s.stepNumBrand}`}>{info?.history && startedBeforeConfirmation(info.history.statusEffectiveDate, info.history.confirmedAt) ? 3 : 2}</span><span style={{ flex: 1 }}>להפיק חשבונית מס ראשונה</span><Link href="/billing" className={s.link}>להפקה</Link></li>
                 </ol>
               </section>
+              {info?.history ? interimNote(info.history.statusEffectiveDate, true) : null}
               {info?.history ? (
                 <p className={s.help} style={{ textAlign: "center" }}>השינוי נשמר בהיסטוריית העסק: עוסק מורשה מ-{displayInstant(info.history.confirmedAt)} (המעמד ברשות המסים מ-{displayDate(info.history.statusEffectiveDate)}).</p>
               ) : null}
@@ -454,6 +493,7 @@ export default function KindTransitionPage() {
         ) : null}
       </div>
       <NewFileSheet open={sheet} onClose={() => setSheet(false)} />
+      <InterimDocumentsSheet open={listOpen} onClose={() => setListOpen(false)} from={interimFrom} />
     </div>
   );
 }

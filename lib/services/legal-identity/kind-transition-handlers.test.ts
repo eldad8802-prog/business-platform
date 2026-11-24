@@ -8,6 +8,8 @@
  */
 import assert from "node:assert/strict";
 
+import { InterimDocumentsChangedError } from "@/lib/services/legal-identity/kind-transition.service";
+
 process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || "kind-transition-handlers-test-secret-0123";
 
 import { issueReauthProof, REAUTH_ACTIONS } from "@/lib/auth/sensitive-reauth";
@@ -68,7 +70,7 @@ function make(over: Partial<KindTransitionDeps> & { snap?: KindTransitionSnapsho
   return { deps, calls };
 }
 
-const body = (over: Record<string, unknown> = {}) => ({ confirmTaxId: TAX, vatNumber: TAX, statusEffectiveDate: DATE, acknowledged: ACKS, ...over });
+const body = (over: Record<string, unknown> = {}) => ({ confirmTaxId: TAX, vatNumber: TAX, statusEffectiveDate: DATE, acknowledged: ACKS, interimDocumentCount: 0, ...over });
 const sha = kindTransitionStatementSha256({ businessId: BIZ, actorUserId: USER, legalName: "ישראל ישראלי", taxId: TAX, vatNumber: TAX, statusEffectiveDate: DATE });
 const post = (payload: unknown, cookie?: string) => new Request("https://app.lab.invalid/api/business/legal-identity/kind-transition", {
   method: "POST", headers: { "content-type": "application/json", authorization: "Bearer t", ...(cookie ? { cookie } : {}) }, body: JSON.stringify(payload),
@@ -130,6 +132,7 @@ async function main() {
     assert.equal(args.reauthMethod, "PASSWORD");
     assert.equal(args.statementSha256, sha);
     assert.ok(args.reauthAt instanceof Date);
+    assert.equal(args.interimDocumentCount, 0);
     assert.ok(cookiesOf(res).some((c) => c.startsWith(`${REAUTH_ACTIONS[ACTION].cookie}=`) && /Max-Age=0/i.test(c)));
   });
 
@@ -241,6 +244,46 @@ async function main() {
     assert.equal(bad.status, 400);
     assert.ok((bad.body.problems as { field: string }[]).every((p) => p.field !== "acknowledged"));
     assert.equal((await handleKindTransitionPreview(post({ ...body(), stage: "identity" }), make({ snap: snapshot({ actorIsSoleUser: false }) }).deps)).status, 409);
+  });
+
+  // ── 4a T4: the number of interim documents the owner saw ──
+  await check("H13 confirm without a valid interimDocumentCount → 400 INVALID_INPUT (field interimDocumentCount), no database call", async () => {
+    for (const v of [undefined, null, -1, 1.5, "3", Number.NaN, 10_000_001]) {
+      const { deps, calls } = make();
+      const payload: Record<string, unknown> = { ...body(), statementSha256: sha };
+      if (v === undefined) delete payload.interimDocumentCount; else payload.interimDocumentCount = v;
+      const r = await read(await handleKindTransitionConfirm(post(payload, proofCookie()), deps));
+      assert.equal(r.status, 400, String(v));
+      assert.equal(r.body.code, "INVALID_INPUT");
+      assert.equal((r.body.problems as { field: string }[])[0].field, "interimDocumentCount");
+      assert.equal(calls.perform.length, 0);
+    }
+  });
+
+  await check("H14 the number the owner saw reaches the database call as is", async () => {
+    const { deps, calls } = make();
+    const res = await handleKindTransitionConfirm(post({ ...body({ interimDocumentCount: 7 }), statementSha256: sha }, proofCookie()), deps);
+    assert.equal(res.status, 200);
+    assert.equal((calls.perform[0][2] as Record<string, unknown>).interimDocumentCount, 7);
+  });
+
+  await check("H15 the count changed inside the transaction → 409 { error: INTERIM_DOCUMENTS_CHANGED, count }, the proof kept", async () => {
+    const { deps } = make({ perform: async () => { throw new InterimDocumentsChangedError(4); } });
+    const res = await handleKindTransitionConfirm(post({ ...body({ interimDocumentCount: 3 }), statementSha256: sha }, proofCookie()), deps);
+    const r = await read(res.clone());
+    assert.equal(r.status, 409);
+    assert.equal(r.body.error, "INTERIM_DOCUMENTS_CHANGED");
+    assert.equal(r.body.code, "INTERIM_DOCUMENTS_CHANGED");
+    assert.equal(r.body.count, 4);
+    assert.ok(!cookiesOf(res).some((c) => c.startsWith(`${REAUTH_ACTIONS[ACTION].cookie}=`)));
+  });
+
+  await check("H16 any other failure in the database call → 500 'nothing changed' (no count leaks)", async () => {
+    const { deps } = make({ perform: async () => { throw new Error("KIND_TRANSITION_RECORD_NOT_VISIBLE"); } });
+    const r = await read(await handleKindTransitionConfirm(post({ ...body(), statementSha256: sha }, proofCookie()), deps));
+    assert.equal(r.status, 500);
+    assert.equal(r.body.code, "SERVER_ERROR");
+    assert.equal(r.body.count, undefined);
   });
 
   console.log(`kind-transition-handlers: ${checks} checks passed`);
