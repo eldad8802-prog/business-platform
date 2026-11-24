@@ -64,6 +64,7 @@ jobs:
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
       - name: Lab (Production role topology; issuer declaration + transition + DZ010 by migrate deploy)
         run: bash .billing-4a/lab.sh t3_e2e
+      - run: npx playwright install --with-deps chromium
       - name: Lab batteries — T3 (incl. V11 quotes), T4 interim documents, T5 numbering
         env:
           DATABASE_URL: postgresql://app_runtime_prod:t3_e2e_synthetic_role_pw@localhost:5432/t3_e2e?connection_limit=20&pool_timeout=30
@@ -83,7 +84,6 @@ jobs:
           for t in .billing-a0/golden.test.ts .billing-a0/pdf-render.test.ts lib/services/billing/kind-transition/draft-vat-review.test.ts lib/services/billing/kind-transition/interim-documents.test.ts lib/billing/business-identity.exempt-dealer.test.ts lib/services/feature-access/route-feature-map.test.ts lib/services/billing/uniform/*.test.ts; do echo "== $t"; npx tsx "$t" | tail -2; done
       - name: Production build
         run: npm run build
-      - run: npx playwright install --with-deps chromium
       - name: Full page e2e (next start)
         run: |
           set -euo pipefail
