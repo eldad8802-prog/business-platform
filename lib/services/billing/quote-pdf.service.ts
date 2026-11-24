@@ -11,6 +11,8 @@ import {
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
 import { allocateQuoteDocumentNumberIfMissing } from "@/lib/services/billing/quote-document-number";
+import { assertDraftVatReviewedTx } from "@/lib/services/billing/kind-transition/draft-vat-review";
+import { lockBillingDocumentRowsTx } from "@/lib/services/billing/receipt/billing-receipt-issuance-integrity";
 import { buildQuotePdfSnapshot } from "@/lib/services/billing/quote-pdf-snapshot";
 import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
 import { renderBillingPdfFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-renderer";
@@ -136,10 +138,21 @@ export async function getOrRenderQuotePdf(
         businessId: input.businessId,
         documentType: BillingDocumentType.QUOTE,
       },
-      select: { id: true, convertedToInvoiceId: true },
+      select: { id: true, convertedToInvoiceId: true, documentNumber: true },
     });
     if (!docCheck) {
       throw new NotFoundError("Quote document not found");
+    }
+    // 4a T3: finalizing a quote (its first number + the final PDF) created before "מעבר לעוסק מורשה" with a 0% line
+    // needs the owner's explicit VAT review. A quote already numbered (sent) stays as it was. The row is locked first
+    // so the content checked is the content numbered. No transition → one empty read, no change.
+    if (docCheck.documentNumber === null) {
+      await lockBillingDocumentRowsTx(tx, input.businessId, [input.billingDocumentId]);
+      const full = await tx.billingDocument.findFirstOrThrow({
+        where: { id: input.billingDocumentId, businessId: input.businessId },
+        include: { lines: { orderBy: { lineIndex: "asc" } } },
+      });
+      if (full.documentNumber === null) await assertDraftVatReviewedTx(tx, full);
     }
     return allocateQuoteDocumentNumberIfMissing(tx, {
       businessId: input.businessId,

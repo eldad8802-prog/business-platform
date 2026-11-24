@@ -59,6 +59,8 @@ export const BILLING_AUDIT_EVENT_TYPES = [
   // an issued receipt PDF put back from a verified original (hash match) — controlled restore, never automatic
   "BILLING_PDF_RESTORED",
   "BILLING_QUOTE_PDF_RENDERED",
+  // 4a T3: the owner's explicit VAT review of a draft created before "מעבר לעוסק מורשה" (draft-vat-review.ts)
+  "BILLING_DRAFT_VAT_REVIEW_CONFIRMED",
   ...BILLING_AUTHORITY_AUDIT_EVENT_TYPES,
 ] as const;
 
