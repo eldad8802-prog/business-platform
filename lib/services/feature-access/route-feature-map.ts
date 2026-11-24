@@ -122,6 +122,7 @@ export const ROUTE_FEATURE_MAP: readonly RouteFeatureEntry[] = [
   { route: "billing/documents/[id]/submit", feature: B, ungated: { POST: LEGAL }, note: "submitting an existing draft; creating the draft is guarded" },
   { route: "billing/documents/[id]/credit-note", feature: B, ungated: { POST: LEGAL } },
   { route: "billing/documents/[id]/authority-decision", feature: B, ungated: { POST: LEGAL } },
+  { route: "billing/documents/[id]/authority-resend", feature: B, ungated: { POST: LEGAL }, note: "resends the allocation request of an already-issued invoice that provably never reached the authority" },
   { route: "billing/customers", feature: B, ungated: { GET: FLOOR } },
   { route: "billing/customers/[id]", feature: B, ungated: { GET: FLOOR } },
   { route: "billing/invoice-profile", feature: B, ungated: { GET: FLOOR } },

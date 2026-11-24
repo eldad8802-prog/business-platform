@@ -29,6 +29,7 @@ import {
 } from "@/lib/billing/collections-visibility";
 import { describeAuthorityIssueOutcome } from "@/lib/billing/authority-issue-display";
 import {
+  AUTHORITY_RESEND_LABELS,
   describeAuthorityDocumentState,
   isDocumentDeliverable,
   type AuthorityDocumentStateDisplay,
@@ -1724,7 +1725,7 @@ function DocumentBody({
 
       {issuedFocus ? (
         <>
-          <IssuedHero doc={doc} />
+          <IssuedHero doc={doc} onReloadDocument={onReloadDocument} />
           {shouldShowCollections(doc.documentType, doc.status) ? (
             <CollectionsSection doc={doc} />
           ) : null}
@@ -3508,7 +3509,7 @@ const AUTHORITY_TONE: Record<AuthorityDocumentStateDisplay["tone"], { bg: string
   danger: { bg: TOKEN.semantic.urgent.bg, border: TOKEN.semantic.urgent.border, ink: TOKEN.semantic.urgent.ink },
 };
 
-function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
+function IssuedHero({ doc, onReloadDocument }: { doc: BillingDocumentDetail; onReloadDocument: () => void }) {
   const { t, locale } = useI18n();
   const issuedDate = formatDateTime(doc.issuedAt, locale);
   // numberLabel feeds both the screen and the outbound WhatsApp text below, which stays Hebrew.
@@ -3523,6 +3524,35 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const authorityView = describeAuthorityDocumentState(doc.authorityState);
   const deliverable = isDocumentDeliverable(doc.authorityState);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendNotice, setResendNotice] = useState<string | null>(null);
+
+  // Gap A: resend an allocation request that provably never reached the authority.
+  // One click = one server attempt; the server re-checks eligibility and every gate.
+  async function resendAllocationRequest() {
+    if (resendBusy) return;
+    setResendBusy(true);
+    setResendNotice(null);
+    try {
+      const res = await fetch(`/api/billing/documents/${doc.id}/authority-resend`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getAuthToken()}` },
+        cache: "no-store",
+      });
+      const data = (await res.json().catch(() => null)) as { authority?: AuthorityIssueOutcome; error?: string } | null;
+      if (res.ok && data?.authority) {
+        const shown = describeAuthorityIssueOutcome(data.authority);
+        setResendNotice(`${shown.title} — ${shown.detail}`);
+      } else {
+        setResendNotice(typeof data?.error === "string" && data.error.trim() ? data.error.trim() : AUTHORITY_RESEND_LABELS.failed);
+      }
+    } catch {
+      setResendNotice(AUTHORITY_RESEND_LABELS.failed);
+    } finally {
+      setResendBusy(false);
+      onReloadDocument();
+    }
+  }
 
   async function fetchPdfBlob(): Promise<Blob> {
     const token = getAuthToken();
@@ -3762,6 +3792,29 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
         >
           <strong style={{ fontWeight: 600 }}>{authorityView.title}</strong>
           <span>{authorityView.detail}</span>
+          {authorityView.canResend ? (
+            <button
+              type="button"
+              data-billing-authority-resend
+              onClick={() => void resendAllocationRequest()}
+              disabled={resendBusy}
+              style={{
+                marginTop: 6,
+                justifySelf: "start",
+                padding: "6px 12px",
+                borderRadius: 8,
+                border: `1px solid ${AUTHORITY_TONE[authorityView.tone].border}`,
+                background: "transparent",
+                color: "inherit",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: resendBusy ? "default" : "pointer",
+              }}
+            >
+              {resendBusy ? AUTHORITY_RESEND_LABELS.busy : AUTHORITY_RESEND_LABELS.action}
+            </button>
+          ) : null}
+          {resendNotice ? <span data-billing-authority-resend-notice>{resendNotice}</span> : null}
         </div>
       ) : null}
 
