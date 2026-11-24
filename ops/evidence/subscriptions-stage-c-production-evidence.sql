@@ -70,18 +70,18 @@ c AS (
   UNION ALL SELECT 3, (SELECT count(*) FROM tbl), 8
   UNION ALL SELECT 4, (SELECT count(*) FROM pg_class WHERE oid IN (SELECT oid FROM tenant) AND relrowsecurity AND relforcerowsecurity), 5
   UNION ALL SELECT 5, (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN (SELECT relname FROM tbl) AND cmd = 'ALL'), 0
-  UNION ALL SELECT 6, (SELECT count(*) FROM tbl t CROSS JOIN LATERAL aclexplode(t.relacl) a
-                         WHERE t.relname <> 'PlatformSubscriptionRequest' AND a.grantee IN ('app_runtime'::regrole, 0)
+  UNION ALL SELECT 6, (SELECT count(*) FROM tbl t JOIN pg_class pc ON pc.oid = t.oid CROSS JOIN LATERAL aclexplode(pc.relacl) a
+                         WHERE t.relname <> 'PlatformSubscriptionRequest' AND a.grantee IN ('app_runtime'::regrole::oid, 0::oid)
                            AND a.privilege_type <> 'SELECT'), 0
   UNION ALL SELECT 7, (SELECT count(*) FROM pg_policy p WHERE p.polrelid = '"PlatformSubscriptionRequest"'::regclass AND p.polcmd = 'a'
-                         AND 'app_runtime'::regrole = ANY (p.polroles) AND pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%app.current_business_id%'), 1
+                         AND 'app_runtime'::regrole::oid = ANY (p.polroles) AND pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%app.current_business_id%'), 1
   UNION ALL SELECT 8, (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'PlatformTrialClaim'
                          AND ('app_runtime' = ANY (roles) OR 'public' = ANY (roles))), 0
   UNION ALL SELECT 9, (SELECT count(*) FROM pg_class t CROSS JOIN LATERAL aclexplode(t.relacl) a
                          WHERE t.relnamespace = 'public'::regnamespace AND t.relkind = 'r'
                            AND t.relname IN ('PlatformSubscription', 'PlatformSubscriptionEvent', 'PlatformTrialClaim', 'PlatformSubscriptionRequest',
                                              'PlatformQuotaPolicy', 'PlatformQuotaPolicyEvent', 'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent', 'PlatformUsageMetricMode')
-                           AND a.grantee IN ('app_admin'::regrole, 0) AND a.privilege_type <> 'SELECT'), 0
+                           AND a.grantee IN ('app_admin'::regrole::oid, 0::oid) AND a.privilege_type <> 'SELECT'), 0
   UNION ALL SELECT 10, (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND policyname = 'p7adm_read' AND cmd = 'SELECT'
                           AND tablename IN ('PlatformSubscription', 'PlatformSubscriptionEvent', 'PlatformTrialClaim', 'PlatformSubscriptionRequest',
                                             'BusinessQuotaAdjustment', 'BusinessUsageCounter', 'BusinessUsageEvent')), 7
