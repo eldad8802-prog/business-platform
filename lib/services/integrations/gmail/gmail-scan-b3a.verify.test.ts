@@ -770,6 +770,8 @@ async function main() {
       DATA_TRANSFER_IMPORT_EXECUTE: "closed", DATA_TRANSFER_DOCUMENTS_IMPORT: "closed", LANDING_COMPOSE: "closed",
       // The owner's FCM credential check (notifications #1146): one Google token exchange per admitted call.
       FCM_AUTH_CHECK: "closed",
+      // Owner decision 26 (2026-11-24): abuse ceilings on the four paths that had none.
+      GMAIL_IMPORT: "closed", CONTENT_GENERATE: "closed", LETTER_PREVIEW: "open", REPORTS_EXPORT_ZIP: "open",
     };
     const actual = Object.fromEntries(Object.entries(BUCKETS).map(([k, v]) => [k, v.failMode]));
     assert.deepEqual(actual, expected);
@@ -1014,7 +1016,14 @@ async function main() {
       "lib/services/integrations/gmail/gmail-attachment-fetch.service.ts",
     ]) {
       const src = read(p);
-      assert.equal(/gmail-quota-budget|GMAIL_SCAN\b|checkRateLimit/.test(src), false, p);
+      assert.equal(/gmail-quota-budget|GMAIL_SCAN\b/.test(src), false, p);
+      // Owner decision 26: import has its OWN ceiling (GMAIL_IMPORT) — never the scan bucket; the others none.
+      const limiterCalls = src.match(/checkRateLimit\(\{ bucket: "[A-Z_]+"/g) ?? [];
+      if (p === "app/api/integrations/gmail/import/route.ts") {
+        assert.deepEqual(limiterCalls, ['checkRateLimit({ bucket: "GMAIL_IMPORT"'], p);
+      } else {
+        assert.equal(/checkRateLimit/.test(src), false, p);
+      }
     }
   });
 
