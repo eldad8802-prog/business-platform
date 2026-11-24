@@ -279,6 +279,11 @@ export function CaseScreen({ caseId }: { caseId: number }) {
     intakeReady,
     chargeMissing: handoverStep && balance.blocksHandover,
     qaFailed: card.status === "QA" && qaState === "failed",
+    qa: card.status === "QA" && qaState && qaItems ? {
+      state: qaState,
+      remaining: qaItems.filter((i) => (i.required || extras.qa!.template!.everyCheckRecorded) && !qaMarks[i.key]).length,
+      failedLabels: qaItems.filter((i) => qaMarks[i.key] === "FAIL").map((i) => i.label),
+    } : undefined,
   };
   const caseHref = `/service-desk/cases/${card.id}`;
   const newQuoteHref = card.customerId

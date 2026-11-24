@@ -163,7 +163,25 @@ export type NextActionContext = {
   chargeMissing?: boolean;
   /** QA: the saved checklist has a failed check (the case goes back to work). */
   qaFailed?: boolean;
+  /**
+   * QA, as marked on screen (owner decision 2026-11-24): every required check passed → ready to confirm; some still
+   * unmarked → how many are left; a failed check → which one, and back to work. The heading follows the same state as
+   * the button, so they never disagree. Display only: the server's QA rules are unchanged.
+   */
+  qa?: { state: "incomplete" | "ready" | "failed"; remaining?: number; failedLabels?: readonly string[] };
 };
+
+/** The QA heading for the case screen's top card (see NextActionContext.qa). */
+export function qaHeadline(qa: NonNullable<NextActionContext["qa"]>): string {
+  if (qa.state === "failed") {
+    const f = qa.failedLabels ?? [];
+    const what = f.length === 1 ? `הבדיקה «${f[0]}» לא עברה` : f.length > 1 ? `${f.length} בדיקות לא עברו` : "בדיקה לא עברה";
+    return `${what} — להחזיר לעבודה`;
+  }
+  if (qa.state === "ready") return "כל בדיקות החובה עברו — אפשר לאשר";
+  const n = qa.remaining ?? 0;
+  return n === 1 ? "נותרה בדיקה אחת לסמן" : n > 1 ? `נותרו ${n} בדיקות לסמן` : "לסמן את הבדיקות";
+}
 
 /**
  * The next step the owner takes, in plain words, for the case screen's top card. A step already done is never named
@@ -181,7 +199,7 @@ export function nextActionLabel(status: CaseStatus, kind: CaseKind, holdReason: 
     case "QUOTE_PENDING": return "לרשום את תשובת הלקוח להצעה";
     case "IN_REPAIR": return field ? "לסיים את העבודה" : "לסיים את התיקון";
     case "EXTERNAL": return "לרשום חזרה מהספק";
-    case "QA": return ctx.qaFailed ? "בדיקה לא עברה — להחזיר לעבודה" : "להשלים את הבדיקות";
+    case "QA": return ctx.qa ? qaHeadline(ctx.qa) : ctx.qaFailed ? "בדיקה לא עברה — להחזיר לעבודה" : "להשלים את הבדיקות";
     case "READY": return ctx.chargeMissing ? "לקבוע חיוב ואז למסור ללקוח" : "למסור ללקוח";
     case "WORK_DONE": return ctx.chargeMissing ? "לקבוע חיוב ואז לסגור את הקריאה" : "לסגור את הקריאה";
     default: return null;
@@ -259,13 +277,21 @@ export function rowDescription(c: Pick<CaseRowData, "subjectName" | "problemExce
   return parts.length ? parts.join(" · ") : "ללא תיאור";
 }
 
+/** The business's clock: every date and time on these screens is Israel time, whatever the device is set to. */
+const BUSINESS_TZ = "Asia/Jerusalem";
+const DAY_KEY = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+const TIME_FMT = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: BUSINESS_TZ });
+const DATE_FMT = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: BUSINESS_TZ });
+
+/**
+ * Today → the time; another day → the date. "Today" is the Israel calendar day too (it was the device's, so near
+ * midnight or on a device set abroad a time could stand for another day). Display only: stored times are unchanged.
+ */
 export function formatShortDate(iso: string, now: Date): string {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return "";
   const d = new Date(t);
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" }).format(d);
-  return new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: "Asia/Jerusalem" }).format(d);
+  return DAY_KEY.format(d) === DAY_KEY.format(now) ? TIME_FMT.format(d) : DATE_FMT.format(d);
 }
 
 // ── Case screen ──────────────────────────────────────────────────────────────────────────────────
