@@ -386,19 +386,21 @@ async function main() {
   authorize(a, d12);
   nextOutcome = NOT_SENT;
   await issue(a, d12);
+  // Issuing d12 made its own (not-sent) request: the baseline for RS12–RS14 is taken after it.
+  const before12 = requests;
   await owner.billingAuthoritySubmission.update({ where: { billingDocumentId: d12 }, data: { status: "READY", errorCode: null } });
   const r12 = await resend(a, d12);
   ok("RS12 READY carrying a reserve's traces (hash / attempt time) → refused as inconsistent",
-    !r12.ok && r12.message === AUTHORITY_RESEND_REFUSAL_MESSAGES.INCONSISTENT_READY && requests === before9, JSON.stringify(r12));
+    !r12.ok && r12.message === AUTHORITY_RESEND_REFUSAL_MESSAGES.INCONSISTENT_READY && requests === before12, JSON.stringify({ r12, requests: requests - before12 }));
   await owner.billingAuthoritySubmission.update({ where: { billingDocumentId: d12 }, data: { status: "FAILED", errorCode: "LEGACY_UNKNOWN_FAILURE" } });
   const r13 = await resend(a, d12);
   ok("RS13 FAILED with a code that does not prove \"not sent\" → refused",
-    !r13.ok && r13.message === AUTHORITY_RESEND_REFUSAL_MESSAGES.NOT_PROVABLY_UNSENT && requests === before9, JSON.stringify(r13));
+    !r13.ok && r13.message === AUTHORITY_RESEND_REFUSAL_MESSAGES.NOT_PROVABLY_UNSENT && requests === before12, JSON.stringify({ r13, requests: requests - before12 }));
 
   // ------------------------------------------------ RS14 same content only ---
   const r14 = await resend({ businessId: a.businessId, userId: a2user.id }, d9);
   ok("RS14 another user of the same business → a different payload → hash mismatch, nothing requested, row unchanged",
-    r14.ok && r14.errorCode === "AUTHORITY_PAYLOAD_HASH_MISMATCH" && requests === before9 && (await sub(d9))?.status === "FAILED", JSON.stringify(r14));
+    r14.ok && r14.errorCode === "AUTHORITY_PAYLOAD_HASH_MISMATCH" && requests === before12 && (await sub(d9))?.status === "FAILED", JSON.stringify({ r14, requests: requests - before12 }));
 
   // ------------------------------------------------ RS15 the real route ---
   const call = (id: number, token?: string) =>
