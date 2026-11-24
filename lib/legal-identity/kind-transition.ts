@@ -5,7 +5,10 @@
  * This module is the pure core of that flow: who may start it, what the owner must type and acknowledge, the exact
  * statement the owner confirms (and its digest, so the server can prove WHAT was confirmed), the two dates, and the
  * mapping of the database answer to a response. It never writes. The only writer is the database function
- * business_kind_transition_to_authorized (migration 20261221090000), which re-checks everything in one transaction.
+ * business_kind_transition_to_authorized (migration 20261221090000, wired to the 4a issuer declaration writer by
+ * 20261225090000), which re-checks everything in one transaction. For a business with a live issuer declaration the
+ * same transaction files declaration version+1 (STATUS_CHANGE) before the profile changes, so the profile keeps
+ * following the declaration; anything the declaration writer refuses writes nothing.
  *
  * Two dates, never mixed (owner 11-20):
  *   statusEffectiveDate  the day the owner declares the authorized-dealer status started at the Tax Authority. It may
@@ -42,7 +45,10 @@ export type KindTransitionState = {
   businessBeingDeleted: boolean;
   /** The signed-in user is the business's ONLY user (v1 authority rule, as account deletion). */
   actorIsSoleUser: boolean;
-  /** The latest issuer declaration exists and is not anonymised. */
+  /**
+   * The latest issuer declaration exists and is not anonymised. Informational since the 4a T1 wiring
+   * (20261225090000): it no longer blocks — the database files the declaration's new version in the same transaction.
+   */
   hasLiveIssuerDeclaration: boolean;
 };
 
@@ -50,8 +56,7 @@ export type KindTransitionBlock =
   | "NOT_EXEMPT_DEALER"
   | "BUSINESS_BEING_DELETED"
   | "NOT_SOLE_USER"
-  | "IDENTITY_INCOMPLETE"
-  | "ISSUER_DECLARATION_ACTIVE";
+  | "IDENTITY_INCOMPLETE";
 
 export type KindTransitionEligibility = { eligible: true } | { eligible: false; block: KindTransitionBlock; message: string };
 
@@ -60,7 +65,6 @@ export const KIND_TRANSITION_BLOCK_MESSAGES: Record<KindTransitionBlock, string>
   BUSINESS_BEING_DELETED: "החשבון בתהליך מחיקה, ולכן אי אפשר לבצע מעבר.",
   NOT_SOLE_USER: "בעסק יש יותר ממשתמש אחד. כרגע המעבר זמין רק כשבעל העסק הוא המשתמש היחיד.",
   IDENTITY_INCOMPLETE: "כדי לבצע מעבר צריך שם משפטי ומספר זהות תקין (9 ספרות) בפרטי העסק.",
-  ISSUER_DECLARATION_ACTIVE: "לעסק יש הצהרת מנפיק פעילה. המעבר לעסק עם הצהרה עדיין לא זמין.",
 };
 
 /** The id number exactly as stored must already be canonical (9 digits, check digit) — the database requires it. */
@@ -73,7 +77,8 @@ export function evaluateKindTransitionEligibility(s: KindTransitionState): KindT
   if (parseBillingBusinessKind(s.billingBusinessKind) !== "EXEMPT_DEALER") return block("NOT_EXEMPT_DEALER");
   if (!s.actorIsSoleUser) return block("NOT_SOLE_USER");
   if ((s.billingLegalName ?? "").trim().length < 2 || canonicalOnFile(s.billingTaxId) === null) return block("IDENTITY_INCOMPLETE");
-  if (s.hasLiveIssuerDeclaration) return block("ISSUER_DECLARATION_ACTIVE");
+  // A live issuer declaration does not block (4a T1 wiring): the database files its new version in the same
+  // transaction, or refuses and writes nothing (kindTransitionOutcome maps those answers).
   return { eligible: true };
 }
 
@@ -208,7 +213,12 @@ export const KIND_TRANSITION_VECTOR = {
   sha256: "8ab5a6b2df827ed27147ea10e49802bea06810d49f4eeba878afe39c88b2d464",
 } as const satisfies { fields: KindTransitionStatementFields; sha256: string };
 
-/** The database function's answers (migration 20261221090000) and what the route makes of them. */
+/**
+ * The database function's answers (20261221090000, wired by 20261225090000) and what the route makes of them.
+ * ISSUER_DECLARATION_ACTIVE is the unwired function's answer: kept so this code is safe on either side of the
+ * wiring migration (and after a rollback of it). ISSUER_DECLARATION_<status> are the 4a writer's refusals, passed on
+ * by the wired function; nothing is written when it answers one of them.
+ */
 export type KindTransitionDbStatus =
   | "TRANSITIONED"
   | "NOT_ALLOWED"
@@ -220,7 +230,27 @@ export type KindTransitionDbStatus =
   | "VAT_NUMBER_DIFFERS_FROM_TAX_ID"
   | "EFFECTIVE_DATE_INVALID"
   | "ISSUER_DECLARATION_ACTIVE"
+  | "ISSUER_DECLARATION_NOT_AUTHORIZED_USER"
+  | "ISSUER_DECLARATION_IDENTITY_MISMATCH"
+  | "ISSUER_DECLARATION_DECLARATION_NOT_EXEMPT"
+  | "ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE"
   | "STATEMENT_STALE";
+
+/**
+ * Hebrew texts for the issuer declaration answers (owner approval pending — see the release package). Every one
+ * says that nothing was saved. None offers a way to change the legal name or the id number.
+ */
+export const KIND_TRANSITION_DECLARATION_MESSAGES = {
+  ISSUER_DECLARATION_ACTIVE: "לעסק יש הצהרת מנפיק פעילה, והמעבר לעסק עם הצהרה עדיין לא זמין. לא נשמר שום שינוי.",
+  ISSUER_DECLARATION_NOT_AUTHORIZED_USER:
+    "את המעבר יכול לאשר רק המשתמש שמוגדר בהצהרת המנפיק של העסק כמורשה לפעול בשמו. לא נשמר שום שינוי.",
+  ISSUER_DECLARATION_IDENTITY_MISMATCH:
+    "השם המשפטי או מספר הזהות בפרטי העסק אינם זהים לאלה שבהצהרת המנפיק, ולכן אי אפשר לבצע את המעבר. לא נשמר שום שינוי. כדי לבדוק את הפרטים יש לפנות לתמיכה של דוביז.",
+  ISSUER_DECLARATION_DECLARATION_NOT_EXEMPT:
+    "לפי הצהרת המנפיק העסק אינו רשום כעוסק פטור, ולכן אי אפשר לבצע את המעבר. לא נשמר שום שינוי. כדי לבדוק את הפרטים יש לפנות לתמיכה של דוביז.",
+  ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE:
+    "הצהרת המנפיק של העסק עדיין לא נכנסה לתוקף. אפשר לנסות שוב בעוד כמה דקות. לא נשמר שום שינוי.",
+} as const;
 
 export type KindTransitionOutcome = { status: number; code: KindTransitionDbStatus | "UNKNOWN"; message: string };
 
@@ -235,7 +265,16 @@ export function kindTransitionOutcome(db: string): KindTransitionOutcome {
     case "VAT_NUMBER_INVALID": return { status: 400, code: "VAT_NUMBER_INVALID", message: "מספר העוסק המורשה אינו תקין." };
     case "VAT_NUMBER_DIFFERS_FROM_TAX_ID": return { status: 400, code: "VAT_NUMBER_DIFFERS_FROM_TAX_ID", message: "מספר העוסק המורשה חייב להיות זהה למספר הזהות." };
     case "EFFECTIVE_DATE_INVALID": return { status: 400, code: "EFFECTIVE_DATE_INVALID", message: "תאריך תחילת המעמד אינו תקין." };
-    case "ISSUER_DECLARATION_ACTIVE": return { status: 409, code: "ISSUER_DECLARATION_ACTIVE", message: KIND_TRANSITION_BLOCK_MESSAGES.ISSUER_DECLARATION_ACTIVE };
+    case "ISSUER_DECLARATION_ACTIVE":
+    case "ISSUER_DECLARATION_NOT_AUTHORIZED_USER":
+    case "ISSUER_DECLARATION_IDENTITY_MISMATCH":
+    case "ISSUER_DECLARATION_DECLARATION_NOT_EXEMPT":
+    case "ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE": {
+      const code = db as keyof typeof KIND_TRANSITION_DECLARATION_MESSAGES;
+      return { status: 409, code, message: KIND_TRANSITION_DECLARATION_MESSAGES[code] };
+    }
+    // Any other ISSUER_DECLARATION_* (NOT_ALLOWED, REAUTH_REQUIRED, STATEMENT_INVALID, VAT_NUMBER_INVALID,
+    // NO_LIVE_DECLARATION, UNKNOWN) is unreachable after the transition's own checks: it falls to the 500 below.
     case "STATEMENT_STALE": return { status: 409, code: "STATEMENT_STALE", message: "פרטי העסק השתנו מאז שנפתח המסך. יש לפתוח את המסך מחדש ולאשר שוב." };
     default: return { status: 500, code: "UNKNOWN", message: "המעבר לא בוצע. לא נשמר שום שינוי." };
   }

@@ -151,8 +151,8 @@ async function main() {
     assert.equal(calls.perform.length, 0);
   });
 
-  await check("H9 confirm on an ineligible business (several users / live declaration) → 409, no database call", async () => {
-    for (const snap of [snapshot({ actorIsSoleUser: false }), snapshot({ hasLiveIssuerDeclaration: true })]) {
+  await check("H9 confirm on an ineligible business (several users, with or without a live declaration) → 409, no database call", async () => {
+    for (const snap of [snapshot({ actorIsSoleUser: false }), snapshot({ hasLiveIssuerDeclaration: true, actorIsSoleUser: false })]) {
       const { deps, calls } = make({ snap });
       assert.equal((await handleKindTransitionConfirm(post({ ...body(), statementSha256: sha }, proofCookie()), deps)).status, 409);
       assert.equal(calls.perform.length, 0);
@@ -164,6 +164,44 @@ async function main() {
     const res = await handleKindTransitionConfirm(post({ ...body(), statementSha256: sha }, proofCookie()), deps);
     assert.equal(res.status, 409);
     assert.ok(!cookiesOf(res).some((c) => c.startsWith(`${REAUTH_ACTIONS[ACTION].cookie}=`)));
+  });
+
+  await check("H11 a business with a live issuer declaration: GET eligible; confirm reaches the database with server-derived values only", async () => {
+    const declared = snapshot({ hasLiveIssuerDeclaration: true });
+    const g = await read(await handleKindTransitionGet(get(), make({ snap: declared }).deps));
+    assert.deepEqual(g.body.eligibility, { eligible: true });
+    const { deps, calls } = make({ snap: declared });
+    // the request tries to smuggle another digest / business / user: ignored, the server recomputes
+    const res = await handleKindTransitionConfirm(post({ ...body(), statementSha256: sha, businessId: 999, userId: 999, statementVersion: "x" }, proofCookie()), deps);
+    assert.equal(res.status, 200);
+    assert.equal(calls.perform.length, 1);
+    const [biz, user, args] = calls.perform[0] as [number, number, Record<string, unknown>];
+    assert.deepEqual([biz, user], [BIZ, USER]);
+    assert.equal(args.statementSha256, sha);
+    assert.equal(args.reauthMethod, "PASSWORD");
+    assert.ok(!("statementVersion" in args));
+  });
+
+  await check("H12 the declaration writer's refusals → 409 with their own text, the proof kept; unreachable ones → 500, code logged only", async () => {
+    for (const code of ["ISSUER_DECLARATION_NOT_AUTHORIZED_USER", "ISSUER_DECLARATION_IDENTITY_MISMATCH", "ISSUER_DECLARATION_DECLARATION_NOT_EXEMPT", "ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE"]) {
+      const { deps } = make({ snap: snapshot({ hasLiveIssuerDeclaration: true }), perform: async () => code });
+      const res = await handleKindTransitionConfirm(post({ ...body(), statementSha256: sha }, proofCookie()), deps);
+      const r = await read(res.clone());
+      assert.equal(r.status, 409, code);
+      assert.equal(r.body.code, code);
+      assert.match(String(r.body.error), /לא נשמר שום שינוי/);
+      assert.ok(!cookiesOf(res).some((c) => c.startsWith(`${REAUTH_ACTIONS[ACTION].cookie}=`)), code);
+    }
+    const logged: unknown[][] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => { logged.push(a); };
+    try {
+      const { deps } = make({ perform: async () => "ISSUER_DECLARATION_NO_LIVE_DECLARATION" });
+      const r = await read(await handleKindTransitionConfirm(post({ ...body(), statementSha256: sha }, proofCookie()), deps));
+      assert.equal(r.status, 500);
+      assert.equal(r.body.code, "UNKNOWN");
+    } finally { console.error = orig; }
+    assert.deepEqual(logged, [["KIND_TRANSITION_UNEXPECTED_DB_STATUS:", "ISSUER_DECLARATION_NO_LIVE_DECLARATION"]]);
   });
 
   await check("P1 password re-auth: wrong → 401, no proof; right → proof cookie (httpOnly, action path)", async () => {
