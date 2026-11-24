@@ -10,6 +10,8 @@ import assert from "node:assert/strict";
 
 import {
   KIND_TRANSITION_ACKNOWLEDGEMENTS,
+  KIND_TRANSITION_BLOCK_MESSAGES,
+  KIND_TRANSITION_DECLARATION_MESSAGES,
   KIND_TRANSITION_STATEMENT_VERSION,
   KIND_TRANSITION_VECTOR,
   canonicalKindTransitionStatement,
@@ -78,9 +80,14 @@ check("E5 missing name, invalid id, or an id stored in a non-canonical form → 
   }
 });
 
-check("E6 a live issuer declaration → ISSUER_DECLARATION_ACTIVE (until the 4a STATUS_CHANGE writer exists)", () => {
-  const r = evaluateKindTransitionEligibility({ ...base, hasLiveIssuerDeclaration: true });
-  assert.ok(!r.eligible && r.block === "ISSUER_DECLARATION_ACTIVE");
+check("E6 a live issuer declaration no longer blocks (4a T1 wiring: the database files the declaration's new version)", () => {
+  assert.deepEqual(evaluateKindTransitionEligibility({ ...base, hasLiveIssuerDeclaration: true }), { eligible: true });
+  // ...and it never lifts any other block
+  for (const patch of [{ actorIsSoleUser: false }, { billingBusinessKind: "AUTHORIZED_DEALER" }, { businessBeingDeleted: true }, { billingLegalName: "" }, { billingTaxId: "123456789" }]) {
+    const r = evaluateKindTransitionEligibility({ ...base, hasLiveIssuerDeclaration: true, ...patch });
+    assert.ok(!r.eligible, JSON.stringify(patch));
+  }
+  assert.ok(!("ISSUER_DECLARATION_ACTIVE" in KIND_TRANSITION_BLOCK_MESSAGES));
 });
 
 // ---------------------------------------------------------------- input validation
@@ -174,12 +181,34 @@ check("O1 every database answer maps to a status and a Hebrew message; unknown �
     ["TRANSITIONED", 200], ["NOT_ALLOWED", 403], ["NOT_SOLE_USER", 409], ["REAUTH_REQUIRED", 401], ["IDENTITY_INCOMPLETE", 409],
     ["NOT_EXEMPT_DEALER", 409], ["VAT_NUMBER_INVALID", 400], ["VAT_NUMBER_DIFFERS_FROM_TAX_ID", 400], ["EFFECTIVE_DATE_INVALID", 400],
     ["ISSUER_DECLARATION_ACTIVE", 409], ["STATEMENT_STALE", 409], ["SOMETHING_ELSE", 500],
+    // the 4a writer's refusals, passed on by the wired function (contract §3)
+    ["ISSUER_DECLARATION_NOT_AUTHORIZED_USER", 409], ["ISSUER_DECLARATION_IDENTITY_MISMATCH", 409],
+    ["ISSUER_DECLARATION_DECLARATION_NOT_EXEMPT", 409], ["ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE", 409],
+    ["ISSUER_DECLARATION_NOT_ALLOWED", 500], ["ISSUER_DECLARATION_REAUTH_REQUIRED", 500], ["ISSUER_DECLARATION_STATEMENT_INVALID", 500],
+    ["ISSUER_DECLARATION_VAT_NUMBER_INVALID", 500], ["ISSUER_DECLARATION_NO_LIVE_DECLARATION", 500], ["ISSUER_DECLARATION_UNKNOWN", 500],
   ];
   for (const [db, status] of cases) {
     const o = kindTransitionOutcome(db);
     assert.equal(o.status, status, db);
     assert.match(o.message, /[א-ת]/);
   }
+});
+
+check("O2 the declaration answers: their own code, a Hebrew text that says nothing was saved, never an echoed value", () => {
+  for (const code of Object.keys(KIND_TRANSITION_DECLARATION_MESSAGES)) {
+    const o = kindTransitionOutcome(code);
+    assert.equal(o.code, code);
+    assert.equal(o.message, KIND_TRANSITION_DECLARATION_MESSAGES[code as keyof typeof KIND_TRANSITION_DECLARATION_MESSAGES]);
+    assert.match(o.message, /לא נשמר שום שינוי/);
+    assert.doesNotMatch(o.message, /d{5,}/);
+  }
+  assert.match(kindTransitionOutcome("ISSUER_DECLARATION_DECLARATION_NOT_YET_EFFECTIVE").message, /בעוד כמה דקות/);
+  assert.match(kindTransitionOutcome("ISSUER_DECLARATION_IDENTITY_MISMATCH").message, /תמיכה/);
+  // no text offers to edit the legal name or the id number
+  for (const m of Object.values(KIND_TRANSITION_DECLARATION_MESSAGES)) assert.doesNotMatch(m, /לשנות|לערוך|לתקן/);
+  // unreachable writer answers keep the generic 500 text and their code is not exposed
+  const u = kindTransitionOutcome("ISSUER_DECLARATION_NO_LIVE_DECLARATION");
+  assert.deepEqual([u.status, u.code], [500, "UNKNOWN"]);
 });
 
 console.log(`kind-transition: ${checks} checks passed`);

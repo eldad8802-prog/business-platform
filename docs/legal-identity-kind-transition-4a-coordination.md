@@ -123,16 +123,33 @@ declaration. T1 removes this limit.
 
 ### T2 — Uniform export for historical periods (Gate)
 
-- Header and record identity must be the identity in force at the relevant time, not the current profile:
-  - before `confirmedAt` → the exempt values;
-  - after → the authorized values.
-  Source: each document's frozen `issuedSnapshot` issuer and/or the `BusinessKindTransition` row.
-- A period that straddles `confirmedAt` needs an owner-approved rule.
-- **Acceptance (lab):**
-  - a pre-transition month exported after the transition shows the exempt status and no VAT number;
-  - a post-transition month shows the authorized values;
-  - a straddling month follows the rule;
-  - non-transitioned businesses: byte-identical output to today (golden).
+**Updated 2026-11-24 (4a), after the owner's decisions D1–D4.**
+
+- **The finding.** On path A the uniform file carries no exempt/authorized status.
+  - Every "מספר עוסק מורשה" field (A000 1003, A100 1102, Z900 1152, B110 1402, C100 1202, D110 1252, D120 1302) is the
+    id number (`billingTaxId`), and it does not change.
+  - 1015 is filled only for a company. 1018 is the legal name, and it does not change. `billingVatNumber` is not used.
+  - Each document is written from what it froze at issuance, with its own per-line VAT.
+  - So the original text of this section (exempt values "with no VAT number" before `confirmedAt`) does not match the
+    file. Changing the file that way would also change every exempt business that never transitions.
+- **The owner's decisions:**
+  - D1: one file for the whole requested range, also when it straddles the transition.
+  - D2: `confirmedAt` is Dubiz's operational switch point. The official date at the Tax Authority is unchanged.
+  - D3: no change to the file structure, the identity fields or the printed reports.
+  - D4: these acceptance criteria.
+- **Acceptance (lab, `.billing-4a/t2-uniform-transition.battery.mts`, 25/25):**
+  - T2-1: the identity fields are identical in the pre-transition, post-transition and straddling files.
+  - T2-2: a pre-transition range exported before and after the transition is byte-identical (INI.TXT, BKMVDATA.TXT),
+    and so is the printed-report data.
+  - T2-3: the straddling file holds exactly the pre and post documents, each with its own VAT. The INI, Z900 and
+    report 2.6 totals reconcile.
+  - T2-4: businesses that did not transition are byte-identical, and the 9 existing uniform tests pass.
+  - T2-5: three simulator packages (`docs/compliance/tax-authority/t2-kind-transition/`).
+- **No change to the export code.**
+- **External verification is still open.** Until it is done, the accounting requirement is not stated as verified:
+  - the owner runs the three packages in the ITA simulator;
+  - the accountant confirms the two questions in that README (the id number in the "מספר עוסק מורשה" fields for an
+    exempt dealer; one file across the transition).
 
 ### T3 — 0%-VAT drafts must be reviewed before issuing (Gate; owner 11-21)
 
