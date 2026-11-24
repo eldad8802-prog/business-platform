@@ -10,15 +10,49 @@
 #   (no flag)     baseline: this migration pending;
 #   --with-bkt:   `prisma migrate deploy` — the release-migrate mechanism — applies it;
 #   --broken-bkt: the same with it failing on its last statement (atomicity).
+# 4a T1 wiring (20261225090000_kind_transition_issuer_declaration_wiring), on top of .billing-4a/lab.sh --with-t1
+# (the declaration, DZ010, this transition and 4a T1/T1a, all built by migrate deploy as in Production):
+#   --t1-base:        everything Production has; the wiring pending;
+#   --with-wiring:    `prisma migrate deploy` applies the wiring migration (the real file, not the proposed SQL);
+#   --broken-wiring:  the same with it failing on its last statement (atomicity).
 #
 # env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional). Synthetic only. ZERO secrets. ZERO network.
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BKT="20261221090000_business_kind_transition"
-bash "$ROOT/.sli/lab.sh" "$DB" --with-sli >/dev/null
+WIRE="20261225090000_kind_transition_issuer_declaration_wiring"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
+
+case "$MODE" in
+  --t1-base|--with-wiring|--broken-wiring)
+    bash "$ROOT/.billing-4a/lab.sh" "$DB" --with-t1 | tail -1
+    [ "$MODE" = "--t1-base" ] && { echo "LAB READY: $DB (Production through 4a T1/T1a; wiring pending)"; exit 0; }
+    TMP="$(mktemp -d)"; mkdir -p "$TMP/prisma/migrations"
+    cp "$ROOT/prisma/schema.prisma" "$TMP/prisma/schema.prisma"
+    cp "$ROOT/prisma/migrations/migration_lock.toml" "$TMP/prisma/migrations/"
+    for name in $(psql_owner -At -c 'SELECT migration_name FROM "_prisma_migrations" WHERE finished_at IS NOT NULL') "$WIRE"; do
+      cp -r "$ROOT/prisma/migrations/$name" "$TMP/prisma/migrations/$name"
+    done
+    if [ "$MODE" = "--broken-wiring" ]; then
+      printf '\n-- lab fault: the last statement fails\nSELECT 1 / 0;\n' >>"$TMP/prisma/migrations/$WIRE/migration.sql"
+    fi
+    set +e
+    ( cd "$ROOT" && DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" ) > "$TMP/deploy.log" 2>&1
+    rc=$?
+    set -e
+    grep -E "Applying migration|have been successfully applied|Error|error|ERROR" "$TMP/deploy.log" | head -8
+    rm -rf "$TMP"
+    if [ "$MODE" = "--broken-wiring" ]; then
+      [ $rc -ne 0 ] || { echo "broken wiring migration did NOT fail"; exit 1; }
+      echo "LAB READY: $DB (--broken-wiring: the migration FAILED on its last statement as intended)"; exit 0
+    fi
+    [ $rc -eq 0 ] || { echo "wiring migration deploy failed"; exit 1; }
+    echo "LAB READY: $DB (Production through 4a T1/T1a + the T1 wiring migration applied)"; exit 0 ;;
+esac
+
+bash "$ROOT/.sli/lab.sh" "$DB" --with-sli >/dev/null
 # If schema.prisma models the table (the application PR), `db push` built it without the migration's policies,
 # trigger and grants: remove it so the migration builds it the way Production will have it.
 psql_owner -c 'DROP TABLE IF EXISTS "BusinessKindTransition" CASCADE'

@@ -5,13 +5,16 @@ name: feature access enforcement
 #   - lib/services/feature-access/feature-guard.ts: modes (off / shadow = default / enforce), the decision, fail-closed
 #     in enforce, unauthenticated requests untouched, background-step answers, the per-business cache;
 #   - lib/services/feature-access/route-feature-map.ts: EVERY API route of those features is guarded as its first
-#     statement, or exempt for a written reason (a new route in scope fails here until it is classified).
+#     statement, or exempt for a written reason (a new route in scope fails here until it is classified);
+#   - lib/services/subscriptions: the plan catalog (approved matrix 2026-11-20) and the plan entitlement layer, shadow
+#     only — the full matrix, and the proof that existing businesses see no change.
 
 on:
   pull_request:
     paths:
       - "app/api/**"
       - "lib/services/feature-access/**"
+      - "lib/services/subscriptions/**"
       - "lib/services/conversation/inbound-message-pipeline.service.ts"
       - "lib/intake/whatsapp/whatsapp-intake.ts"
       - ".github/workflows/feature-access-enforcement-ci.yml"
@@ -35,3 +38,4 @@ jobs:
       - run: npx tsx lib/services/feature-access/feature-guard.test.ts
       - run: npx tsx lib/services/feature-access/route-feature-map.test.ts
       - run: npx tsx lib/services/feature-access/owner-gated-features.test.ts
+      - run: npx tsx lib/services/subscriptions/subscriptions-entitlement.test.ts

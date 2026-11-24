@@ -1,0 +1,189 @@
+# Migration 20261225090000_kind_transition_issuer_declaration_wiring — "מעבר לעוסק מורשה" wired to the 4a T1 issuer
+# declaration writer, on an ephemeral PG17 with Production's role topology (.bkt/lab.sh on top of
+# .billing-4a/lab.sh --with-t1: the declaration, DZ010, the transition and 4a T1/T1a built by `prisma migrate deploy`):
+#   0. guards: the evidence files are SELECT-only and selectable in Production; the proof pins the migration's checksum
+#      and the deployed body's md5; the function's CODE (comments aside) equals the contract's proposed SQL
+#      (.billing-4a/t1-wiring.proposed.sql); the migration names no Billing* table and writes no declaration itself;
+#   1. baseline (everything Production has, wiring pending): PREFLIGHT all required PASS; the proof refuses;
+#   2. `prisma migrate deploy` applies it: proof all required PASS; PREFLIGHT now fails exactly 2 and 5;
+#   3. batteries on the REAL migration: .bkt/wiring-battery.mts (integrated: body, privileges, issued documents,
+#      rollback at three fault points, side-by-side equivalence with 20261221090000, untouched businesses);
+#      .bkt/battery.ts K1–K11 (wired mode); the 4a T1 battery (its section W runs against the real wiring here);
+#   4. atomicity: the migration failing on its last statement leaves the 20261221090000 body and no ledger row;
+#   5. rollback (.bkt/rollback-wiring.sql): the 20261221090000 body back byte for byte; PREFLIGHT passes again;
+#      the proof refuses; K battery (unwired mode) passes again.
+# Synthetic only. ZERO secrets. ZERO network. ZERO Production.
+
+name: kind transition wiring — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261225090000_kind_transition_issuer_declaration_wiring/**"
+      - "prisma/migrations/20261221090000_business_kind_transition/**"
+      - "prisma/migrations/20261223100000_issuer_declaration_status_change/**"
+      - "ops/evidence/kind-transition-wiring-*.sql"
+      - ".bkt/**"
+      - ".billing-4a/**"
+      - ".github/workflows/kind-transition-wiring-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kind-transition-wiring-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    name: kind transition wiring (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: ktw_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: ktw_ci_synthetic_super_pw
+      LAB_PASSWORD: ktw_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/kind-transition-wiring-preflight.sql
+      EVIDENCE: ops/evidence/kind-transition-wiring-production-evidence.sql
+      MIGRATION: prisma/migrations/20261225090000_kind_transition_issuer_declaration_wiring/migration.sql
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Guards — evidence SELECT-only + selectable; pinned checksum and body; code = the contract; no Billing table
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$EVIDENCE"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "::error::$f is not SELECT-only"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "::error::$f is not selectable in prod-readonly-evidence.yml"; exit 1; }
+          done
+          sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
+          grep -q "'$sum'" "$EVIDENCE" || { echo "::error::the proof pins a different checksum (migration is $sum)"; exit 1; }
+          node -e '
+            const fs = require("fs"), crypto = require("crypto");
+            const body = (f) => { const s = fs.readFileSync(f, "utf8"); const a = s.indexOf("CREATE OR REPLACE FUNCTION public.business_kind_transition_to_authorized(");
+              const b = s.indexOf("$fn$", a) + 4; return s.slice(b, s.indexOf("$fn$", b)); };
+            const code = (t) => t.split("\n").map((l) => l.replace(/--.*$/, "").trim()).filter(Boolean).join("\n");
+            const mig = body(process.env.MIGRATION), proposed = body(".billing-4a/t1-wiring.proposed.sql");
+            const md5 = crypto.createHash("md5").update(mig).digest("hex");
+            if (!fs.readFileSync(process.env.EVIDENCE, "utf8").includes(`\x27${md5}\x27`)) { console.error("::error::the proof pins a different body md5 (" + md5 + ")"); process.exit(1); }
+            if (code(mig) !== code(proposed)) { console.error("::error::the function code differs from .billing-4a/t1-wiring.proposed.sql"); process.exit(1); }
+            const sig = (f) => fs.readFileSync(f, "utf8").match(/CREATE OR REPLACE FUNCTION public\.business_kind_transition_to_authorized\([^)]*\)[^$]*/)[0];
+            if (sig(process.env.MIGRATION) !== sig(".billing-4a/t1-wiring.proposed.sql")) { console.error("::error::the signature / header differs from the contract"); process.exit(1); }
+            console.log("function code = contract; body md5 " + md5);
+          '
+          code=$(grep -vE '^\s*--' "$MIGRATION")
+          if echo "$code" | grep -nE '"Billing[A-Za-z]*"|FinancialEvent|"Payment'; then
+            echo "::error::the migration names a protected billing table"; exit 1
+          fi
+          if echo "$code" | grep -niE '(insert into|update|delete from)[^;]*"BusinessIssuerDeclaration"'; then
+            echo "::error::the migration writes the issuer declaration itself (only the 4a writer may)"; exit 1
+          fi
+          if echo "$code" | grep -niE '\b(grant|revoke|alter|drop|create (table|trigger|policy|index))\b'; then
+            echo "::error::the migration changes privileges or objects beyond the function"; exit 1
+          fi
+          echo "guard OK; migration checksum $sum"
+
+      - name: 1. Baseline (Production through 4a T1/T1a, wiring pending) — PREFLIGHT required all PASS; the proof refuses
+        run: |
+          set -euo pipefail
+          bash .bkt/lab.sh ktw_pre --t1-base
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d ktw_pre -v ON_ERROR_STOP=1 "$@"; }
+          fails=$(lab -f "$PREFLIGHT" | tee /tmp/pre.out | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          cat /tmp/pre.out
+          test -z "$fails" || { echo "::error::preflight before the migration fails '$fails'"; exit 1; }
+          if out=$(lab -f "$EVIDENCE" 2>&1); then
+            echo "$out" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "::error::the proof passed before the migration"; exit 1; }
+          fi
+          echo "the proof refuses before the migration"
+
+      - name: 2. prisma migrate deploy applies it — proof all PASS; PREFLIGHT fails exactly 2 5
+        run: |
+          set -euo pipefail
+          bash .bkt/lab.sh ktw_post --with-wiring | tee /tmp/post.log
+          grep -q "20261225090000_kind_transition_issuer_declaration_wiring" /tmp/post.log || { echo "::error::the migration was not applied"; exit 1; }
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d ktw_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f "$EVIDENCE" | tee /tmp/ev.out
+          test "$(grep -cE '^ +[0-9]+ \| PASS' /tmp/ev.out)" = "9" || { echo "::error::the proof is not 9/9"; exit 1; }
+          ! grep -qE '^ +[0-9]+ \| FAIL' /tmp/ev.out || { echo "::error::the proof has a FAIL row"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test "$fails" = "2 5 " || { echo "::error::preflight after the migration fails '$fails', expected '2 5 '"; exit 1; }
+
+      - name: 3. Batteries on the real migration — integrated (I1–I5), K1–K11 wired, 4a T1 (P/C/W/X)
+        run: |
+          set -euo pipefail
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/ktw_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/ktw_post" \
+            npx tsx .bkt/wiring-battery.mts
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/ktw_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/ktw_post" \
+          AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/ktw_post" \
+            npx tsx .bkt/battery.ts | tee /tmp/k.out
+          grep -q "lab: WIRED" /tmp/k.out || { echo "::error::the K battery did not run in wired mode"; exit 1; }
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/ktw_post" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/ktw_post" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/ktw_post" \
+          AUTH_TOKEN_SECRET=ktw_ci_synthetic_token_secret_0123456789abcdef \
+            npx tsx .billing-4a/t1-status-change.battery.mts | tee /tmp/t1.out
+          grep -qE "^by section: .*W [0-9]+/[0-9]+" /tmp/t1.out || { echo "::error::the T1 battery did not run its wired section"; exit 1; }
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves the old body and no ledger row
+        run: |
+          set -euo pipefail
+          bash .bkt/lab.sh ktw_broken --broken-wiring
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d ktw_broken -v ON_ERROR_STOP=1 -At "$@"; }
+          unwired=$(lab -c "SELECT count(*) FROM pg_proc WHERE proname = 'business_kind_transition_to_authorized'
+                              AND position('ISSUER_DECLARATION_ACTIVE' IN prosrc) > 0 AND position('issuer_declaration_status_change' IN prosrc) = 0")
+          test "$unwired" = "1" || { echo "::error::a failed migration left the function changed"; exit 1; }
+          done_rows=$(lab -c "SELECT count(*) FROM \"_prisma_migrations\" WHERE migration_name = '20261225090000_kind_transition_issuer_declaration_wiring' AND finished_at IS NOT NULL")
+          test "$done_rows" = "0" || { echo "::error::the failed migration is recorded as finished"; exit 1; }
+          echo "atomic: the 20261221090000 body is intact"
+
+      - name: 5. Rollback — the 20261221090000 body back byte for byte; PREFLIGHT passes; the proof refuses; K (unwired) passes
+        run: |
+          set -euo pipefail
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -U lab_owner -d ktw_post -v ON_ERROR_STOP=1 "$@"; }
+          lab -f .bkt/rollback-wiring.sql
+          want=$(node -e 'const s=require("fs").readFileSync("prisma/migrations/20261221090000_business_kind_transition/migration.sql","utf8");
+            const a=s.indexOf("CREATE OR REPLACE FUNCTION public.business_kind_transition_to_authorized(");const b=s.indexOf("$fn$",a)+4;
+            console.log(require("crypto").createHash("md5").update(s.slice(b,s.indexOf("$fn$",b))).digest("hex"))')
+          got=$(lab -At -c "SELECT md5(prosrc) FROM pg_proc WHERE proname = 'business_kind_transition_to_authorized'")
+          test "$got" = "$want" || { echo "::error::the restored body is not the 20261221090000 body ($got vs $want)"; exit 1; }
+          fails=$(lab -f "$PREFLIGHT" | { grep -E '^ +[0-9]+ \| FAIL' || true; } | awk -F'|' '{print $1}' | tr -d ' ' | tr '\n' ' ')
+          test -z "$fails" || { echo "::error::preflight after the rollback fails '$fails'"; exit 1; }
+          if out=$(lab -f "$EVIDENCE" 2>&1); then
+            echo "$out" | grep -qE '^ +[0-9]+ \| FAIL' || { echo "::error::the proof still passes after the rollback"; exit 1; }
+          fi
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/ktw_post" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/ktw_post" \
+          AUTH_URL="postgresql://te_auth_login:$LAB_PASSWORD@localhost:5432/ktw_post" \
+            npx tsx .bkt/battery.ts | tee /tmp/k0.out
+          grep -q "20261221090000 only" /tmp/k0.out || { echo "::error::the K battery did not see the restored function"; exit 1; }
+          echo "rollback restores the 20261221090000 function"
