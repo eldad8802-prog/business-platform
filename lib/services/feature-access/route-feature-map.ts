@@ -119,6 +119,7 @@ export const ROUTE_FEATURE_MAP: readonly RouteFeatureEntry[] = [
   { route: "billing/documents/[id]/payments", feature: B },
   { route: "billing/documents/[id]/revert", feature: B },
   { route: "billing/documents/[id]/issue", feature: B, ungated: { POST: LEGAL }, note: "issuing an existing draft; creating the draft is guarded" },
+  { route: "billing/documents/[id]/vat-review", feature: B, ungated: { GET: FLOOR, POST: LEGAL }, note: "4a T3: the owner's VAT review of an existing pre-transition draft — a step of issuing it; creating the draft is guarded" },
   { route: "billing/documents/[id]/submit", feature: B, ungated: { POST: LEGAL }, note: "submitting an existing draft; creating the draft is guarded" },
   { route: "billing/documents/[id]/credit-note", feature: B, ungated: { POST: LEGAL } },
   { route: "billing/documents/[id]/authority-decision", feature: B, ungated: { POST: LEGAL } },
