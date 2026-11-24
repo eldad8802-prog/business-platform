@@ -210,6 +210,9 @@ export async function handleKindTransitionConfirm(req: Request, deps: KindTransi
       statementSha256: r.statementSha256,
     });
     const o = kindTransitionOutcome(db);
+    // An answer the route does not expect (e.g. an unreachable ISSUER_DECLARATION_* refusal): nothing was written; log
+    // the status code only (a fixed vocabulary, never a value) so it can be traced.
+    if (o.status === 500) console.error("KIND_TRANSITION_UNEXPECTED_DB_STATUS:", /^[A-Z_]{1,64}$/.test(db) ? db : "NON_CODE");
     const res = json({ code: o.code, error: o.status === 200 ? undefined : o.message, message: o.status === 200 ? o.message : undefined }, o.status);
     if (o.status === 200) clearReauthProofCookie(res, ACTION); // one transition per proof
     return res;

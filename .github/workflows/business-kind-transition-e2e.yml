@@ -1,9 +1,15 @@
-# "מעבר לעוסק מורשה" — end to end on an ephemeral PG17 with Production's role topology (.bkt/lab.sh --with-bkt):
-#   1. app battery (.bkt/app-battery.ts): the real handlers → service → definer function, real session + proof
+# "מעבר לעוסק מורשה" — end to end on an ephemeral PG17 with Production's role topology.
+# Lab mode follows the tree (migration-first: the wiring migration and this code ship in separate PRs):
+#   - migration 20261225090000 (T1 wiring) present → .bkt/lab.sh --with-wiring (the declaration, DZ010, the transition,
+#     4a T1/T1a and the wiring, all by migrate deploy), and first one app battery run on --t1-base (Production before
+#     the wiring: the application deployed before the migration — A20);
+#   - absent → .bkt/lab.sh --with-bkt (20261221090000 only: A20 runs, A18/A19 are not reachable and are not claimed).
+#   1. app battery (.bkt/app-battery.ts): the real handlers → service → definer function, real session + proof;
+#      on the wired lab, declared businesses end to end through the 4a writer (A18, A19)
 #   2. browser, flag ON (.bkt/ui-e2e.mts): next dev on the lab; Chromium desktop/phone + WebKit iPhone-sized viewport
 #      (emulation, not a physical phone); Google's page is intercepted (no real Google in CI)
 #   3. browser + API, flag OFF (.bkt/ui-off.mts): no entry, page "not available", every route 404
-# Needs migration 20261221090000 in the tree (PR #1210): it runs on a branch that carries it.
+# The wired run (A18/A19) needs migration 20261225090000 in the tree: after the migration PR merges, rebase and re-run.
 # Synthetic only. ZERO secrets. ZERO network beyond localhost (and the npm / Playwright downloads). ZERO Production.
 
 name: business kind transition — end to end (PG17 + next dev + browsers)
@@ -20,7 +26,9 @@ on:
       - "lib/auth/sensitive-reauth.ts"
       - "lib/auth/google-reauth.ts"
       - "prisma/migrations/20261221090000_business_kind_transition/**"
+      - "prisma/migrations/20261225090000_kind_transition_issuer_declaration_wiring/**"
       - ".bkt/**"
+      - ".billing-4a/lab.sh"
       - ".github/workflows/business-kind-transition-e2e.yml"
   workflow_dispatch:
 
@@ -84,12 +92,36 @@ jobs:
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-      - name: Lab (Production role topology, 20261221090000 applied by migrate deploy)
+      - name: Which lab — is the T1 wiring migration in the tree?
+        id: mode
         run: |
-          test -d prisma/migrations/20261221090000_business_kind_transition || { echo "::error::needs migration 20261221090000 (PR #1210) in the tree"; exit 1; }
-          bash .bkt/lab.sh bkt_e2e --with-bkt
+          if [ -d prisma/migrations/20261225090000_kind_transition_issuer_declaration_wiring ]; then echo "wired=true" >> "$GITHUB_OUTPUT"; echo "wiring migration present: wired lab";
+          else echo "wired=false" >> "$GITHUB_OUTPUT"; echo "::notice::wiring migration 20261225090000 not in the tree: unwired lab only (A18/A19 not run)"; fi
+      - name: 0. App battery on the unwired lab (Production before 20261225090000)
+        if: steps.mode.outputs.wired == 'true'
+        env:
+          OWNER_URL: postgresql://lab_owner:bkt_e2e_synthetic_role_pw@localhost:5432/bkt_e2e_pre
+          DATABASE_URL: postgresql://app_runtime_prod:bkt_e2e_synthetic_role_pw@localhost:5432/bkt_e2e_pre?connection_limit=20
+          DIRECT_URL: postgresql://app_runtime_prod:bkt_e2e_synthetic_role_pw@localhost:5432/bkt_e2e_pre
+          AUTH_DATABASE_URL: postgresql://lab_owner:bkt_e2e_synthetic_role_pw@localhost:5432/bkt_e2e_pre
+        run: |
+          set -euo pipefail
+          bash .bkt/lab.sh bkt_e2e_pre --t1-base
+          npx tsx .bkt/app-battery.ts | tee /tmp/app-pre.out
+          grep -q "20261221090000 only (not wired)" /tmp/app-pre.out || { echo "::error::the unwired run did not see the unwired function"; exit 1; }
+      - name: Lab (Production role topology; wired when the migration is in the tree)
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.mode.outputs.wired }}" = "true" ]; then bash .bkt/lab.sh bkt_e2e --with-wiring; else bash .bkt/lab.sh bkt_e2e --with-bkt; fi
       - name: 1. App battery (real handlers → service → definer function)
-        run: npx tsx .bkt/app-battery.ts
+        run: |
+          set -euo pipefail
+          npx tsx .bkt/app-battery.ts | tee /tmp/app.out
+          if [ "${{ steps.mode.outputs.wired }}" = "true" ]; then
+            grep -q "lab: WIRED" /tmp/app.out || { echo "::error::the app battery did not run on the wired function"; exit 1; }
+          else
+            grep -q "not wired" /tmp/app.out || { echo "::error::expected the unwired function"; exit 1; }
+          fi
       - run: npx playwright install --with-deps chromium webkit
       - name: 2. Browser, flag ON
         run: |
