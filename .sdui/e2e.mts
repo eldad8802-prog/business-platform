@@ -300,6 +300,8 @@ async function main() {
         // Owner decision 2026-11-24: before any check is marked, the main action is to mark them — never «failed».
         await status.getByRole("button", { name: "לסמן את הבדיקות", exact: true }).waitFor();
         if (await status.getByRole("button", { name: /לא עבר/ }).count()) throw new Error("a «failed» action is offered before any mark");
+        // the heading says what is left (owner 2026-11-24: heading and button never disagree)
+        await status.getByText(/^(נותרו \d+ בדיקות לסמן|נותרה בדיקה אחת לסמן)$/).waitFor();
         const pass = panel.getByRole("button", { name: "✓ עבר", exact: true });
         const n = await pass.count();
         if (n < 3) throw new Error(`only ${n} checks`);
@@ -309,6 +311,7 @@ async function main() {
         await panel.getByRole("button", { name: "✕ לא עבר", exact: true }).first().click();
         await status.getByRole("button", { name: "לשמור ולהחזיר לעבודה", exact: true }).waitFor();
         if (await status.getByRole("button", { name: "לאשר שהבדיקות עברו", exact: true }).count()) throw new Error("confirm offered over a failed mark");
+        await status.getByText(/^הבדיקה «.+» לא עברה — להחזיר לעבודה$/).waitFor(); // the failed check is named, with the action
         await shot(pc, "real-case-qa-failed-desktop");
         // The server rule is unchanged: a SAVED failure refuses PASS_QA.
         const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
@@ -334,6 +337,8 @@ async function main() {
         await status.getByRole("button", { name: "לשמור ולהחזיר לעבודה", exact: true }).waitFor({ timeout: 30_000 });
         await pc.locator("[data-panel=qa]").getByRole("button", { name: "✓ עבר", exact: true }).first().click();
         await status.getByRole("button", { name: "לאשר שהבדיקות עברו", exact: true }).waitFor();
+        await status.getByText("כל בדיקות החובה עברו — אפשר לאשר", { exact: true }).waitFor();
+        if (await status.getByText(/להשלים את הבדיקות/).count()) throw new Error("the heading still asks to complete the checks over a full list");
         await shot(pc, "real-case-qa-desktop");
         await clickAction(pc, "לאשר שהבדיקות עברו");
         await until(async () => (await own(seed.bizC, `SELECT "qaCompletedAt" IS NOT NULL ok FROM "ServiceCase" WHERE id = $1`, seed.c5))[0].ok === true, "qaCompletedAt not set");
