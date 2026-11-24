@@ -277,13 +277,21 @@ export function rowDescription(c: Pick<CaseRowData, "subjectName" | "problemExce
   return parts.length ? parts.join(" · ") : "ללא תיאור";
 }
 
+/** The business's clock: every date and time on these screens is Israel time, whatever the device is set to. */
+const BUSINESS_TZ = "Asia/Jerusalem";
+const DAY_KEY = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+const TIME_FMT = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: BUSINESS_TZ });
+const DATE_FMT = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: BUSINESS_TZ });
+
+/**
+ * Today → the time; another day → the date. "Today" is the Israel calendar day too (it was the device's, so near
+ * midnight or on a device set abroad a time could stand for another day). Display only: stored times are unchanged.
+ */
 export function formatShortDate(iso: string, now: Date): string {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return "";
   const d = new Date(t);
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" }).format(d);
-  return new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: "Asia/Jerusalem" }).format(d);
+  return DAY_KEY.format(d) === DAY_KEY.format(now) ? TIME_FMT.format(d) : DATE_FMT.format(d);
 }
 
 // ── Case screen ──────────────────────────────────────────────────────────────────────────────────
