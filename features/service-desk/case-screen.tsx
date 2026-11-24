@@ -98,6 +98,8 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const [message, setMessage] = useState<Message | null>(null);
   const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
   const [loadingExtras, setLoadingExtras] = useState(true);
+  /** The case version the panels were read for (the charge is "being checked" until it matches the case on screen). */
+  const [extrasFor, setExtrasFor] = useState<number | null>(null);
   const [pickupAttempt, setPickupAttempt] = useState(0);
   const [qaDraft, setQaDraft] = useState<QaResults | undefined>(undefined);
 
@@ -118,6 +120,9 @@ export function CaseScreen({ caseId }: { caseId: number }) {
         if (mine !== loadSeq.current) return;
         setExtras(x); // each panel restarts only when its own server data changed (keys below)
         setQaDraft(undefined);
+        setExtrasFor(card.version ?? 0);
+      }, () => {
+        if (mine === loadSeq.current) setExtrasFor(card.version ?? 0); // a failed read says so (never "checking" forever)
       }).finally(() => { if (mine === loadSeq.current) setLoadingExtras(false); });
     } catch (e) {
       if (mine !== loadSeq.current) return;
@@ -174,7 +179,12 @@ export function CaseScreen({ caseId }: { caseId: number }) {
 
   const charge = extras.charge;
   const fieldCase = data ? caseNoun(data.card.kind) === "קריאה" : false;
-  const balance = chargeSummary(charge?.balance ?? null, { field: fieldCase });
+  // The panels follow the case in the background: until they are read for this version of the case, the charge is
+  // "being checked" — not "could not be read" (that is only for a read that really failed). The handover waits either way.
+  const extrasPending = !!data && extrasFor !== (data.card.version ?? 0);
+  const balance = extrasPending
+    ? { text: "בודקים את מצב החיוב…", blocksHandover: true, needsDebtReason: false }
+    : chargeSummary(charge?.balance ?? null, { field: fieldCase });
 
   /**
    * QA in one action (owner decision 2026-11-24): the marked checks are saved, then QA is passed or failed — two existing

@@ -165,6 +165,9 @@ async function main() {
       await clickAction(p, "לסיים את התיקון");
       await waitStatus(seed.c1, "READY");
       await statusPill(p, "מוכן למסירה").waitFor();
+      // the panels follow in the background: "being checked", then the real charge state — never a false "could not read"
+      await p.getByText("בודקים את מצב החיוב…").waitFor({ state: "detached", timeout: 30_000 });
+      if (await p.getByText(/לא הצלחנו לקרוא את מצב החיוב/).count()) throw new Error("the charge shows «could not read» after the panels loaded");
       await shot(p, "real-case-ready-phone");
     });
     await check("B1 without a charge decision the main action is «לקבוע חיוב» (no locked handover); its sheet offers amount / no charge; nothing is sent; still READY", async () => {
