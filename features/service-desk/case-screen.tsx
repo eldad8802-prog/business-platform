@@ -10,7 +10,7 @@
  * before a quote is attached (and honest words: the system does not deliver it to the customer), the QA "passed" step
  * explained when it cannot pass, success messages that clear themselves, and the history with the stored side records.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import BackButton from "@/components/ui/back-button";
 
@@ -98,22 +98,46 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const [message, setMessage] = useState<Message | null>(null);
   const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
   const [loadingExtras, setLoadingExtras] = useState(true);
+  /** The case version the panels were read for (the charge is "being checked" until it matches the case on screen). */
+  const [extrasFor, setExtrasFor] = useState<number | null>(null);
   const [pickupAttempt, setPickupAttempt] = useState(0);
   const [qaDraft, setQaDraft] = useState<QaResults | undefined>(undefined);
 
+  /**
+   * The case is read first: once it is on screen (fresh version), the action buttons are released. The panels follow in
+   * the background (UX review 2026-11-23: a slow panel read kept the button on «שומר…»); a newer load always wins, so a
+   * slow older answer never overwrites a newer one.
+   */
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++loadSeq.current;
     try {
       const [card, events] = await Promise.all([getCase(caseId), listCaseEvents(caseId)]);
+      if (mine !== loadSeq.current) return;
       setData({ card, events });
       setError("none");
-      setExtras(await loadExtras(card)); // each panel restarts only when its own server data changed (keys below)
-      setQaDraft(undefined);
+      void loadExtras(card).then((x) => {
+        if (mine !== loadSeq.current) return;
+        setExtras(x); // each panel restarts only when its own server data changed (keys below)
+        setQaDraft(undefined);
+        setExtrasFor(card.version ?? 0);
+      }, () => {
+        if (mine === loadSeq.current) setExtrasFor(card.version ?? 0); // a failed read says so (never "checking" forever)
+      }).finally(() => { if (mine === loadSeq.current) setLoadingExtras(false); });
     } catch (e) {
+      if (mine !== loadSeq.current) return;
       setError(e instanceof ServiceDeskApiError && e.status === 404 ? "missing" : "failed");
-    } finally {
       setLoadingExtras(false);
     }
   }, [caseId]);
+  /** The case changed elsewhere (another device or tab): nothing was saved, the screen was read again. */
+  const [conflict, setConflict] = useState(false);
+  const fail = useCallback((e: unknown, prefix = "") => {
+    const ev = errorView(e);
+    if (ev.reload && !prefix) { setConflict(true); setMessage(null); return; }
+    // after a partial save (a prefix says what WAS saved) the reason never adds «לא נשמר דבר»
+    setMessage({ tone: "error", text: prefix ? prefix + partialFailureReason(e) : ev.text });
+  }, []);
   useEffect(() => { if (access.status === "open") void load(); }, [access.status, load]);
   // A success line does not stay on screen for ever (pilot review 2026-11-21); an error stays until the next action.
   useEffect(() => {
@@ -127,6 +151,7 @@ export function CaseScreen({ caseId }: { caseId: number }) {
     const card = data.card;
     setBusyId(def.id);
     setMessage(null);
+    setConflict(false);
     try {
       if (def.target.endpoint === "quote") {
         const quotes = await listQuotes(caseId);
@@ -145,17 +170,22 @@ export function CaseScreen({ caseId }: { caseId: number }) {
         setPending({ def, debtMode: true }); // the owner decides, with a documented reason
       } else {
         setPending(null);
-        setMessage({ tone: "error", text: errorView(e).text });
+        fail(e);
       }
     } finally {
       await load();
       setBusyId(null); // only after the fresh case is on screen: no action runs on a stale version
     }
-  }, [caseId, data, load]);
+  }, [caseId, data, load, fail]);
 
   const charge = extras.charge;
   const fieldCase = data ? caseNoun(data.card.kind) === "קריאה" : false;
-  const balance = chargeSummary(charge?.balance ?? null, { field: fieldCase });
+  // The panels follow the case in the background: until they are read for this version of the case, the charge is
+  // "being checked" — not "could not be read" (that is only for a read that really failed). The handover waits either way.
+  const extrasPending = !!data && extrasFor !== (data.card.version ?? 0);
+  const balance = extrasPending
+    ? { text: "בודקים את מצב החיוב…", blocksHandover: true, needsDebtReason: false }
+    : chargeSummary(charge?.balance ?? null, { field: fieldCase });
 
   /**
    * QA in one action (owner decision 2026-11-24): the marked checks are saved, then QA is passed or failed — two existing
@@ -168,6 +198,7 @@ export function CaseScreen({ caseId }: { caseId: number }) {
     const qa = extras.qa;
     setBusyId(def.id);
     setMessage(null);
+    setConflict(false);
     let saved = false;
     try {
       const marks = qaDraft ?? qa?.results;
@@ -180,12 +211,13 @@ export function CaseScreen({ caseId }: { caseId: number }) {
       await runCaseAction(caseId, then === "PASS" ? { type: "PASS_QA", outcome: "REPAIRED" } : { type: "FAIL_QA" }, fresh.version ?? 0);
       setMessage({ tone: "ok", text: then === "PASS" ? "הבדיקות נשמרו ואושרו. התיק מוכן למסירה." : "הבדיקות נשמרו. התיק חזר לעבודה." });
     } catch (e) {
-      setMessage({ tone: "error", text: saved ? `הבדיקות נשמרו, אבל ${then === "PASS" ? "האישור" : "ההחזרה לעבודה"} לא עבר: ${partialFailureReason(e)}` : errorView(e).text });
+      if (saved) fail(e, `הבדיקות נשמרו, אבל ${then === "PASS" ? "האישור" : "ההחזרה לעבודה"} לא עבר: `);
+      else fail(e);
     } finally {
       await load();
       setBusyId(null);
     }
-  }, [caseId, data, extras.qa, qaDraft, load]);
+  }, [caseId, data, extras.qa, qaDraft, load, fail]);
 
   const onAction = useCallback((def: CaseActionDef) => {
     if (def.target.endpoint === "charge") { setPanelDialog({ kind: "charge" }); return; }
@@ -202,10 +234,11 @@ export function CaseScreen({ caseId }: { caseId: number }) {
   const panelWrite = useCallback(async (id: string, f: () => Promise<unknown>, ok = "נשמר.") => {
     setBusyId(id);
     setMessage(null);
+    setConflict(false);
     try { await f(); setMessage({ tone: "ok", text: ok }); }
-    catch (e) { setMessage({ tone: "error", text: errorView(e).text }); }
+    catch (e) { fail(e); }
     finally { setPanelDialog(null); await load(); setBusyId(null); }
-  }, [load]);
+  }, [load, fail]);
 
   const back = <BackButton fallback="/service-desk" fallbackLabel="לתיקים" />;
   if (access.status !== "open" || !data || error !== "none") {
@@ -340,7 +373,14 @@ export function CaseScreen({ caseId }: { caseId: number }) {
       <CaseView card={card} events={data.events} sideHistory={sideHistory(extras, data.events)}
         historyNames={{ loans: Object.fromEntries(extras.loans.loans.map((l) => [l.id, l.itemName])), tasks: Object.fromEntries([...extras.tasks.linked, ...extras.tasks.open].map((t) => [t.id, t.title])) }}
         nextCtx={nextCtx} now={now} back={back} actions={actions} onAction={onAction}
-        busyId={busyId} message={message} notes={notes} steps={steps} nowPanels={nowPanels} more={more} callHref={telHref(card.customerPhone)} />
+        busyId={busyId} message={message} notes={notes} steps={steps} nowPanels={nowPanels} more={more} callHref={telHref(card.customerPhone)}
+        banner={conflict ? (
+          <div className={s.conflict} role="alert">
+            <strong>התיק עודכן ממקום אחר</strong>
+            <span>הפעולה לא נשמרה, כדי לא לדרוס את השינוי. המסך כבר מציג את המצב העדכני — בודקים ומנסים שוב.</span>
+            <button type="button" className={s.secondary} onClick={() => { setConflict(false); void load(); }}>לרענן שוב</button>
+          </div>
+        ) : null} />
       {pending ? (
         <CaseActionDialog def={pending.def} debtMode={pending.debtMode} busy={busyId !== null}
           onCancel={() => setPending(null)} onSubmit={(r) => void send(pending.def, r)} />
