@@ -137,8 +137,13 @@ for (const p of ["app/api/business/landing-blueprint/route.ts", "app/api/busines
   ok(`6 internal AI ${p}: measured AND rate-limited (LANDING_COMPOSE)`, /measuredInternalAi\(/.test(read(p)) && /bucket: "LANDING_COMPOSE"/.test(read(p)));
 }
 ok("6 the knowledge Brain: measured, secret-gated, cooldown", /measuredInternalAi\(/.test(read("app/api/knowledge/derive/route.ts")) && /KNOWLEDGE_DERIVE_SECRET/.test(read("app/api/knowledge/derive/route.ts")));
-const llmDraftImporters = src.filter((p) => !/llm-draft/.test(p) && /conversation\/llm-draft/.test(read(p)));
-ok("6 the bot-draft LLM is not reachable from any route or service", llmDraftImporters.length === 0, llmDraftImporters);
+// The bot-draft LLM IS reachable (inbound message pipeline → runner). It is protected by its flag (default off), the
+// sample rate and a fail-closed daily cap (default 0 = no call), and every model call is measured as internal AI.
+const llmDraftImporters = src.filter((p) => !/[\\/]llm-draft[\\/]/.test(p) && /conversation\/llm-draft"/.test(read(p)));
+ok("6 the bot-draft LLM is reached only through its runner", llmDraftImporters.length === 1 && /bot-llm-draft-runner\.service\.ts$/.test(llmDraftImporters[0]), llmDraftImporters);
+const runner = read("lib/services/conversation/bot-llm-draft-runner.service.ts");
+ok("6 the bot-draft LLM calls are measured as internal AI", /measuredInternalAi\(\{ complete: deps\.complete \}, input\.businessId, "bot_llm_draft"\)/.test(runner));
+ok("6 the bot-draft LLM keeps its fail-closed daily cap (default 0 = no call)", /deps\.getDailyUsage\(\) >= dailyCap/.test(runner) && /if \(raw == null \|\| raw\.trim\(\) === ""\) return 0;/.test(read("lib/features/conversation/llm-draft/flags.ts")));
 ok("6 the legacy weekly video counter is no longer called (decision 29)", !/usage\.service/.test(read("app/api/content/render/route.ts")) && /metric: "video_renders"/.test(read("app/api/content/render/route.ts")));
 const signup = read("lib/auth/signup.ts");
 ok("6 the trial opens in both signup paths, inside the account transaction", (signup.match(/openSignupSubscriptionInAccountTx\(tx,/g) ?? []).length === 2);
