@@ -3,6 +3,7 @@
  */
 import {
   qaHeadline,
+  formatShortDate,
   attentionReason, buildListSections, nextStepHint, caseNoun, caseSections, eventLabel, historyItems, isClosed, matchesQuery,
   journaledLoanIds, mergedHistory, nextActionLabel, rowDescription, statusLabel, statusTone, type CaseRowData,
 } from "./cases-model";
@@ -143,5 +144,15 @@ ok("QH2 checks left → how many", nextActionLabel("QA", "IN_SHOP", null, { qa: 
 ok("QH3 one failed check → named, and back to work", nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "failed", failedLabels: ["המסך נקי"] } }) === "הבדיקה «המסך נקי» לא עברה — להחזיר לעבודה");
 ok("QH4 several failed → the count, and back to work", qaHeadline({ state: "failed", failedLabels: ["א", "ב"] }) === "2 בדיקות לא עברו — להחזיר לעבודה");
 ok("QH5 the heading never says «complete the checks» once every required check passed", !(nextActionLabel("QA", "IN_SHOP", null, { qa: { state: "ready" } }) ?? "").includes("להשלים"));
+// ── Israel time on every screen (owner 2026-11-24): the day and the time are Asia/Jerusalem, across both clock changes ──
+const at = (z: string) => new Date(z);
+ok("TZ1 just after midnight in Israel (22:30 UTC the day before) is today → the time", formatShortDate("2026-11-23T22:30:00.000Z", at("2026-11-24T08:00:00.000Z")) === "00:30");
+ok("TZ2 late evening in Israel, now just after midnight → yesterday → the date", formatShortDate("2026-11-24T21:30:00.000Z", at("2026-11-24T22:30:00.000Z")) === "24.11");
+ok("TZ3 summer time (UTC+3): 21:30 UTC is 00:30 the next day in Israel", formatShortDate("2026-07-01T21:30:00.000Z", at("2026-07-02T06:00:00.000Z")) === "00:30");
+ok("TZ4 the spring change (27.3.2026, 02:00 → 03:00): before and after", formatShortDate("2026-03-26T23:30:00.000Z", at("2026-03-27T10:00:00.000Z")) === "01:30"
+  && formatShortDate("2026-03-27T00:30:00.000Z", at("2026-03-27T10:00:00.000Z")) === "03:30");
+ok("TZ5 the autumn change (25.10.2026, 02:00 → 01:00): 01:30 happens twice, both read 01:30 on the same day", formatShortDate("2026-10-24T22:30:00.000Z", at("2026-10-25T09:00:00.000Z")) === "01:30"
+  && formatShortDate("2026-10-24T23:30:00.000Z", at("2026-10-25T09:00:00.000Z")) === "01:30");
+ok("TZ6 the date across the year end stays the Israel date", formatShortDate("2026-12-31T22:30:00.000Z", at("2027-01-02T10:00:00.000Z")) === "1.1");
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
