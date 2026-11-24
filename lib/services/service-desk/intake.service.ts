@@ -284,8 +284,8 @@ export async function getIntake(businessId: number, caseId: unknown): Promise<In
       SELECT id, sha256, "mimeType", "byteSize", "createdAt" FROM "ServiceIntakePhoto"
        WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int AND "erasedAt" IS NULL ORDER BY id`;
     const conf = (await tx.$queryRaw<{ at: Date; uid: number | null; name: string | null }[]>`
-      SELECT e."occurredAt" AS at, e."actorUserId" AS uid, COALESCE(NULLIF(btrim(u.name), ''), u.email) AS name
-        FROM "ServiceCaseEvent" e LEFT JOIN "User" u ON u.id = e."actorUserId"
+      SELECT e."occurredAt" AS at, e."actorUserId" AS uid, NULLIF(btrim(u.name), '') AS name
+        FROM "ServiceCaseEvent" e LEFT JOIN "User" u ON u.id = e."actorUserId" AND u."businessId" = e."businessId"
        WHERE e."businessId" = ${businessId}::int AND e."caseId" = ${caseId}::int AND e.action::text = 'CHECK_IN' ORDER BY e.seq DESC LIMIT 1`)[0];
     const history = await tx.$queryRaw<{ seq: number; step: string | null; occurredAt: Date }[]>`
       SELECT seq, payload->>'step' AS step, "occurredAt" FROM "ServiceCaseEvent"

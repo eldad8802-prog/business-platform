@@ -13,6 +13,12 @@
  *   B1 featureAllowedForBusiness (background steps / webhooks): shadow ⇒ true (+ log); enforce ⇒ the answer; off ⇒ true.
  *   C1 the resolution is cached per business for a short time (one resolve for repeated calls).
  *   K1 the guarded set is exactly the eleven UI-only core features named by the audit.
+ *   P1 plan layer (subscriptions stage A): with no subscription record nothing is logged — today's access.
+ *   P2 a customer whose plan lacks the module: `subscription_would_deny` is LOGGED and the request goes through —
+ *      in shadow AND in enforce (the plan verdict is never returned, whatever FEATURE_ACCESS_ENFORCEMENT says).
+ *   P3 SUBSCRIPTION_ENFORCEMENT=off: the record is not read and nothing is logged.
+ *   P4 a failing record read: logged, request goes through.
+ *   P5 background steps: the same — always the flag answer.
  */
 import {
   FEATURE_ACCESS_ENFORCEMENT_ENV,
@@ -27,6 +33,7 @@ import {
 } from "@/lib/services/feature-access/feature-guard";
 import { PLATFORM_FEATURE_KEYS, listPlatformFeatureKeys, type PlatformFeatureKey } from "@/lib/services/feature-access/platform-feature-catalog";
 import type { FeatureAccessResult } from "@/lib/services/feature-access/feature-access.types";
+import { SUBSCRIPTION_ENFORCEMENT_ENV, __setSubscriptionSourceForTests } from "@/lib/services/subscriptions/subscription-shadow";
 
 let pass = 0;
 const failures: string[] = [];
@@ -169,12 +176,61 @@ async function main() {
   setMode("off");
   ok("B1 off ⇒ true", (await featureAllowedForBusiness(7, PLATFORM_FEATURE_KEYS.STARTER_BOT, "test:step")) === true);
 
+  // P1–P5 plan layer, shadow only
+  const planLogs = () => logs.filter((l) => l.includes("subscription_would_deny"));
+  const basicCustomer = async () => ({ accountType: "CUSTOMER" as const, status: "ACTIVE" as const, plan: "BASIC" as const, catalogVersion: "2026-11-20" });
+  let reads = 0;
+  setMode(undefined);
+  __setSubscriptionSourceForTests(null);
+  __setFeatureGuardResolverForTests(async () => capsWith([]));
+  __setFeatureGuardSessionForTests(async () => 7);
+  logs.length = 0;
+  ok("P1 no record: passes", (await guardFeature(req(), PLATFORM_FEATURE_KEYS.INBOX)) === null);
+  ok("P1 no record: nothing logged", planLogs().length === 0);
+
+  __setSubscriptionSourceForTests(async () => { reads++; return basicCustomer(); });
+  __setFeatureGuardResolverForTests(async () => capsWith([]));
+  logs.length = 0;
+  ok("P2 Basic + inbox (Advanced): passes in shadow", (await guardFeature(req(), PLATFORM_FEATURE_KEYS.INBOX)) === null);
+  ok("P2 logs subscription_would_deny with the plan that would include it", planLogs().length === 1 && planLogs()[0].includes('"requiredPlan":"ADVANCED"') && planLogs()[0].includes('"businessId":7'));
+  ok("P2 Basic + billing (Basic): nothing logged", (await guardFeature(req(), PLATFORM_FEATURE_KEYS.BILLING)) === null && planLogs().length === 1);
+  setMode("enforce");
+  __setFeatureGuardResolverForTests(async () => capsWith([]));
+  logs.length = 0;
+  ok("P2 enforce: the plan verdict is still never returned", (await guardFeature(req(), PLATFORM_FEATURE_KEYS.CONTENT)) === null);
+  ok("P2 enforce: still logged as would-deny", planLogs().length === 1 && planLogs()[0].includes('"requiredPlan":"PREMIUM"'));
+  process.env[SUBSCRIPTION_ENFORCEMENT_ENV] = "enforce";
+  ok("P2 SUBSCRIPTION_ENFORCEMENT=enforce is not a mode: still passes", (await guardFeature(req(), PLATFORM_FEATURE_KEYS.CONTENT)) === null);
+  setMode(undefined);
+
+  process.env[SUBSCRIPTION_ENFORCEMENT_ENV] = "off";
+  __setFeatureGuardResolverForTests(async () => capsWith([]));
+  reads = 0;
+  logs.length = 0;
+  ok("P3 off: passes", (await guardFeature(req(), PLATFORM_FEATURE_KEYS.INBOX)) === null);
+  ok("P3 off: record not read, nothing logged", reads === 0 && planLogs().length === 0);
+  delete process.env[SUBSCRIPTION_ENFORCEMENT_ENV];
+
+  __setSubscriptionSourceForTests(async () => { throw new Error("relation does not exist"); });
+  __setFeatureGuardResolverForTests(async () => capsWith([]));
+  logs.length = 0;
+  ok("P4 failing read: passes", (await guardFeature(req(), PLATFORM_FEATURE_KEYS.INBOX)) === null);
+  ok("P4 failing read: logged once, no would-deny", logs.some((l) => l.includes("subscription_read_failed")) && planLogs().length === 0);
+
+  __setSubscriptionSourceForTests(basicCustomer);
+  __setFeatureGuardResolverForTests(async () => capsWith([]));
+  logs.length = 0;
+  ok("P5 background step: Basic + starter bot ⇒ true", (await featureAllowedForBusiness(7, PLATFORM_FEATURE_KEYS.STARTER_BOT, "test:plan")) === true);
+  ok("P5 background step: logged", planLogs().some((l) => l.includes("test:plan")));
+  __setSubscriptionSourceForTests(null);
+
   // K1
   const expected = ["documents", "billing", "inbox", "inventory", "content", "pricing", "revenue", "gmail_import", "whatsapp", "starter_bot", "reports"];
   ok("K1 exactly the eleven", JSON.stringify([...GUARDED_FEATURE_KEYS].sort()) === JSON.stringify([...expected].sort()));
 
   __setFeatureGuardResolverForTests(null);
   __setFeatureGuardSessionForTests(null);
+  __setSubscriptionSourceForTests(null);
   setMode(undefined);
   console.warn = realWarn;
 

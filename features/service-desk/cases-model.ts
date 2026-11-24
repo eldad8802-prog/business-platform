@@ -31,9 +31,16 @@ export type CaseRowData = {
   workType?: string | null;
   openedAt: string;
   updatedAt: string;
+  /** When the case entered its current state (the list API; absent elsewhere — the last update is used then). */
+  statusSince?: string;
 };
 
-export type Tone = "attention" | "active" | "ready" | "done";
+/**
+ * The status colour family (owner-approved palette, 2026-11-24 — no green in the module): new = neutral, active = blue
+ * (work in progress), attention = amber (waiting), ready / done = light bordeaux with a check (positive, completed),
+ * danger = red (cancelled / not collected). Every tone is also carried by the status words, never by colour alone.
+ */
+export type Tone = "new" | "active" | "attention" | "ready" | "done" | "danger";
 
 const STATUS_LABEL: Readonly<Record<CaseStatus, string>> = {
   OPEN: "נפתח",
@@ -68,9 +75,11 @@ export function isClosed(status: CaseStatus): boolean {
 }
 
 export function statusTone(status: CaseStatus, holdReason: string | null = null): Tone {
+  if (status === "CANCELLED" || status === "ABANDONED") return "danger";
   if (isClosed(status)) return "done";
   if (status === "READY" || status === "WORK_DONE") return "ready";
-  if (status === "QUOTE_PENDING" || status === "OPEN" || holdReason) return "attention";
+  if (status === "QUOTE_PENDING" || holdReason) return "attention";
+  if (status === "OPEN" || status === "SCHEDULED" || status === "CHECKED_IN") return "new";
   return "active";
 }
 
@@ -95,27 +104,54 @@ function daysText(n: number): string {
 }
 
 /**
- * Why a case needs the owner now — one short, explained sentence — or null. No score, no hidden weighting:
- * the reason names what is waiting and for how long.
+ * «ממתינים לך» (owner decision 2026-11-24): a case waits for the business only when the next step is the business's and
+ * it is overdue, or a finished call must be closed now. Existing statuses only; no score. The days count from when the
+ * case entered its current state (statusSince), not from the last update — a note or a location never resets them.
+ *   WORK_DONE immediately · READY ≥ 2 days · QUOTE_PENDING ≥ 3 · on hold ≥ 3 · EXTERNAL ≥ 7 · QA / CHECKED_IN / OPEN ≥ 1.
+ * Everything else (diagnosis, work in progress, scheduled, closed, or below its threshold) is not waiting.
  */
-export function attentionReason(c: Pick<CaseRowData, "status" | "holdReason" | "updatedAt" | "kind">, now: Date): string | null {
-  const waited = daysBetween(c.updatedAt, now);
+export const WAITING_THRESHOLD_DAYS = { READY: 2, QUOTE_PENDING: 3, HOLD: 3, EXTERNAL: 7, QA: 1, CHECKED_IN: 1, OPEN: 1 } as const;
+
+/** Days the case has been in its current state. */
+export function waitingDays(c: Pick<CaseRowData, "statusSince" | "updatedAt">, now: Date): number {
+  return daysBetween(c.statusSince ?? c.updatedAt, now);
+}
+
+/** The explained reason a case waits for the business now — or null (it is not in «ממתינים לך»). */
+export function attentionReason(c: Pick<CaseRowData, "status" | "holdReason" | "updatedAt" | "kind" | "statusSince">, now: Date): string | null {
+  const n = waitingDays(c, now);
+  const T = WAITING_THRESHOLD_DAYS;
+  const field = c.kind === "FIELD" || c.kind === "REMOTE";
   switch (c.status) {
-    case "READY":
-      return waited >= 2 ? `מוכן ולא נאסף · ${daysText(waited)}` : "מוכן — לעדכן את הלקוח";
-    case "QUOTE_PENDING":
-      return `הצעת מחיר ממתינה לתשובת הלקוח · ${daysText(waited)}`;
-    case "OPEN":
-      // A service call (on site or remote) is coordinated; only a repair at the business has an item to take in.
-      return c.kind === "FIELD" || c.kind === "REMOTE" ? "צריך לתאם ביקור" : "צריך לקלוט את הפריט";
-    case "CHECKED_IN":
-      // The item is here and nobody started on it (pilot review 2026-11-21: it was missing from "דורשים טיפול").
-      return `ממתין לאבחון · ${daysText(waited)}`;
-    case "WORK_DONE":
-      return "העבודה הסתיימה — לסגור את הקריאה";
+    case "WORK_DONE": return "העבודה הסתיימה — לקבוע חיוב ולסגור את הקריאה";
+    case "READY": return n >= T.READY ? `מוכן ולא נאסף · ${daysText(n)} — להתקשר ללקוח` : null;
+    case "QUOTE_PENDING": return n >= T.QUOTE_PENDING ? `הצעה בלי תשובה · ${daysText(n)} — להתקשר ללקוח` : null;
+    case "EXTERNAL": return n >= T.EXTERNAL ? `אצל ספק · ${daysText(n)} — לבדוק מול הספק` : null;
+    case "QA": return n >= T.QA ? `בבדיקות · ${daysText(n)} — לסיים את הבדיקות` : null;
+    case "CHECKED_IN": return n >= T.CHECKED_IN ? `ממתין לאבחון · ${daysText(n)}` : null;
+    case "OPEN": return n >= T.OPEN ? (field ? `לא תואם · ${daysText(n)}` : `לא נקלט · ${daysText(n)}`) : null;
     default:
-      if (c.holdReason) return `${HOLD_LABEL[c.holdReason] ?? "בהמתנה"} · ${daysText(waited)}`;
+      if (c.holdReason) return n >= T.HOLD ? `${HOLD_LABEL[c.holdReason] ?? "בהמתנה"} · ${daysText(n)} — לבדוק` : null;
       return null;
+  }
+}
+
+/** The next step of a case that is not waiting, as one short grey line in the list (nothing disappears from view). */
+export function nextStepHint(c: Pick<CaseRowData, "status" | "holdReason" | "kind">): string | null {
+  const field = c.kind === "FIELD" || c.kind === "REMOTE";
+  if (c.holdReason) return "הבא: להחזיר לעבודה";
+  switch (c.status) {
+    case "OPEN": return field ? "הבא: לתאם ולהתחיל" : "הבא: לקלוט את הפריט";
+    case "SCHEDULED": return "הבא: הביקור";
+    case "CHECKED_IN": return "הבא: להתחיל אבחון";
+    case "DIAGNOSING": return "הבא: לתקן או לשלוח הצעה";
+    case "QUOTE_PENDING": return "הבא: תשובת הלקוח להצעה";
+    case "IN_REPAIR": return field ? "הבא: לסיים את העבודה" : "הבא: לסיים את התיקון";
+    case "EXTERNAL": return "הבא: לקבל מהספק";
+    case "QA": return "הבא: לסמן את הבדיקות";
+    case "READY": return "הבא: למסור ללקוח";
+    case "WORK_DONE": return "הבא: לסגור את הקריאה";
+    default: return null;
   }
 }
 
@@ -127,7 +163,25 @@ export type NextActionContext = {
   chargeMissing?: boolean;
   /** QA: the saved checklist has a failed check (the case goes back to work). */
   qaFailed?: boolean;
+  /**
+   * QA, as marked on screen (owner decision 2026-11-24): every required check passed → ready to confirm; some still
+   * unmarked → how many are left; a failed check → which one, and back to work. The heading follows the same state as
+   * the button, so they never disagree. Display only: the server's QA rules are unchanged.
+   */
+  qa?: { state: "incomplete" | "ready" | "failed"; remaining?: number; failedLabels?: readonly string[] };
 };
+
+/** The QA heading for the case screen's top card (see NextActionContext.qa). */
+export function qaHeadline(qa: NonNullable<NextActionContext["qa"]>): string {
+  if (qa.state === "failed") {
+    const f = qa.failedLabels ?? [];
+    const what = f.length === 1 ? `הבדיקה «${f[0]}» לא עברה` : f.length > 1 ? `${f.length} בדיקות לא עברו` : "בדיקה לא עברה";
+    return `${what} — להחזיר לעבודה`;
+  }
+  if (qa.state === "ready") return "כל בדיקות החובה עברו — אפשר לאשר";
+  const n = qa.remaining ?? 0;
+  return n === 1 ? "נותרה בדיקה אחת לסמן" : n > 1 ? `נותרו ${n} בדיקות לסמן` : "לסמן את הבדיקות";
+}
 
 /**
  * The next step the owner takes, in plain words, for the case screen's top card. A step already done is never named
@@ -145,7 +199,7 @@ export function nextActionLabel(status: CaseStatus, kind: CaseKind, holdReason: 
     case "QUOTE_PENDING": return "לרשום את תשובת הלקוח להצעה";
     case "IN_REPAIR": return field ? "לסיים את העבודה" : "לסיים את התיקון";
     case "EXTERNAL": return "לרשום חזרה מהספק";
-    case "QA": return ctx.qaFailed ? "בדיקה לא עברה — להחזיר לעבודה" : "להשלים את הבדיקות";
+    case "QA": return ctx.qa ? qaHeadline(ctx.qa) : ctx.qaFailed ? "בדיקה לא עברה — להחזיר לעבודה" : "להשלים את הבדיקות";
     case "READY": return ctx.chargeMissing ? "לקבוע חיוב ואז למסור ללקוח" : "למסור ללקוח";
     case "WORK_DONE": return ctx.chargeMissing ? "לקבוע חיוב ואז לסגור את הקריאה" : "לסגור את הקריאה";
     default: return null;
@@ -154,10 +208,9 @@ export function nextActionLabel(status: CaseStatus, kind: CaseKind, holdReason: 
 
 export type ListFilter = "all" | "attention" | "active" | "ready" | "closed";
 
+/** Three filters (owner decision 2026-11-24): the active cases (with «ממתינים לך» first), ready, closed. */
 export const LIST_FILTERS: readonly { key: ListFilter; label: string }[] = [
-  { key: "all", label: "הכל" },
-  { key: "attention", label: "דורשים טיפול" },
-  { key: "active", label: "בעבודה" },
+  { key: "all", label: "פעילים" },
   { key: "ready", label: "מוכנים" },
   { key: "closed", label: "סגורים" },
 ];
@@ -209,6 +262,9 @@ export function buildListSections(rows: readonly CaseRowData[], opts: { filter: 
       if (reason) attention.push({ row: r, reason });
       else if (filter === "all") rest.push(r);
     }
+    // «ממתינים לך»: who waits longest comes first; a tie by case number (no score, no hidden weighting).
+    const since = (r: CaseRowData) => Date.parse(r.statusSince ?? r.updatedAt);
+    attention.sort((x, y) => since(x.row) - since(y.row) || x.row.caseNumber - y.row.caseNumber);
     return { attention, rest, total: rows.length, shown: attention.length + rest.length };
   }
   const rest = [...visible].sort(byUpdate);
@@ -221,13 +277,21 @@ export function rowDescription(c: Pick<CaseRowData, "subjectName" | "problemExce
   return parts.length ? parts.join(" · ") : "ללא תיאור";
 }
 
+/** The business's clock: every date and time on these screens is Israel time, whatever the device is set to. */
+const BUSINESS_TZ = "Asia/Jerusalem";
+const DAY_KEY = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+const TIME_FMT = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: BUSINESS_TZ });
+const DATE_FMT = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: BUSINESS_TZ });
+
+/**
+ * Today → the time; another day → the date. "Today" is the Israel calendar day too (it was the device's, so near
+ * midnight or on a device set abroad a time could stand for another day). Display only: stored times are unchanged.
+ */
 export function formatShortDate(iso: string, now: Date): string {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return "";
   const d = new Date(t);
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" }).format(d);
-  return new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: "Asia/Jerusalem" }).format(d);
+  return DAY_KEY.format(d) === DAY_KEY.format(now) ? TIME_FMT.format(d) : DATE_FMT.format(d);
 }
 
 // ── Case screen ──────────────────────────────────────────────────────────────────────────────────
@@ -239,9 +303,21 @@ export type CaseCardData = CaseRowData & {
   cancellationRequested: boolean;
   stamps: Partial<Record<"checkedInAt" | "readyAt" | "deliveredAt" | "closedAt" | "cancelledAt" | "abandonedAt", string | null>>;
   intake: { conditionNote: string | null; accessoriesNote: string | null; conditionRecorded: boolean; accessoriesRecorded: boolean } | null;
+  /** The customer's phone when known (the case read) — the head's call button. */
+  customerPhone?: string | null;
 };
 
-export type JournalItem = { seq: number; eventType: string; toStatus: string; occurredAt: string; actor: string; payload?: unknown };
+/** A tel: link for a stored phone (digits and a leading + only), or null. */
+export function telHref(phone: string | null | undefined): string | null {
+  const p = (phone ?? "").replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+  return p.replace(/\D/g, "").length >= 7 ? `tel:${p}` : null;
+}
+
+export type JournalItem = {
+  seq: number; eventType: string; toStatus: string; occurredAt: string; actor: string; payload?: unknown;
+  /** The acting user (the journal read): their profile name, whether the row was found, and the stored id. */
+  actorUserId?: number | null; actorName?: string | null; actorKnown?: boolean;
+};
 
 export type SectionKey = "details" | "intake" | "quote" | "checks" | "handover" | "history";
 
@@ -308,6 +384,18 @@ const ACTOR_LABEL: Readonly<Record<string, string>> = { OWNER_USER: "בעל הע
 /** Who acted, as the journal records it (the actor kind; no name is stored on the event). */
 export function actorLabel(actor: string | undefined): string | null {
   return actor ? ACTOR_LABEL[actor] ?? null : null;
+}
+
+/**
+ * Who acted, for a history line (owner decision 2026-11-24): the user's real name as the system knows it; when it is
+ * missing, words that say so — never an invented name, never an e-mail. The system and the customer keep their words.
+ */
+export function actorText(e: Pick<JournalItem, "actor" | "actorUserId" | "actorName" | "actorKnown">): string | null {
+  if (e.actor !== "OWNER_USER") return actorLabel(e.actor);
+  if (e.actorName === undefined) return actorLabel(e.actor); // an older read without names
+  if (e.actorName) return e.actorName;
+  if (e.actorUserId === null || e.actorUserId === undefined || e.actorKnown === false) return "משתמש לא מזוהה";
+  return "משתמש ללא שם";
 }
 
 const ils = (agorot: number) => `₪${(agorot / 100).toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
@@ -377,7 +465,7 @@ export function journaledLoanIds(events: readonly JournalItem[]): Set<number> {
 /** The journal and the side records, newest first, as one list for the history section. */
 export function mergedHistory(events: readonly JournalItem[], side: readonly SideHistoryItem[], names: HistoryNames = {}): { key: string; text: string; occurredAt: string; actor: string | null }[] {
   const rows = [
-    ...events.map((e) => ({ key: `e${e.seq}`, text: eventLabel(e, names), occurredAt: e.occurredAt, actor: actorLabel(e.actor), order: e.seq })),
+    ...events.map((e) => ({ key: `e${e.seq}`, text: eventLabel(e, names), occurredAt: e.occurredAt, actor: actorText(e), order: e.seq })),
     ...side.map((x) => ({ key: x.key, text: x.text, occurredAt: x.occurredAt, actor: null as string | null, order: 0 })),
   ];
   return rows.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt) || b.order - a.order).map((r) => ({ key: r.key, text: r.text, occurredAt: r.occurredAt, actor: r.actor }));

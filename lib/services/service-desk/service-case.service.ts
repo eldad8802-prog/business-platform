@@ -259,6 +259,12 @@ export type CaseSummary = {
   openedAt: string; updatedAt: string;
   /** List only (UI 1.3, read-only): a short excerpt of the problem, the subject's name and the M1 work type. */
   problemExcerpt?: string | null; subjectName?: string | null; workType?: string | null;
+  /**
+   * List only (UI, read-only, owner decision 2026-11-24): when the case entered its current state — the latest journal
+   * event that changed the status or set / cleared a hold; the opening time when the journal has none. A record that
+   * changes nothing of the state (location, loan, task, intake details) never moves it, so "waiting N days" is honest.
+   */
+  statusSince?: string;
 };
 
 const SUMMARY_COLUMNS = Prisma.sql`c.id, c."caseNumber", c.kind::text AS kind, c.status::text AS status, c."holdReason"::text AS "holdReason",
@@ -285,7 +291,11 @@ export async function listCases(businessId: number, q: { status?: unknown; befor
   if (status !== undefined && !/^[A-Z_]{2,20}$/.test(status)) throw new ServiceDeskError("INVALID_INPUT", { field: "status" });
   return tenantTx(businessId, async (tx) => {
     const rows = await tx.$queryRaw<Record<string, unknown>[]>`
-      SELECT ${SUMMARY_COLUMNS}, left(c."problemDescription", 140) AS "problemExcerpt", d."displayName" AS "subjectName", c."workType"::text AS "workType"
+      SELECT ${SUMMARY_COLUMNS}, left(c."problemDescription", 140) AS "problemExcerpt", d."displayName" AS "subjectName", c."workType"::text AS "workType",
+             to_char(COALESCE((SELECT max(e."occurredAt") FROM "ServiceCaseEvent" e
+                                WHERE e."businessId" = c."businessId" AND e."caseId" = c.id AND e."toStatus" = c.status
+                                  AND (e."fromStatus" IS DISTINCT FROM e."toStatus" OR e."eventType"::text IN ('hold.set', 'hold.cleared'))),
+                              c."openedAt") AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "statusSince"
         FROM "ServiceCase" c LEFT JOIN "Customer" cu ON cu.id = c."customerId" AND cu."businessId" = c."businessId"
         LEFT JOIN "ServiceDevice" d ON d.id = c."deviceId" AND d."businessId" = c."businessId"
        WHERE c."businessId" = ${businessId}::int
@@ -295,6 +305,7 @@ export async function listCases(businessId: number, q: { status?: unknown; befor
     const cases = rows.slice(0, limit).map((r) => ({
       ...toSummary(r),
       problemExcerpt: (r.problemExcerpt as string) ?? null, subjectName: (r.subjectName as string) ?? null, workType: (r.workType as string) ?? null,
+      statusSince: String(r.statusSince),
     }));
     return { cases, nextBeforeId: rows.length > limit ? cases[cases.length - 1].id : null };
   });
@@ -304,6 +315,8 @@ export type CaseCard = CaseSummary & {
   problemDescription: string | null; parentCaseId: number | null;
   /** The item / system the case is about (ServiceDevice.displayName) — the list showed it, the card did not (pilot 11-21). */
   subjectName: string | null;
+  /** The customer's phone (the same business's customer row, read-only) — the case head's call button (owner 2026-11-24). */
+  customerPhone: string | null;
   coverage: { source: string; decision: string } | null; pickupRemindersSent: number; cancellationRequested: boolean;
   stamps: Record<"checkedInAt" | "readyAt" | "deliveredAt" | "closedAt" | "cancelledAt" | "abandonedAt", string | null>;
   intake: { conditionNote: string | null; accessoriesNote: string | null; conditionRecorded: boolean; accessoriesRecorded: boolean; customerSigned: boolean; updatedAt: string } | null;
@@ -318,7 +331,7 @@ export async function getCase(businessId: number, caseId: unknown): Promise<Case
              c."checkedInAt", c."readyAt", c."deliveredAt", c."closedAt", c."cancelledAt", c."abandonedAt",
              i."conditionNote", i."accessoriesNote", i."conditionRecorded", i."accessoriesRecorded", i."customerSigned",
              to_char(i."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "intakeUpdatedAt", i.id AS "intakeId",
-             d."displayName" AS "subjectName"
+             d."displayName" AS "subjectName", NULLIF(btrim(cu.phone), '') AS "customerPhone"
         FROM "ServiceCase" c
         LEFT JOIN "Customer" cu ON cu.id = c."customerId" AND cu."businessId" = c."businessId"
         LEFT JOIN "ServiceDevice" d ON d.id = c."deviceId" AND d."businessId" = c."businessId"
@@ -330,7 +343,7 @@ export async function getCase(businessId: number, caseId: unknown): Promise<Case
     return {
       ...toSummary(r),
       problemDescription: (r.problemDescription as string) ?? null,
-      subjectName: (r.subjectName as string) ?? null,
+      customerPhone: (r.customerPhone as string) ?? null, subjectName: (r.subjectName as string) ?? null,
       parentCaseId: r.parentCaseId === null ? null : Number(r.parentCaseId),
       coverage: r.coverageSource ? { source: String(r.coverageSource), decision: String(r.coverageDecision) } : null,
       pickupRemindersSent: Number(r.pickupRemindersSent),
@@ -351,6 +364,11 @@ export async function getCase(businessId: number, caseId: unknown): Promise<Case
 export type JournalEntry = {
   seq: number; eventType: string; action: string; fromStatus: string | null; toStatus: string; holdReasonAfter: string | null;
   outcome: string | null; actor: string; actorUserId: number | null; occurredAt: string; payload: unknown;
+  /**
+   * Who acted, by name (owner decision 2026-11-24): the acting user's profile name when the user is of this business and
+   * has one; null otherwise — never an e-mail, never an invented name. actorKnown: the user row was found.
+   */
+  actorName: string | null; actorKnown: boolean;
 };
 
 /** The case's journal, oldest first. The payload holds tokens, numbers and booleans only (decision ט-1 A). */
@@ -360,14 +378,18 @@ export async function listCaseEvents(businessId: number, caseId: unknown): Promi
     const exists = await tx.$queryRaw<{ ok: boolean }[]>`SELECT EXISTS (SELECT 1 FROM "ServiceCase" WHERE id = ${caseId}::int AND "businessId" = ${businessId}::int) AS ok`;
     if (exists[0]?.ok !== true) throw new ServiceDeskError("NOT_FOUND");
     const rows = await tx.$queryRaw<Record<string, unknown>[]>`
-      SELECT seq, "eventType"::text AS "eventType", action::text AS action, "fromStatus"::text AS "fromStatus", "toStatus"::text AS "toStatus",
-             "holdReasonAfter"::text AS "holdReasonAfter", outcome::text AS outcome, actor::text AS actor, "actorUserId",
-             to_char("occurredAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt", payload
-        FROM "ServiceCaseEvent" WHERE "businessId" = ${businessId}::int AND "caseId" = ${caseId}::int ORDER BY seq`;
+      SELECT e.seq, e."eventType"::text AS "eventType", e.action::text AS action, e."fromStatus"::text AS "fromStatus", e."toStatus"::text AS "toStatus",
+             e."holdReasonAfter"::text AS "holdReasonAfter", e.outcome::text AS outcome, e.actor::text AS actor, e."actorUserId",
+             to_char(e."occurredAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt", e.payload,
+             NULLIF(btrim(u.name), '') AS "actorName", (u.id IS NOT NULL) AS "actorKnown"
+        FROM "ServiceCaseEvent" e
+        LEFT JOIN "User" u ON u.id = e."actorUserId" AND u."businessId" = e."businessId"
+       WHERE e."businessId" = ${businessId}::int AND e."caseId" = ${caseId}::int ORDER BY e.seq`;
     return rows.map((r) => ({
       seq: Number(r.seq), eventType: String(r.eventType), action: String(r.action), fromStatus: (r.fromStatus as string) ?? null,
       toStatus: String(r.toStatus), holdReasonAfter: (r.holdReasonAfter as string) ?? null, outcome: (r.outcome as string) ?? null,
       actor: String(r.actor), actorUserId: r.actorUserId === null ? null : Number(r.actorUserId), occurredAt: String(r.occurredAt), payload: r.payload,
+      actorName: (r.actorName as string | null) ?? null, actorKnown: r.actorKnown === true,
     }));
   });
 }

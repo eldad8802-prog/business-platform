@@ -48,8 +48,8 @@ const view = (o = {}) => ({
 });
 
 const STATES = {
-  "intake-incomplete": { access: "FULL", view: view({ intake: { ...INTAKE, accessoriesRecorded: false }, allowed: { ...NONE, recordData: true, addPhoto: true } }), expect: "לא נמסרו אביזרים", noConfirm: true },
-  "intake-ready-to-confirm": { access: "FULL", view: view(), expect: "אישור קליטה וקבלת הפריט", act: "confirm" },
+  "intake-incomplete": { access: "FULL", view: view({ intake: { ...INTAKE, accessoriesRecorded: false }, allowed: { ...NONE, recordData: true, addPhoto: true } }), expect: "לפני האישור: לסמן את האביזרים" },
+  "intake-ready-to-confirm": { access: "FULL", view: view(), expect: "לאשר קליטה ולקבל את הפריט", act: "confirm" },
   "intake-confirmed": {
     access: "FULL",
     view: view({
@@ -98,19 +98,19 @@ async function main() {
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       check(`${tag}: no horizontal overflow`, overflow <= 1, `${overflow}px`);
       check(`${tag}: back control`, (await page.locator("[data-back-button], header button, header a").count()) > 0);
-      check(`${tag}: title names the case`, (await page.locator("h1").innerText()).includes("1042"));
+      check(`${tag}: the head names the case`, (await page.locator("header").first().innerText()).includes("1042"));
       check(`${tag}: state content (${s.expect})`, (await page.locator(`text=${s.expect}`).count()) > 0);
       check(`${tag}: no signature pad, no canvas, no signature / terms wording`,
         (await page.locator("canvas").count()) === 0 && !/חתימ|תנאי השירות/.test(await page.locator("main").innerText()));
-      if (s.noConfirm) check(`${tag}: no confirmation button offered`, (await page.locator("text=אישור קליטה וקבלת הפריט").count()) === 0);
-      if (s.noEdit) check(`${tag}: no data save / photo action offered`, (await page.locator("text=שמירת פרטי הקליטה").count()) === 0 && (await page.locator("text=צילום / הוספת תמונה").count()) === 0);
+      if (s.noConfirm) check(`${tag}: no confirmation button offered`, (await page.locator("text=לאשר קליטה ולקבל את הפריט").count()) === 0);
+      if (s.noEdit) check(`${tag}: no data save / photo action offered`, (await page.locator("text=לשמור בלי לאשר").count()) === 0 && (await page.locator("text=צילום / הוספת תמונה").count()) === 0);
       if (s.slip) check(`${tag}: the slip action is offered after the confirmation`, (await page.locator("text=יצירת טופס קליטה (PDF)").count()) > 0);
 
       await page.screenshot({ path: path.join(OUT, `${key}-${vp.width}-fold.png`) });
       if (vp.width === 390) await page.screenshot({ path: path.join(OUT, `${key}-${vp.width}-full.png`), fullPage: true });
 
       if (s.act === "confirm" && vp.width === 390) {
-        const btn = page.getByRole("button", { name: "אישור קליטה וקבלת הפריט" });
+        const btn = page.getByRole("button", { name: "לאשר קליטה ולקבל את הפריט" });
         await btn.scrollIntoViewIfNeeded();
         await btn.click({ timeout: 15000 });
         await page.waitForSelector("text=הקליטה אושרה והפריט התקבל לטיפול", { timeout: 15000 }).catch(() => {});

@@ -1,15 +1,16 @@
 /**
- * Service Desk UI 1.3 — the cases list (the module's entry screen). Presentational only: the data, the filter and the
- * query come in as props, so the same view renders the live screen and the design previews. Hebrew, RTL, mobile first.
+ * Service Desk («תיקונים ושירות») — the cases list (the module's entry screen). Presentational only: the data, the filter
+ * and the query come in as props, so the same view renders the live screen and the design previews. Hebrew, RTL, mobile
+ * first.
  *
- * Owner decisions: the list IS the entry (no dashboard); search + a few filters; cases that need attention first, each
- * with its reason; a clear button to open a case — the opening form itself waits for its design approval (A8), so the
- * button says so instead of opening a form that was not approved.
+ * Owner decisions: the list IS the entry (no dashboard); search + three filters; «ממתינים לך» first — only the cases whose
+ * next step is the business's and overdue, each with its explained reason (2026-11-24); every other active case shows its
+ * next step in a quiet line, so nothing disappears; the item first, then the case number and the customer.
  */
 import type { ReactNode } from "react";
 
 import {
-  buildListSections, formatShortDate, LIST_FILTERS, rowDescription, statusLabel, statusTone,
+  attentionReason, buildListSections, caseNoun, formatShortDate, LIST_FILTERS, nextStepHint, statusLabel, statusTone,
   type CaseRowData, type ListFilter,
 } from "./cases-model";
 import s from "./cases.module.css";
@@ -26,7 +27,6 @@ export type CasesListViewProps = {
   caseHref: (id: number) => string;
   settingsHref: string;
   readOnly?: boolean;
-  /** The opening form is not approved yet: the button is shown but not active. */
   openCaseEnabled?: boolean;
   newCaseHref?: string;
   /** Set while the business has not chosen its activity types yet (decision 1): a banner to the activation screen. */
@@ -42,20 +42,33 @@ function SearchIcon() {
   );
 }
 
+function SettingsIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" />
+    </svg>
+  );
+}
+
+/** The row's title: the item / system when there is one, else the customer (a remote call, a service without an item). */
+function rowTitle(row: CaseRowData): string {
+  return row.subjectName?.trim() || row.customerName?.trim() || "ללא שם";
+}
+
 function Row({ row, reason, now, href }: { row: CaseRowData; reason?: string; now: Date; href: string }) {
   const tone = statusTone(row.status, row.holdReason);
+  const noun = caseNoun(row.kind);
+  const hasSubject = !!row.subjectName?.trim();
+  const meta = [`${noun === "קריאה" ? "קריאה " : ""}#${row.caseNumber}`, hasSubject ? row.customerName ?? "לקוח ללא שם" : null, row.problemExcerpt?.trim() || null]
+    .filter((x): x is string => !!x).join(" · ");
+  const hint = reason ? null : nextStepHint(row);
   return (
     <li>
       <a className={s.row} href={href}>
         <span className={s.rowMain}>
-          <span className={s.rowTop}>
-            <span className={s.rowNumber}>#{row.caseNumber}</span>
-            <span className={s.rowCustomer}>{row.customerName ?? "לקוח ללא שם"}</span>
-          </span>
-          <span className={s.rowDetail}>
-            <span className={s.rowDesc}>{rowDescription(row)}</span>
-            {reason ? <span className={s.rowReason}>{reason}</span> : null}
-          </span>
+          <span className={s.rowTitle}>{rowTitle(row)}</span>
+          <span className={s.rowMeta}>{meta}</span>
+          {reason ? <span className={s.rowReason}>{reason}</span> : hint ? <span className={s.rowHint}>{hint}</span> : null}
         </span>
         <span className={s.rowSide}>
           <span className={s.pill} data-tone={tone}>{statusLabel(row.status)}</span>
@@ -68,14 +81,17 @@ function Row({ row, reason, now, href }: { row: CaseRowData; reason?: string; no
 
 export function CasesListView(p: CasesListViewProps) {
   const sections = buildListSections(p.rows, { filter: p.filter, query: p.query, now: p.now });
+  const active = buildListSections(p.rows, { filter: "all", query: "", now: p.now });
   const counts: Record<ListFilter, number> = {
-    all: buildListSections(p.rows, { filter: "all", query: "", now: p.now }).shown,
-    attention: buildListSections(p.rows, { filter: "attention", query: "", now: p.now }).shown,
-    active: buildListSections(p.rows, { filter: "active", query: "", now: p.now }).shown,
+    all: active.shown,
+    attention: active.attention.length,
+    active: 0,
     ready: buildListSections(p.rows, { filter: "ready", query: "", now: p.now }).shown,
     closed: buildListSections(p.rows, { filter: "closed", query: "", now: p.now }).shown,
   };
+  const searching = p.query.trim() !== "";
   const nothing = sections.shown === 0;
+  const canOpen = !p.readOnly && p.openCaseEnabled;
 
   return (
     <main className={s.screen} data-page-intent="content" dir="rtl">
@@ -83,32 +99,28 @@ export function CasesListView(p: CasesListViewProps) {
         <header className={s.head}>
           {p.back}
           <div className={s.headTitles}>
-            <h1 className={s.title}>תיקי שירות</h1>
-            <p className={s.subtitle}>{counts.all} פתוחים{counts.attention ? ` · ${counts.attention} דורשים טיפול` : ""}</p>
+            <h1 className={s.title}>תיקונים ושירות</h1>
+            <p className={s.subtitle}>{counts.all} פעילים{counts.attention ? ` · ${counts.attention} ממתינים לך` : ""}</p>
           </div>
-          <a className={s.headLink} href={p.settingsHref}>הגדרות</a>
+          <a className={s.iconButton} href={p.settingsHref} aria-label="הגדרות"><SettingsIcon /></a>
         </header>
 
         <div className={s.toolbar}>
           <label className={s.searchBox}>
-            <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>חיפוש תיקים</span>
+            <span className={s.srOnly}>חיפוש תיקים</span>
             <SearchIcon />
             <input
               className={s.search}
               type="search"
               inputMode="search"
-              placeholder="חיפוש לפי לקוח, מספר תיק או תיאור"
+              placeholder="חיפוש: לקוח, פריט או מספר תיק"
               value={p.query}
               onChange={(e) => p.onQuery(e.target.value)}
             />
           </label>
-          {p.readOnly ? null : p.openCaseEnabled ? (
-            <a className={s.primary} href={p.newCaseHref ?? "/service-desk/new"}><span aria-hidden="true">+</span> תיק חדש</a>
-          ) : (
-            <button type="button" className={s.primary} aria-disabled={true} disabled title="טופס הפתיחה יתווסף אחרי אישור העיצוב">
-              <span aria-hidden="true">+</span> תיק חדש
-            </button>
-          )}
+          {canOpen ? (
+            <a className={s.primary} href={p.newCaseHref ?? "/service-desk/new"}><span aria-hidden="true">+</span> תיק שירות חדש</a>
+          ) : null}
         </div>
         {!p.readOnly && p.setupHref ? (
           <a className={s.msg} data-tone="ok" href={p.setupHref} data-setup-banner style={{ display: "block", textDecoration: "none", color: "inherit" }}>
@@ -120,21 +132,39 @@ export function CasesListView(p: CasesListViewProps) {
           {LIST_FILTERS.map((f) => (
             <button key={f.key} type="button" className={s.chip} aria-pressed={p.filter === f.key} onClick={() => p.onFilter(f.key)}>
               {f.label}
-              {f.key !== "all" && counts[f.key] ? <span className={s.chipCount}>{counts[f.key]}</span> : null}
+              {counts[f.key] ? <span className={s.chipCount}>{counts[f.key]}</span> : null}
             </button>
           ))}
         </div>
 
         {nothing ? (
-          <div className={s.empty}>
-            <h2>{p.query.trim() ? "לא נמצאו תיקים" : p.rows.length === 0 ? "עדיין אין תיקים" : "אין תיקים בסינון הזה"}</h2>
-            <p className={s.count}>{p.query.trim() ? "אפשר לחפש לפי שם הלקוח, מספר התיק או מילה מהתיאור." : "תיקים חדשים יופיעו כאן."}</p>
-          </div>
+          searching ? (
+            <div className={s.empty}>
+              <h2>לא נמצא תיק עם «{p.query.trim()}»</h2>
+              <p className={s.count}>מחפשים לפי שם הלקוח, שם הפריט, מספר התיק או מילה מהתקלה.</p>
+              <button type="button" className={s.secondary} onClick={() => p.onQuery("")}>לנקות את החיפוש</button>
+            </div>
+          ) : p.rows.length === 0 ? (
+            <div className={s.empty}>
+              <h2>עוד אין תיקי שירות</h2>
+              <p className={s.count}>כשלקוח מביא פריט לתיקון או מזמין ביקור, פותחים כאן תיק. כל השלבים — מקליטה ועד מסירה — יופיעו בו.</p>
+              {canOpen ? <a className={s.primary} href={p.newCaseHref ?? "/service-desk/new"}>לפתוח את התיק הראשון</a> : null}
+            </div>
+          ) : (
+            <div className={s.empty}>
+              <h2>{p.filter === "closed" ? "אין תיקים סגורים" : p.filter === "ready" ? "אין תיקים מוכנים" : "אין תיקים פעילים"}</h2>
+              <p className={s.count}>תיקים יופיעו כאן כשיגיעו לשלב הזה.</p>
+            </div>
+          )
+        ) : null}
+
+        {p.filter === "all" && !searching && !nothing && sections.attention.length === 0 ? (
+          <p className={s.calm} role="status"><span aria-hidden="true">✓</span> אין כרגע תיקים שממתינים לך</p>
         ) : null}
 
         {sections.attention.length ? (
-          <section aria-label="דורשים טיפול">
-            <h2 className={s.groupTitle}>דורשים טיפול</h2>
+          <section aria-label="ממתינים לך">
+            <h2 className={s.groupTitle}><span className={s.groupDot} aria-hidden="true" />ממתינים לך · {sections.attention.length}</h2>
             <ul className={s.list}>
               {sections.attention.map(({ row, reason }) => <Row key={row.id} row={row} reason={reason} now={p.now} href={p.caseHref(row.id)} />)}
             </ul>
@@ -143,9 +173,9 @@ export function CasesListView(p: CasesListViewProps) {
 
         {sections.rest.length ? (
           <section aria-label="שאר התיקים">
-            {sections.attention.length ? <h2 className={s.groupTitle}>בעבודה</h2> : null}
+            {p.filter === "all" && !searching ? <h2 className={s.groupTitle}>בעבודה · {sections.rest.length}</h2> : null}
             <ul className={s.list}>
-              {sections.rest.map((row) => <Row key={row.id} row={row} now={p.now} href={p.caseHref(row.id)} />)}
+              {sections.rest.map((row) => <Row key={row.id} row={row} reason={p.filter !== "all" ? attentionReason(row, p.now) ?? undefined : undefined} now={p.now} href={p.caseHref(row.id)} />)}
             </ul>
           </section>
         ) : null}

@@ -494,6 +494,8 @@ export const INFRASTRUCTURE = {
   models: ["User", "Business", "ProductUsageEvent", "BusinessFeatureAccess", "Usage", "AuthSession", "AuthSessionSecret", "PlatformAdminMfa",
     // Phase 2 activity packs: a display preference (which packs the Home puts forward), not business evidence.
     "BusinessActivityProfile",
+    // Subscriptions stage B: Dubiz's commercial record of the business and its change log, not business evidence.
+    "PlatformSubscription", "PlatformSubscriptionEvent",
     "PlatformAuditEvent", "PlatformFeatureDefinition", "PlatformFeaturePolicy", "OAuthToken", "ExtractedData", "ExtractionEvidence", "MessageAnalysis",
     "BusinessBotProfile", "BotGoalSelection", "BusinessBotSetupDraft", "BusinessBotKnowledge", "BusinessBotRecommendation", "BusinessBotMemoryPolicy",
     "BusinessBotLearningSuggestion",

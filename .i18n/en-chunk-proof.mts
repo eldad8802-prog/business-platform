@@ -32,7 +32,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { brotliCompressSync, constants as zc, gzipSync } from "zlib";
 import { signAuthToken } from "../lib/auth-token";
 import { en } from "../lib/i18n/messages/en";
-import { APPROVED_TASKS_PUSH_CHUNK_EXCEPTION, chunkPathsInHtml, dictionaryChunkVerdict, isHashedChunkPath, selectDictionaryChunks, tasksPushChunkExceptionVerdict, type MeasuredPage } from "./en-chunk-rules";
+import { APPROVED_TASKS_PUSH_CHUNK_EXCEPTION, approvedRenameVerdict, chunkPathsInHtml, dictionaryChunkVerdict, isHashedChunkPath, selectDictionaryChunks, tasksPushChunkExceptionVerdict, type MeasuredPage } from "./en-chunk-rules";
 
 const OUT = process.env.PERF_OUT ?? "perf-out";
 const B = { mainOff: "http://localhost:3621", mainOn: "http://localhost:3622", branchOff: "http://localhost:3612", branchOn: "http://localhost:3611" };
@@ -163,28 +163,31 @@ async function identityPhase(s: Seed) {
   const browser = await chromium.launch();
   const rows: any[] = [];
   await pool(jobs, CONCURRENCY, async ({ r, width, p }) => {
-    let res = { identical: false, volatileOnly: false, detail: "", lang: "", hydration: [] as string[] };
+    let res = { identical: false, volatileOnly: false, renameOnly: false, detail: "", lang: "", hydration: [] as string[] };
     for (let attempt = 1; attempt <= 3; attempt++) {
       const [a, b] = await Promise.all([snap(browser, p.main, r.path, width, r.signedIn ? s.a.token : null, p.cookie), snap(browser, p.branch, r.path, width, r.signedIn ? s.a.token : null, p.cookie)]);
       const meta = a.status === b.status && a.path === b.path && a.lang === b.lang && a.dir === b.dir && a.title === b.title;
       const exact = meta && norm(a.text) === norm(b.text) && a.dom === b.dom;
       const volatileOnly = !exact && meta && vol(a.text) === vol(b.text) && vol(a.dom) === vol(b.dom);
+      // The one owner-approved rename (.i18n/en-chunk-rules.ts) — only when the strict comparison fails, every condition measured here.
+      const renamed = meta && !exact && !volatileOnly ? approvedRenameVerdict(a, b, vol) : null;
       let i = 0;
       while (i < a.dom.length && a.dom[i] === b.dom[i]) i++;
       res = {
-        identical: exact, volatileOnly, lang: `${b.lang}/${b.dir}`,
+        identical: exact, volatileOnly, renameOnly: !!renamed?.ok, lang: `${b.lang}/${b.dir}`,
         hydration: b.errors.filter((e) => !a.errors.includes(e)),
-        detail: meta ? `dom differs @${i}: main «${a.dom.slice(Math.max(0, i - 60), i + 80)}» branch «${b.dom.slice(Math.max(0, i - 60), i + 80)}»` : `meta main=${a.status}/${a.path}/${a.lang}/${a.dir}/"${a.title}" branch=${b.status}/${b.path}/${b.lang}/${b.dir}/"${b.title}"`,
+        detail: (meta ? `dom differs @${i}: main «${a.dom.slice(Math.max(0, i - 60), i + 80)}» branch «${b.dom.slice(Math.max(0, i - 60), i + 80)}»` : `meta main=${a.status}/${a.path}/${a.lang}/${a.dir}/"${a.title}" branch=${b.status}/${b.path}/${b.lang}/${b.dir}/"${b.title}"`)
+          + (renamed && !renamed.ok ? ` · the approved rename does not explain it: ${JSON.stringify(renamed.conditions)}` : ""),
       };
-      if ((exact || volatileOnly) && res.hydration.length === 0) break;
+      if ((exact || volatileOnly || res.renameOnly) && res.hydration.length === 0) break;
     }
-    rows.push({ route: label(r.path), width, variant: p.name, identical: res.identical, volatileOnly: res.volatileOnly, lang: res.lang });
-    ok(`${width} ${r.path} [${p.name}] — MAIN = BRANCH (meta, text, DOM)`, res.identical || res.volatileOnly, res.detail);
+    rows.push({ route: label(r.path), width, variant: p.name, identical: res.identical, volatileOnly: res.volatileOnly, renameOnly: res.renameOnly, lang: res.lang });
+    ok(`${width} ${r.path} [${p.name}] — MAIN = BRANCH (meta, text, DOM)${res.renameOnly ? " — the approved rename only" : ""}`, res.identical || res.volatileOnly || res.renameOnly, res.detail);
     ok(`${width} ${r.path} [${p.name}] — no new hydration error on BRANCH`, res.hydration.length === 0, res.hydration.join(" | "));
   });
   await browser.close();
-  report.identity = { comparisons: rows.length, exact: rows.filter((x) => x.identical).length, volatileOnly: rows.filter((x) => x.volatileOnly).length, different: rows.filter((x) => !x.identical && !x.volatileOnly).length, rows };
-  console.log(`identity: ${report.identity.comparisons} comparisons, ${report.identity.exact} exact, ${report.identity.volatileOnly} volatile-only, ${report.identity.different} different`);
+  report.identity = { comparisons: rows.length, exact: rows.filter((x) => x.identical).length, volatileOnly: rows.filter((x) => x.volatileOnly).length, renameOnly: rows.filter((x) => x.renameOnly).length, different: rows.filter((x) => !x.identical && !x.volatileOnly && !x.renameOnly).length, rows };
+  console.log(`identity: ${report.identity.comparisons} comparisons, ${report.identity.exact} exact, ${report.identity.volatileOnly} volatile-only, ${report.identity.renameOnly} approved-rename-only, ${report.identity.different} different`);
 }
 
 /** The English document of a route and every JS chunk it references (raw and brotli bytes) — for the exception. */

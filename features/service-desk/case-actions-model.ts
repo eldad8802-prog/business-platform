@@ -27,11 +27,18 @@ export type CaseActionDef = {
    * The server still enforces the rule itself — this only spares the owner a refusal and says what to do first.
    */
   blockedReason?: string;
-  /** Where the request goes. `link` navigates instead (the intake screen). */
+  /**
+   * Where the request goes. `link` navigates instead (the intake screen); `charge` opens the charge sheet (the step a
+   * handover / completion waits for); `qa` saves the marked checks and then passes or fails QA in one action (owner
+   * decision 2026-11-24 — the server rules are unchanged); `scroll` brings a panel into view (the QA checklist).
+   */
   target:
     | { endpoint: "action"; action: Record<string, unknown> }
     | { endpoint: "quote"; decision: "APPROVE" | "REJECT" }
-    | { endpoint: "link"; href: string };
+    | { endpoint: "link"; href: string }
+    | { endpoint: "charge" }
+    | { endpoint: "qa"; then: "PASS" | "FAIL" }
+    | { endpoint: "scroll"; to: string };
 };
 
 const held = (c: Pick<CaseCardData, "kind">) => c.kind === "IN_SHOP";
@@ -56,8 +63,16 @@ export type CaseActionOpts = {
   qaMode?: QaModeView;
   /** Why PASS_QA cannot be confirmed now (case-extras-model qaPassBlocker), or null. */
   qaBlocker?: string | null;
+  /**
+   * The checklist as marked on screen (owner decision 2026-11-24): "incomplete" → the main action is to mark the checks,
+   * never "failed"; "ready" → every required check passed: save + pass in one action; "failed" → a check failed: save +
+   * back to work. Absent (no checklist) → passing is offered directly, as before.
+   */
+  qaState?: "incomplete" | "ready" | "failed";
   /** Why the handover cannot go through now (no charge decided — the balance is unknown), or null. */
   handoverBlocker?: string | null;
+  /** READY / WORK_DONE and no charge decided yet: the main action leads to setting it (no locked handover button). */
+  chargeUndecided?: boolean;
 };
 
 export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "holdReason" | "intake">, opts: CaseActionOpts = {}): CaseActionDef[] {
@@ -77,11 +92,9 @@ export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "ho
     case "SCHEDULED": {
       if (held(c)) {
         const intakeReady = !!c.intake && c.intake.conditionRecorded && c.intake.accessoriesRecorded;
+        // One place to confirm the intake (owner decision 2026-11-24): the intake screen saves and confirms together.
         return [
-          intakeReady
-            ? { id: "check-in", label: "לאשר את הקליטה", tone: "primary", input: { kind: "confirm", text: "מאשר/ת שמצב הפריט והאביזרים תועדו ושהפריט נקלט לעסק." }, target: a("CHECK_IN", { intakeConfirmed: true }) }
-            : { id: "intake", label: "לקליטת הפריט", tone: "primary", input: { kind: "none" }, target: { endpoint: "link", href: `/service-desk/cases/${c.id}/intake` } },
-          ...(intakeReady ? [{ id: "intake-edit", label: "לפרטי הקליטה", tone: "secondary" as const, input: { kind: "none" as const }, target: { endpoint: "link" as const, href: `/service-desk/cases/${c.id}/intake` } }] : []),
+          { id: "intake", label: intakeReady ? "לאשר את הקליטה" : "לקליטת הפריט", tone: "primary", input: { kind: "none" }, target: { endpoint: "link", href: `/service-desk/cases/${c.id}/intake` } },
           cancelAction(c),
         ];
       }
@@ -117,16 +130,21 @@ export function caseActions(c: Pick<CaseCardData, "id" | "kind" | "status" | "ho
         cancelAction(c),
       ];
     case "QA":
+      // Owner decision 2026-11-24: before any check is marked nothing announces a failure; the main action follows the
+      // marked checklist. Saving and confirming are one action; the server still validates every rule.
+      if (opts.qaState === "failed") return [{ id: "qa-fail", label: "לשמור ולהחזיר לעבודה", tone: "primary", input: { kind: "none" }, target: { endpoint: "qa", then: "FAIL" } }];
+      if (opts.qaState === "incomplete") return [{ id: "qa-mark", label: "לסמן את הבדיקות", tone: "primary", input: { kind: "none" }, target: { endpoint: "scroll", to: "sd-qa" } }];
+      if (opts.qaState === "ready") return [{ id: "qa-pass", label: "לאשר שהבדיקות עברו", tone: "primary", input: { kind: "none" }, target: { endpoint: "qa", then: "PASS" } }];
       return [
-        // A failed check makes "back to work" the natural next step (primary); "passed" stays visible with the reason.
-        { id: "qa-pass", label: "הבדיקות עברו", tone: opts.qaBlocker ? "secondary" : "primary", input: { kind: "none" }, target: a("PASS_QA", { outcome: "REPAIRED" }),
+        { id: "qa-pass", label: "לאשר שהבדיקות עברו", tone: "primary", input: { kind: "none" }, target: a("PASS_QA", { outcome: "REPAIRED" }),
           ...(opts.qaBlocker ? { blockedReason: opts.qaBlocker } : {}) },
-        { id: "qa-fail", label: "הבדיקות לא עברו — חזרה לעבודה", tone: opts.qaBlocker ? "primary" : "secondary", input: { kind: "none" }, target: a("FAIL_QA") },
       ];
     case "READY":
+      if (opts.chargeUndecided) return [{ id: "set-charge", label: "לקבוע חיוב", tone: "primary", input: { kind: "none" }, target: { endpoint: "charge" } }];
       return [{ id: "deliver", label: "למסור ללקוח", tone: "primary", input: { kind: "receiver" }, target: a("DELIVER"),
         ...(opts.handoverBlocker ? { blockedReason: opts.handoverBlocker } : {}) }];
     case "WORK_DONE":
+      if (opts.chargeUndecided) return [{ id: "set-charge", label: "לקבוע חיוב", tone: "primary", input: { kind: "none" }, target: { endpoint: "charge" } }];
       return [{ id: "complete", label: "לסגור את הקריאה", tone: "primary", input: { kind: "confirm", text: "מאשר/ת שהעבודה בוצעה והקריאה נסגרת." }, target: a("COMPLETE"),
         ...(opts.handoverBlocker ? { blockedReason: opts.handoverBlocker } : {}) }];
     // DELIVERED: the handover is the end of the owner's work. CLOSE is the system's own step (service-case.core

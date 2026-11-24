@@ -16,7 +16,7 @@ import { AdaptiveOverlay } from "@/components/ui/adaptive-overlay";
 import { getSettings, listStaff, saveSettings, type ServiceSettings, type StaffMember } from "./service-desk-client";
 import { errorView, type ErrorView } from "./service-desk-errors";
 import { bodyFrom, formFrom, hasProblems, isDirty, MAX_BY_UNIT, validate, type SettingsForm } from "./settings-model";
-import { Later, LoadError, Loading, NotOpen, ReadOnlyBanner, ScreenHead } from "./ui";
+import { Chevron, LoadError, Loading, NotOpen, ReadOnlyBanner, ScreenHead } from "./ui";
 import { useServiceDeskAccess } from "./use-service-desk-access";
 import s from "./sd.module.css";
 
@@ -102,9 +102,9 @@ export function ServiceSettingsScreen() {
   const disabled = readOnly || saving;
 
   return (
-    <main className={readOnly ? s.screen : `${s.screen} ${s.withSaveBar}`} data-page-intent="content">
+    <main className={readOnly || !dirty ? s.screen : `${s.screen} ${s.withSaveBar}`} data-page-intent="content">
       <div className={s.narrow}>
-        <ScreenHead title="הגדרות שירות" subtitle="איש מקצוע ברירת מחדל ואחריות על השירות" fallback="/service-desk" fallbackLabel="לשירות ואחריות" onBeforeLeave={beforeLeave} />
+        <ScreenHead title="הגדרות" subtitle="תיקונים ושירות" fallback="/service-desk" fallbackLabel="לתיקונים ושירות" onBeforeLeave={beforeLeave} />
         {access.status === "loading" ? (
           <Loading />
         ) : access.status === "error" ? (
@@ -125,6 +125,14 @@ export function ServiceSettingsScreen() {
             }}
           >
             {readOnly ? <ReadOnlyBanner /> : null}
+
+            {/* The activity types (the activation screen) live in the settings too (owner decision 2026-11-24). */}
+            {!readOnly ? (
+              <a className={`${s.card} ${s.row}`} href="/service-desk/setup" style={{ flexDirection: "row" }}>
+                <span className={s.rowText}><span className={s.rowTitle}>סוגי הפעילות</span><span className={s.rowSub}>מה העסק פותח: תיקון במעבדה, קריאה אצל הלקוח ועוד</span></span>
+                <Chevron />
+              </a>
+            ) : null}
 
             <section className={s.card} aria-labelledby="sd-tech-title">
               <div className={s.cardHead}>
@@ -217,12 +225,8 @@ export function ServiceSettingsScreen() {
               <p className={s.legal}>האחריות שמוגדרת כאן היא אחריות מסחרית של העסק. היא לא מחליפה ולא מצמצמת את האחריות שהחוק מחייב, שחלה בכל מקרה.</p>
             </section>
 
-            <section className={s.card} aria-label="בשלבים הבאים">
-              <Later title="תנאי שירות" text="נוסח התנאים שהלקוח מאשר בקבלת הפריט לשירות." />
-              <Later title="תזכורות איסוף" text="תזכורות ללקוח כשהפריט מוכן לאיסוף — רק אחרי שיחובר ערוץ שליחה." />
-            </section>
-
-            {!readOnly ? (
+            {/* «עוד לא זמין» cards removed (UX review 2026-11-23); the save bar only while something changed. */}
+            {!readOnly && (dirty || saveError) ? (
               <div className={s.saveBar}>
                 {saveError ? (
                   <div className={s.error} role="alert">
@@ -235,7 +239,7 @@ export function ServiceSettingsScreen() {
                   </div>
                 ) : null}
                 <button type="submit" className={`${s.button} ${s.primary}`} disabled={!dirty || saving}>
-                  {saving ? "שומר…" : "שמירת ההגדרות"}
+                  {saving ? "שומר…" : "לשמור"}
                 </button>
               </div>
             ) : null}

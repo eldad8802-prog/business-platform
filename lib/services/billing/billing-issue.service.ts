@@ -569,6 +569,12 @@ export async function issueBillingDocumentTx(
   const auditSource =
     core.actor.kind === "USER" ? ("USER" as const) : ("PAYMENT_SETTLEMENT" as const);
 
+  // 4a T4 — "מעבר לעוסק מורשה" takes this key EXCLUSIVELY (business_kind_transition_to_authorized). Issuances share it,
+  // so they never wait for each other; an issuance and a transition of the same business serialize. A document is
+  // therefore issued either wholly before the transition (exempt profile) or wholly after it, and the interim-documents
+  // count taken inside the transition's transaction is exact. Taken first, before any row lock (one lock order).
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${"legal_identity:"} || ${input.businessId}::int, 0))::text AS locked`;
+
   // C2.5 — hold the document being issued before reading it. Everything that
   // can still change a draft receipt's money (its payment lines, its
   // allocations) takes this same lock, so what is validated below is what
