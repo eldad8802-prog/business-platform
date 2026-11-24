@@ -14,6 +14,12 @@ const ACTION_LABELS: Record<string, string> = {
   [PLATFORM_AUDIT_ACTIONS.HOME_VIEWED]: "צפייה בסקירה",
   [PLATFORM_AUDIT_ACTIONS.FEATURE_ACCESS_UPDATED]: "שינוי גישה לפיצ׳ר",
   [PLATFORM_AUDIT_ACTIONS.SUBSCRIPTION_UPDATED]: "שינוי מנוי",
+  [PLATFORM_AUDIT_ACTIONS.QUOTA_POLICY_UPDATED]: "שינוי מכסה במסלול",
+  [PLATFORM_AUDIT_ACTIONS.USAGE_MODE_UPDATED]: "שינוי מצב הפעלה של מכסה",
+  [PLATFORM_AUDIT_ACTIONS.QUOTA_ADJUSTED]: "תוספת או מכסה מיוחדת לעסק",
+  [PLATFORM_AUDIT_ACTIONS.QUOTA_ADJUSTMENT_REVOKED]: "ביטול התאמת מכסה",
+  [PLATFORM_AUDIT_ACTIONS.SUBSCRIPTION_REQUEST_RESOLVED]: "טיפול בבקשת מנוי",
+  [PLATFORM_AUDIT_ACTIONS.TRIAL_CLAIM_RECORDED]: "רישום זהות שקיבלה ניסיון",
   [PLATFORM_AUDIT_ACTIONS.PAYMENT_REVERSAL_RESOLVED]: "סגירת החזר תשלום ידנית",
   [PLATFORM_AUDIT_ACTIONS.STEP_UP_SUCCEEDED]: "אימות נוסף הצליח",
   [PLATFORM_AUDIT_ACTIONS.STEP_UP_FAILED]: "אימות נוסף נכשל",
@@ -82,6 +88,9 @@ const SENSITIVE_ACTIONS = new Set<string>([
 const WARNING_ACTIONS = new Set<string>([
   PLATFORM_AUDIT_ACTIONS.FEATURE_ACCESS_UPDATED,
   PLATFORM_AUDIT_ACTIONS.SUBSCRIPTION_UPDATED,
+  PLATFORM_AUDIT_ACTIONS.QUOTA_POLICY_UPDATED,
+  PLATFORM_AUDIT_ACTIONS.USAGE_MODE_UPDATED,
+  PLATFORM_AUDIT_ACTIONS.QUOTA_ADJUSTED,
   PLATFORM_AUDIT_ACTIONS.PAYMENT_REVERSAL_RESOLVED,
   PLATFORM_AUDIT_ACTIONS.STEP_UP_FAILED,
   PLATFORM_AUDIT_ACTIONS.MFA_REPLACED,
@@ -160,6 +169,19 @@ export function formatAuditDetail(
     const to = label(side(meta.to));
     const reason = typeof meta.reason === "string" ? meta.reason : null;
     if (to) return `${from ? `${from} ← ` : ""}${to}${reason ? ` · סיבה: ${reason}` : ""}`;
+  }
+
+  if (action === PLATFORM_AUDIT_ACTIONS.QUOTA_POLICY_UPDATED || action === PLATFORM_AUDIT_ACTIONS.USAGE_MODE_UPDATED) {
+    const metric = typeof meta.metric === "string" ? meta.metric : null;
+    const tier = typeof meta.tier === "string" ? ` · ${meta.tier}` : "";
+    const from = meta.from === null || meta.from === undefined ? "—" : String(meta.from);
+    const reason = typeof meta.reason === "string" ? meta.reason : null;
+    if (metric) return `${metric}${tier}: ${from} ← ${String(meta.to)}${reason ? ` · סיבה: ${reason}` : ""}`;
+  }
+
+  if (action === PLATFORM_AUDIT_ACTIONS.QUOTA_ADJUSTED) {
+    const reason = typeof meta.reason === "string" ? meta.reason : null;
+    if (typeof meta.metric === "string") return `${meta.metric} · ${String(meta.kind)} ${String(meta.amount)}${reason ? ` · סיבה: ${reason}` : ""}`;
   }
 
   if (action === PLATFORM_AUDIT_ACTIONS.PAYMENT_REVERSAL_RESOLVED) {

@@ -468,3 +468,33 @@ export async function postIssuerDesignation(
 
 /** Test seam — exercises the request core directly. Not used by the console. */
 export const __testing = { adminRequest };
+
+/* ---------------- Subscriptions & quotas (subscriptions stage C) ---------------- */
+
+export function fetchPlatformAdminSubscriptions<T = unknown>() {
+  return platformAdminFetch<T>("/api/platform-admin/subscriptions");
+}
+
+export function fetchPlatformAdminQuotaMatrix<T = unknown>() {
+  return platformAdminFetch<T>("/api/platform-admin/subscriptions/quotas");
+}
+
+export function fetchPlatformAdminSubscriptionRequests<T = unknown>(status: "OPEN" | "HANDLED" | "DISMISSED" = "OPEN") {
+  return platformAdminFetch<T>(`/api/platform-admin/subscriptions/requests?status=${status}`);
+}
+
+export function fetchPlatformAdminBusinessUsage<T = unknown>(businessId: number) {
+  return platformAdminFetch<T>(`/api/platform-admin/businesses/${businessId}/usage`);
+}
+
+/** A write of the subscriptions admin (second factor + reason; the server re-checks everything). */
+export async function platformAdminSubscriptionsWrite<T = unknown>(path: string, method: "PATCH" | "POST", body: Record<string, unknown>): Promise<T> {
+  const { data } = await adminRequest<T>(path, { method, body: JSON.stringify(body) });
+  return data;
+}
+
+/** Read-only POST (the quota-change preview): no second factor. */
+export async function previewPlatformAdminQuotaChange<T = unknown>(body: { metric: string; tier: string; quota: number }): Promise<T> {
+  const { data } = await adminRequest<T>("/api/platform-admin/subscriptions/quotas/preview", { method: "POST", body: JSON.stringify(body) });
+  return data;
+}

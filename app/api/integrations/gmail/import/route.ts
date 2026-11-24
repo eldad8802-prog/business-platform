@@ -20,6 +20,8 @@ import { checkEmailImportDedup } from "@/lib/services/integrations/gmail/email-i
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-file.service";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
+import { meteredOcr } from "@/lib/services/subscriptions/usage/metered-ocr";
+import { consumeUsage, quotaExhaustedBody } from "@/lib/services/subscriptions/usage/usage-meter";
 import { createDocumentFromOcrText } from "@/lib/services/documents/create-document-from-ocr.service";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import {
@@ -350,6 +352,19 @@ async function handleAuthedImport(
       });
     }
 
+    // Subscriptions stage C — the upload quota, the SAME unit as every other intake source (doc:<content hash>):
+    // a file already counted through another source is not counted again, and no source bypasses the quota.
+    // Refused (ENFORCE, a customer over its quota): nothing is stored and the attachment simply stays in Gmail.
+    const uploadDecision = await consumeUsage({
+      businessId: user.businessId,
+      metric: "document_uploads",
+      unitKey: `doc:${contentHashSha256}`,
+      source: "gmail.import",
+    });
+    if (!uploadDecision.allowed) {
+      return NextResponse.json(quotaExhaustedBody(uploadDecision), { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+
     const tmp = await writeTempOcrFile({
       bytes,
       mimeType: gmailMimeType,
@@ -360,9 +375,25 @@ async function handleAuthedImport(
     // OCR is best-effort: a valid downloaded file must never be lost because
     // OCR failed or returned empty text. On failure we still store the file and
     // create a needs_review Document (without ExtractedData) for manual handling.
+    // Subscriptions stage C: through the metered wrapper (the OCR quota; every provider call recorded). When the OCR
+    // quota is exhausted the file is still stored and the Document created without text — the same path as a failed
+    // OCR — so nothing is lost.
     let rawText = "";
     try {
-      rawText = (await runGoogleVisionOCR(tmp.tempPath, gmailMimeType)).trim();
+      const metered = await meteredOcr(
+        {
+          businessId: user.businessId,
+          unitKey: `ocr:gmail:${body.messageId}:${body.attachmentId}`.slice(0, 200),
+          source: "gmail.import",
+          buffer: Buffer.from(bytes),
+          mimeType: gmailMimeType,
+        },
+        async (providerCall) => {
+          await providerCall();
+          return (await runGoogleVisionOCR(tmp.tempPath, gmailMimeType)).trim();
+        },
+      );
+      rawText = metered.ok ? metered.value : "";
     } catch (ocrError) {
       console.error("GMAIL_IMPORT_OCR_FAILED:", ocrError);
       rawText = "";

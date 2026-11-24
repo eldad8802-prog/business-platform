@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { measuredInternalAi } from "@/lib/services/subscriptions/usage/internal-ai-usage";
 import {
   admitDerivation,
   callerRefOf,
@@ -143,7 +144,8 @@ async function handle(req: NextRequest) {
     const brain = brainGo
       ? await runBrain(businessId, {
           mode: brainMode(),
-          provider: openAiBrainProvider(),
+          // Subscriptions stage C: measured (ai_internal_calls), never refused — the derive gate keeps its cooldowns.
+          provider: measuredInternalAi(openAiBrainProvider(), businessId, "knowledge.brain"),
           buildSnapshot: async (b) => (b === businessId ? snap0 : buildBusinessKnowledgeSnapshot(b, { asOf: snapAsOf })),
         })
       : null;

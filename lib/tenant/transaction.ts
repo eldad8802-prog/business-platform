@@ -23,6 +23,8 @@
  * nest it inside another interactive `$transaction`; pass the provided `tx`
  * down instead. Active-transaction reuse/propagation is a later increment.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { getTenantContextOrThrow } from "./context";
@@ -79,7 +81,7 @@ export async function withTenantTransaction<T>(
       // Transaction-local (is_local = true). Parameterized — never string-interpolated.
       await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
       observe("set-config-resolved");
-      return fn(tx);
+      return openTransactions.run({ tx, businessId }, () => fn(tx));
     },
     options?.timeoutMs || options?.isolationLevel
       ? {
@@ -88,6 +90,21 @@ export async function withTenantTransaction<T>(
         }
       : undefined,
   );
+}
+
+/**
+ * The tenant transaction the current async flow runs inside, if any (subscriptions stage C). The usage meter runs its
+ * statements INSIDE it (behind a SAVEPOINT) instead of opening a second transaction: atomic with the caller's work
+ * (a refused unit stops the caller before it writes; a rolled-back caller rolls the count back with it), and never a
+ * second connection — on a deployment whose connection_limit is 1, a transaction requested from inside an open one
+ * would wait for the very connection the caller holds.
+ */
+const openTransactions = new AsyncLocalStorage<{ tx: TenantTx; businessId: number }>();
+export function currentTenantTransaction(): { tx: TenantTx; businessId: number } | undefined {
+  return openTransactions.getStore();
+}
+export function insideTenantTransaction(): boolean {
+  return openTransactions.getStore() !== undefined;
 }
 
 /** Phases `onPhase` is told about, in order. */

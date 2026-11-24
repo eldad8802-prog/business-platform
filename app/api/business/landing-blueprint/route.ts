@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { measuredInternalAi } from "@/lib/services/subscriptions/usage/internal-ai-usage";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
@@ -35,7 +36,8 @@ export async function POST(req: Request) {
     // P3-D: the same canonical composition path, plus the server-built deterministic render model for the
     // owner preview (null when not composed, or when the renderer refuses the blueprint — renderError).
     const { result, renderModel, renderError } = await composeLandingPreviewForBusiness(user.businessId, strategyId, {
-      model: composerEnabled() ? openAiComposerProvider() : null,
+      // Subscriptions stage C: internal AI of an approved feature — measured (ai_internal_calls), never refused.
+      model: composerEnabled() ? measuredInternalAi(openAiComposerProvider(), user.businessId, "landing.compose") : null,
     });
     return NextResponse.json({ result, renderModel, renderError }, { headers: NO_STORE });
   } catch (error) {

@@ -169,10 +169,11 @@ const tester = resolvePlanEntitlements(allAllowed, sub({ accountType: "TESTER", 
 ok("N1 backfilled tester: every allowed key is full", KEYS.every((k) => tester[k].access === "full"));
 ok("N1 a plan verdict never says more than the flag", KEYS.every((k) => FLAG_DENIED.every((f) => SHAPES.every((sh) => resolvePlanEntitlement(k, f, sh.s).access === "none"))));
 
-// Mode: only "off" turns the layer off; there is no enforce mode.
+// Mode: "off" turns the layer off; stage C added "enforce" (an owner decision to switch on); anything else is shadow.
 ok("M1 unset ⇒ shadow", subscriptionMode({}) === "shadow");
 ok("M1 off", subscriptionMode({ [SUBSCRIPTION_ENFORCEMENT_ENV]: " OFF " }) === "off");
-ok("M1 enforce ⇒ still shadow (no enforce mode exists)", subscriptionMode({ [SUBSCRIPTION_ENFORCEMENT_ENV]: "enforce" }) === "shadow");
+ok("M1 enforce ⇒ enforce (stage C)", subscriptionMode({ [SUBSCRIPTION_ENFORCEMENT_ENV]: "enforce" }) === "enforce");
+ok("M1 an unknown word ⇒ shadow", subscriptionMode({ [SUBSCRIPTION_ENFORCEMENT_ENV]: "true" }) === "shadow");
 
 // ── N2 the Home's FREE_LIMITED switch is never fed ──
 const caps = readFileSync(path.join(process.cwd(), "lib/services/feature-access/business-capabilities.service.ts"), "utf8");

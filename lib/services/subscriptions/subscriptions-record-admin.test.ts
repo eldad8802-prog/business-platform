@@ -7,7 +7,8 @@
  *   A1 the admin may set exactly: TESTER, INTERNAL (no plan, EXEMPT) and CUSTOMER + BASIC | ADVANCED (ACTIVE).
  *   A2 PREMIUM is refused while it is not commercially open; a customer needs a plan; a tester has none.
  *   A3 a reason of 10–500 characters is required; an identical change is NO_CHANGE.
- *   A4 no admin request can produce TRIALING, PAST_DUE or FREE_LIMITED (those belong to the lifecycle).
+ *   A4 without an explicit lifecycle status no admin request produces TRIALING, PAST_DUE or FREE_LIMITED; stage C:
+ *      an explicit TRIALING (1–90 days) or FREE_LIMITED is allowed for a CUSTOMER; PAST_DUE never (stage D).
  *   A5 the write switch is OFF unless SUBSCRIPTION_ADMIN_CHANGES_ENABLED is exactly "true".
  *   S1 route order: platform admin → fresh second factor → switch → write; the actor is the session admin.
  *   S2 service: one control-plane transaction; affected-row assertions; log + audit appended with createMany (no
@@ -51,7 +52,7 @@ const code = (p: string) => read(p).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\
 async function main() {
   // R1
   const snap = subscriptionSnapshotFromRow({ accountType: "CUSTOMER", status: "ACTIVE", plan: "ADVANCED", catalogVersion: "2026-11-20" });
-  ok("R1 row → snapshot", JSON.stringify(snap) === JSON.stringify({ accountType: "CUSTOMER", status: "ACTIVE", plan: "ADVANCED", catalogVersion: "2026-11-20" }));
+  ok("R1 row → snapshot", JSON.stringify(snap) === JSON.stringify({ accountType: "CUSTOMER", status: "ACTIVE", plan: "ADVANCED", catalogVersion: "2026-11-20", trialEndsAt: null }));
   ok("R1 tester row", subscriptionSnapshotFromRow({ accountType: "TESTER", status: "EXEMPT", plan: null, catalogVersion: "2026-11-20" }).plan === null);
   for (const bad of [
     { accountType: "VIP", status: "ACTIVE", plan: "BASIC" },
@@ -119,6 +120,15 @@ async function main() {
   }
   ok("A4 some requests succeed", produced > 0);
   ok("A4 no admin request yields TRIALING / PAST_DUE / FREE_LIMITED or PREMIUM", lifecycle === 0, String(lifecycle));
+  // Stage C: the lifecycle by hand, explicitly.
+  const why = "stage C lifecycle by hand";
+  const trial = planSubscriptionChange(null, { accountType: "CUSTOMER", plan: null, reason: why, status: "TRIALING", trialDays: 30 });
+  ok("A5c grant a 30-day trial", trial.target.status === "TRIALING" && trial.target.trialDays === 30 && trial.target.plan === null);
+  ok("A5c extending a running trial is never NO_CHANGE", planSubscriptionChange({ accountType: "CUSTOMER", status: "TRIALING", plan: null }, { accountType: "CUSTOMER", plan: null, reason: why, status: "TRIALING", trialDays: 7 }).target.trialDays === 7);
+  ok("A5c trialDays 0 / 91 / 1.5 refused", [0, 91, 1.5, "30"].every((d) => throwsAs(() => planSubscriptionChange(null, { accountType: "CUSTOMER", plan: null, reason: why, status: "TRIALING", trialDays: d }), ValidationError)));
+  ok("A5c a trial with a plan is refused", throwsAs(() => planSubscriptionChange(null, { accountType: "CUSTOMER", plan: "BASIC", reason: why, status: "TRIALING", trialDays: 30 }), ValidationError));
+  ok("A5c FREE_LIMITED by hand", planSubscriptionChange(null, { accountType: "CUSTOMER", plan: null, reason: why, status: "FREE_LIMITED" }).target.status === "FREE_LIMITED");
+  ok("A5c PAST_DUE never by hand (stage D)", throwsAs(() => planSubscriptionChange(null, { accountType: "CUSTOMER", plan: "BASIC", reason: why, status: "PAST_DUE" }), ValidationError));
 
   // A5
   ok("A5 unset ⇒ off", isSubscriptionAdminChangesEnabled({}) === false);
@@ -143,7 +153,7 @@ async function main() {
   ok("S2 log appended with createMany (no RETURNING)", /platformSubscriptionEvent\.createMany\(/.test(svc) && !/platformSubscriptionEvent\.(create|findMany|findFirst|findUnique|update|delete)\b/.test(svc));
   ok("S2 audit on the same transaction", /createPlatformAuditEventTx\(tx,/.test(svc) && /SUBSCRIPTION_UPDATED/.test(svc));
   ok("S2 never deletes", !/\.delete(Many)?\(/.test(svc));
-  ok("S2 a manual change sets no trial or period", /trialEndsAt:\s*null/.test(svc) && /currentPeriodEnd:\s*null/.test(svc) && /source:\s*"ADMIN"/.test(svc));
+  ok("S2 a manual change sets a trial only for TRIALING, and never a period", /trialEndsAt: target\.status === "TRIALING" \?[^\n]*: null,/.test(svc) && /currentPeriodEnd:\s*null/.test(svc) && /source:\s*"ADMIN"/.test(svc));
 
   // S3 reader
   const reader = code("lib/services/subscriptions/subscription-record.ts");

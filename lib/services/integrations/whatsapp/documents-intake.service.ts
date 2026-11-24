@@ -7,6 +7,8 @@ import {
   putDocumentObject,
 } from "@/lib/services/documents/document-storage.service";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
+import { meteredOcr } from "@/lib/services/subscriptions/usage/metered-ocr";
+import { consumeUsage } from "@/lib/services/subscriptions/usage/usage-meter";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-file.service";
 import { Prisma } from "@prisma/client";
@@ -316,6 +318,17 @@ export async function processWhatsAppDocumentsIntake(
     return { status: "failed", reason, importId };
   };
 
+  // Subscriptions stage C — the upload quota, the same unit as every intake source (doc:<content hash>). Refused
+  // (ENFORCE, a customer over its quota): nothing is stored; the message itself stays in the conversation and this
+  // import is recorded as failed with its reason, so it can be taken again once the quota renews.
+  const uploadDecision = await consumeUsage({
+    businessId: input.businessId,
+    metric: "document_uploads",
+    unitKey: `doc:${contentHashSha256}`,
+    source: "whatsapp.intake",
+  });
+  if (!uploadDecision.allowed) return fail("quota_exhausted");
+
   try {
     storedFileName = deps.buildStoredFileName(mediaResult.mimeType);
     try {
@@ -339,7 +352,22 @@ export async function processWhatsAppDocumentsIntake(
 
     let rawText: string;
     try {
-      rawText = (await deps.runOcr(tmp.tempPath, mediaResult.mimeType)).trim();
+      // Subscriptions stage C: through the metered wrapper (the OCR quota; every provider call recorded).
+      const metered = await meteredOcr(
+        {
+          businessId: input.businessId,
+          unitKey: `ocr:whatsapp:${input.mediaId}`.slice(0, 200),
+          source: "whatsapp.intake",
+          buffer: mediaResult.buffer,
+          mimeType: mediaResult.mimeType,
+        },
+        async (providerCall) => {
+          await providerCall();
+          return (await deps.runOcr(tmp.tempPath, mediaResult.mimeType)).trim();
+        },
+      );
+      if (!metered.ok) return fail("ocr_quota_exhausted");
+      rawText = metered.value;
     } catch {
       return fail("ocr_failed");
     }

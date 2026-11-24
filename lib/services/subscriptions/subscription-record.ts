@@ -28,7 +28,7 @@ export class SubscriptionRecordError extends Error {
   }
 }
 
-type Row = { accountType: string; status: string; plan: string | null; catalogVersion: string };
+type Row = { accountType: string; status: string; plan: string | null; catalogVersion: string; trialEndsAt?: Date | null };
 
 /** Pure: a database row → the snapshot the resolver reads. Throws on any value outside the known sets. */
 export function subscriptionSnapshotFromRow(row: Row): SubscriptionSnapshot {
@@ -46,6 +46,7 @@ export function subscriptionSnapshotFromRow(row: Row): SubscriptionSnapshot {
     status: row.status as SubscriptionStatus,
     plan: row.plan,
     catalogVersion: row.catalogVersion,
+    trialEndsAt: row.trialEndsAt ?? null,
   };
 }
 
@@ -54,7 +55,7 @@ export async function readSubscriptionRecord(businessId: number): Promise<Subscr
     withTenantTransaction(async (tx) => {
       const row = await tx.platformSubscription.findUnique({
         where: { businessId },
-        select: { accountType: true, status: true, plan: true, catalogVersion: true },
+        select: { accountType: true, status: true, plan: true, catalogVersion: true, trialEndsAt: true },
       });
       return row ? subscriptionSnapshotFromRow(row) : null;
     }),

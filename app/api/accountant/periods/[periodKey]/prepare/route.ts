@@ -30,6 +30,7 @@ export async function POST(req: Request, { params }: Params) {
     if (result.outcome === "not_closed") throw new AccountantError(409, "PERIOD_NOT_CLOSED");
     if (result.outcome === "invalid_period") throw new AccountantError(404, "NOT_FOUND");
     if (result.outcome === "busy") throw new AccountantError(409, "PREPARATION_IN_PROGRESS");
+    if (result.outcome === "quota_exhausted") throw new AccountantError(403, "QUOTA_EXHAUSTED");
     // The notification centre follows what the owner now sees (it never throws).
     const row = await tenantTx(actor.businessId, (tx) =>
       tx.accountantPeriod.findUnique({ where: { businessId_periodKey: { businessId: actor.businessId, periodKey } } })

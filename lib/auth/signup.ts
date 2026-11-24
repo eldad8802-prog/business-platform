@@ -42,6 +42,7 @@ import { CURRENT_TERMS_VERSION } from "@/lib/legal/consent-version";
 import bcrypt from "bcrypt";
 
 import { authDb, isAuthPlaneActive } from "@/lib/prisma-auth";
+import { openSignupSubscriptionInAccountTx } from "@/lib/services/subscriptions/trial/trial-claims";
 import { issueRefreshSession } from "@/lib/auth/refresh-session";
 import { enqueueWelcomeEmail } from "@/lib/email/transactional/store";
 import type { Locale } from "@/lib/i18n/config";
@@ -157,6 +158,15 @@ export async function createAccount(
       if (input.legalIdentity) {
         await seedLegalIdentityInAccountTx(tx, business.id, input.legalIdentity);
       }
+
+      // Subscriptions stage C: a 30-day trial, or none when this identity already had one (decision 28). Only when
+      // trials are switched on (SUBSCRIPTION_TRIALS_ENABLED) — otherwise nothing is written and the business is
+      // computed as a tester, exactly as before. The function is the auth plane's alone (EXECUTE: app_auth).
+      if (isAuthPlaneActive()) await openSignupSubscriptionInAccountTx(tx, business.id, {
+        taxId: input.legalIdentity?.taxId,
+        email: input.email,
+        phone: input.legalIdentity?.phone,
+      });
 
       const user = await tx.user.create({
         data: {
@@ -302,6 +312,14 @@ export async function createAccountFromGoogle(input: CreateGoogleAccountInput): 
       });
 
       const identity = await attachGoogleIdentity(tx, spent.ticketId, user.id);
+
+      // Subscriptions stage C (see createAccount): the Google subject is one more claim on this path.
+      await openSignupSubscriptionInAccountTx(tx, business.id, {
+        taxId: input.legalIdentity?.taxId,
+        email: spent.email,
+        googleSubject: spent.subject,
+        phone: input.legalIdentity?.phone,
+      });
 
       const session = await issueRefreshSession(tx, {
         userId: user.id,

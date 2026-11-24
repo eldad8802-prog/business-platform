@@ -132,7 +132,7 @@ export async function runAccountantSweep(deps: SweepDeps = defaultSweepDeps): Pr
 
   const overBudget = () => deps.now().getTime() - startedAt.getTime() > SWEEP_TIME_BUDGET_MS;
   const tally = (r: PrepareOutcome) => {
-    if (r.outcome === "busy") summary.busy += 1;
+    if (r.outcome === "busy" || r.outcome === "quota_exhausted") summary.busy += 1;
     if (r.outcome === "built") summary.built += 1;
     if (r.outcome === "build_failed") summary.buildFailed += 1;
     if (r.outcome === "built" || r.outcome === "build_failed" || r.outcome === "evaluated") summary.prepared += 1;

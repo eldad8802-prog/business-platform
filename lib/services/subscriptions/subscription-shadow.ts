@@ -2,11 +2,12 @@
  * Subscription layer — mode and record source. SERVER-ONLY.
  *
  * MODE — env SUBSCRIPTION_ENFORCEMENT:
- *   off     — the plan layer is not computed and not logged.
- *   shadow  — DEFAULT, and the ONLY other mode that exists: every value except "off" (including "enforce") is shadow.
- *             The guard computes the plan verdict and logs `subscription_would_deny` when the plan alone would
- *             refuse what the flags allow. It never refuses anything. Enforcing the plan is stage C, behind a
- *             separate owner approval, and needs new code — no environment value can switch it on.
+ *   off      — the plan layer is not computed and not logged.
+ *   shadow   — DEFAULT (unset or any unknown value). The gates compute the plan verdict and log
+ *              `subscription_would_deny` when the plan alone would refuse what the flags allow. Nothing is refused.
+ *   enforce  — stage C: the plan gate (plan-gate.ts) and the feature guard refuse a CUSTOMER whose plan does not include
+ *              the action (PLAN_REQUIRED / SUBSCRIPTION_INACTIVE). Testers, internal accounts and businesses without a
+ *              record are never refused. Setting it is a separate owner decision (decision 25), not part of any deploy.
  *
  * SOURCE — where the subscription record comes from: the business's PlatformSubscription row (stage B,
  * subscription-record.ts). No row = "no record", which the resolver computes as a tester (today's access). A source
@@ -19,10 +20,14 @@ import type { SubscriptionSnapshot } from "./subscription.types";
 
 export const SUBSCRIPTION_ENFORCEMENT_ENV = "SUBSCRIPTION_ENFORCEMENT";
 
-export type SubscriptionMode = "off" | "shadow";
+export type SubscriptionMode = "off" | "shadow" | "enforce";
 
+/** Unset, empty or unknown ⇒ shadow. Only the exact words "off" / "enforce" change it (stage C added "enforce"). */
 export function subscriptionMode(env: Record<string, string | undefined> = process.env): SubscriptionMode {
-  return (env[SUBSCRIPTION_ENFORCEMENT_ENV] ?? "").trim().toLowerCase() === "off" ? "off" : "shadow";
+  const raw = (env[SUBSCRIPTION_ENFORCEMENT_ENV] ?? "").trim().toLowerCase();
+  if (raw === "off") return "off";
+  if (raw === "enforce") return "enforce";
+  return "shadow";
 }
 
 export type SubscriptionSource = (businessId: number) => Promise<SubscriptionSnapshot | null>;

@@ -14,8 +14,9 @@
  *   C1 the resolution is cached per business for a short time (one resolve for repeated calls).
  *   K1 the guarded set is exactly the eleven UI-only core features named by the audit.
  *   P1 plan layer (subscriptions stage A): with no subscription record nothing is logged — today's access.
- *   P2 a customer whose plan lacks the module: `subscription_would_deny` is LOGGED and the request goes through —
- *      in shadow AND in enforce (the plan verdict is never returned, whatever FEATURE_ACCESS_ENFORCEMENT says).
+ *   P2 a customer whose plan lacks the module: `subscription_would_deny` is LOGGED and the request goes through while
+ *      SUBSCRIPTION_ENFORCEMENT is shadow (whatever FEATURE_ACCESS_ENFORCEMENT says); stage C: with
+ *      SUBSCRIPTION_ENFORCEMENT=enforce the plan gate refuses it (403 PLAN_REQUIRED).
  *   P3 SUBSCRIPTION_ENFORCEMENT=off: the record is not read and nothing is logged.
  *   P4 a failing record read: logged, request goes through.
  *   P5 background steps: the same — always the flag answer.
@@ -200,7 +201,10 @@ async function main() {
   ok("P2 enforce: the plan verdict is still never returned", (await guardFeature(req(), PLATFORM_FEATURE_KEYS.CONTENT)) === null);
   ok("P2 enforce: still logged as would-deny", planLogs().length === 1 && planLogs()[0].includes('"requiredPlan":"PREMIUM"'));
   process.env[SUBSCRIPTION_ENFORCEMENT_ENV] = "enforce";
-  ok("P2 SUBSCRIPTION_ENFORCEMENT=enforce is not a mode: still passes", (await guardFeature(req(), PLATFORM_FEATURE_KEYS.CONTENT)) === null);
+  const p2e = await guardFeature(req(), PLATFORM_FEATURE_KEYS.CONTENT);
+  ok("P2 stage C: SUBSCRIPTION_ENFORCEMENT=enforce refuses a Basic customer on a Premium module (403 PLAN_REQUIRED)", p2e?.status === 403 && (await p2e!.json()).code === "PLAN_REQUIRED");
+  const getReq = new Request("https://app.invalid/api/content/runs", { method: "GET" });
+  ok("P2 stage C: …a read (GET) of the same module stays open", (await guardFeature(getReq, PLATFORM_FEATURE_KEYS.CONTENT)) === null);
   setMode(undefined);
 
   process.env[SUBSCRIPTION_ENFORCEMENT_ENV] = "off";

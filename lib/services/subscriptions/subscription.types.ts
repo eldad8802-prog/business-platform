@@ -24,4 +24,12 @@ export type SubscriptionSnapshot = {
   status: SubscriptionStatus;
   plan: SubscriptionPlan | null;
   catalogVersion: string;
+  /** Stage C: when the trial ends (TRIALING). A trial whose end passed is FREE_LIMITED even before the daily recorder runs. */
+  trialEndsAt?: Date | null;
 };
+
+/** Pure: the status the gates act on — a TRIALING record whose trial already ended reads as FREE_LIMITED. */
+export function effectiveSubscriptionStatus(s: SubscriptionSnapshot, now: Date = new Date()): SubscriptionStatus {
+  if (s.status === "TRIALING" && s.trialEndsAt && s.trialEndsAt.getTime() <= now.getTime()) return "FREE_LIMITED";
+  return s.status;
+}

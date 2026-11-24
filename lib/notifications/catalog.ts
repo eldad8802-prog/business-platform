@@ -375,6 +375,24 @@ const CATEGORY_LIST = [
     hrefPrefixes: ["/notifications"],
   },
   {
+    // Subscriptions stage C: the business crossed 80 / 90 / 100 % of a quota in the current period. Written once per
+    // metric, threshold and period (usage_mark_alert + dedupeKey usage:<metric>:<period>:<pct>). The stored title names
+    // the metric only — never a name, an amount or a document — so it is lock-screen safe.
+    key: "subscription.usage",
+    domain: "subscription",
+    featureKey: null,
+    importance: "normal",
+    defaults: { inApp: true, push: false, delivery: "instant" },
+    quietBypass: false,
+    rateExempt: false,
+    userMutable: { inApp: false, push: true, delivery: false },
+    cooldownHours: 0,
+    ttlMinutes: 12 * 60,
+    lockScreen: { title: GENERIC_PUSH_TITLE, body: "עדכון על השימוש במנוי שלך" },
+    storedTextLockScreenSafe: true,
+    hrefPrefixes: ["/settings"],
+  },
+  {
     key: "system.test",
     domain: "system",
     featureKey: null,

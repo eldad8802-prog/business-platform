@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { QuotaExhaustedError, quotaExhaustedBody } from "@/lib/services/subscriptions/usage/usage-meter";
 import { getServerI18n } from "@/lib/i18n/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
@@ -88,6 +89,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
+
     // The upload writes object storage between tenant-scoped queries, so the
     // tenant transaction gets an extended timeout (never the default 5s race).
     const attachment = await runWithTenantContext(
@@ -113,6 +115,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     return NextResponse.json({ attachment }, { status: 201 });
   } catch (error) {
+    // Subscriptions stage C: the storage quota refused the write INSIDE the transaction (metered storage runs in it,
+    // atomically) — the transaction rolled back, nothing was recorded.
+    if (error instanceof QuotaExhaustedError) {
+      return NextResponse.json(quotaExhaustedBody(error.decision), { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
     return handleError(error);
   }
 }

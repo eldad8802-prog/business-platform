@@ -42,6 +42,10 @@ import {
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
 import { syncDocumentsReviewQueueNotification } from "@/lib/notifications/documents-review-queue-notifications";
 import { noteDocumentChangeForAccountant } from "@/lib/accountant/change-hooks";
+import { meteredOcr } from "@/lib/services/subscriptions/usage/metered-ocr";
+
+/** Subscriptions stage C: a stored document whose OCR waits for the quota (ENFORCE only). Retryable. */
+export const DOCUMENT_AWAITING_QUOTA = "awaiting_quota";
 
 export type ProcessDocumentInput = {
   documentId: number;
@@ -80,27 +84,45 @@ export async function processDocumentPipeline(
     let rawText = "";
     let ledgerGeometry: OcrGeometryResult | null = null;
     let ocrFailed = false;
+    // Subscriptions stage C: every Vision call goes through the metered wrapper — the customer's pages are reserved
+    // first (one unit per document and pass: a reprocess is a new pass), every provider call is recorded.
+    const filePath = tempFilePath;
     try {
-      const ocr = await runGoogleVisionOCRWithGeometry(
-        tempFilePath,
-        mimeType || undefined
+      const metered = await meteredOcr(
+        {
+          businessId,
+          unitKey: input.sourceChannel === "reprocess" ? `ocr:doc:${documentId}:reprocess:${Date.now()}` : `ocr:doc:${documentId}:first`,
+          source: `documents.pipeline.${input.sourceChannel}`,
+          buffer,
+          mimeType,
+        },
+        async (providerCall) => {
+          try {
+            await providerCall();
+            const ocr = await runGoogleVisionOCRWithGeometry(filePath, mimeType || undefined);
+            return { text: ocr.text.trim(), geometry: ocr as OcrGeometryResult | null };
+          } catch (geometryError) {
+            console.error("[ledger] geometry OCR failed, falling back to text-only OCR:", geometryError);
+            await providerCall();
+            return { text: (await runGoogleVisionOCR(filePath, mimeType || undefined)).trim(), geometry: null };
+          }
+        },
       );
-      rawText = ocr.text.trim();
-      ledgerGeometry = ocr;
-    } catch (geometryError) {
-      console.error(
-        "[ledger] geometry OCR failed, falling back to text-only OCR:",
-        geometryError
-      );
-      try {
-        rawText = (
-          await runGoogleVisionOCR(tempFilePath, mimeType || undefined)
-        ).trim();
-      } catch (ocrError) {
-        console.error("PROCESS_OCR_FAILED:", ocrError);
-        rawText = "";
-        ocrFailed = true;
+      if (!metered.ok) {
+        // The OCR quota is exhausted (ENFORCE only): the document stays, stored and visible, waiting for the quota to
+        // renew or grow; the owner re-runs it from the document (the retry route accepts this status).
+        await withTenantTransaction((tx) =>
+          tx.document.updateMany({ where: { id: documentId, businessId, status: "processing" }, data: { status: DOCUMENT_AWAITING_QUOTA } }),
+        );
+        console.warn(JSON.stringify({ event: "document_ocr_awaiting_quota", businessId, documentId }));
+        return;
       }
+      rawText = metered.value.text;
+      ledgerGeometry = metered.value.geometry;
+    } catch (ocrError) {
+      console.error("PROCESS_OCR_FAILED:", ocrError);
+      rawText = "";
+      ocrFailed = true;
     }
 
     // Extraction runs only when OCR produced text, and is itself best-effort.

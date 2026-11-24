@@ -11,6 +11,7 @@ import { businessDocumentsRoute, readJsonBody } from "@/lib/services/business-do
 import { parseLetterInput } from "@/lib/services/business-documents/letter/letter.contracts";
 import { saveLetter } from "@/lib/services/business-documents/letter/saved-letters-save.service";
 import { listSavedLetters } from "@/lib/services/business-documents/letter/saved-letters.service";
+import { reserveBusinessDocument } from "@/lib/services/subscriptions/usage/business-document-usage";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -26,6 +27,10 @@ export async function POST(req: NextRequest) {
     const body = await readJsonBody(req);
     const { idempotencyKey, ...raw } = body;
     const letter = parseLetterInput(raw);
+    // Subscriptions stage C — a NEW business document, counted atomically BEFORE it is saved; the idempotency key is
+    // the unit, so a replay of the request is the same unit (never counted twice).
+    const unit = await reserveBusinessDocument(businessId, { kind: "letter", source: "business_documents.letter", idempotencyKey: String(idempotencyKey ?? "") });
+    if (unit.denied) return unit.denied;
     const saved = await saveLetter({ businessId, userId, letter, idempotencyKey: String(idempotencyKey ?? "") });
     return NextResponse.json(saved, { status: saved.replay ? 200 : 201, headers: { "Cache-Control": "no-store" } });
   });

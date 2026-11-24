@@ -13,6 +13,7 @@ import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-fe
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { AppError } from "@/lib/errors";
 import { runWithTenantContext } from "@/lib/tenant/context";
+import { planRefusalFor } from "@/lib/services/subscriptions/plan-gate-http";
 
 import { TaskServiceError, type TaskActor } from "./task.service";
 
@@ -42,6 +43,9 @@ export async function tasksRoute(
     const user = await getCurrentUser(req);
     if (!user || !user.businessId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!(await dailyTasksEnabled(user.businessId))) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // Plan layer (stage C, plan-gate.ts): shadow logs only; enforce refuses a CUSTOMER whose plan lacks the action.
+    const planDenied = await planRefusalFor(req, user.businessId, PLATFORM_FEATURE_KEYS.DAILY_TASKS);
+    if (planDenied) return planDenied;
     return await runWithTenantContext({ businessId: user.businessId }, () => handler({ actor: { businessId: user.businessId, userId: user.id } }));
   } catch (e) {
     return tasksError(e);
