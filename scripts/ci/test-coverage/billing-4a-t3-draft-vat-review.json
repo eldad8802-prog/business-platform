@@ -1,0 +1,9 @@
+{
+  "note": "4a T3: drafts created before \"מעבר לעוסק מורשה\" with a 0% VAT line need the owner's explicit VAT review (owner decisions 2026-11-24). The database rule is proven by .billing-4a/t3-draft-vat-review.battery.mts (lab).",
+  "tests": {
+    "lib/services/billing/kind-transition/draft-vat-review.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network): the review fingerprint (stable, and invalidated by any VAT-relevant change), the owner's wording, the audit event type and the document scope; the DB rule is the lab battery 34/34"
+    }
+  }
+}

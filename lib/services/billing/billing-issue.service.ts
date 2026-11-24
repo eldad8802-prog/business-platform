@@ -38,6 +38,7 @@ import {
   assertCreditAmountWithinRemaining,
 } from "@/lib/services/billing/billing-credit-reversal.service";
 import { assertIssuableShape } from "@/lib/services/billing/billing-issuable-shape.rules";
+import { assertDraftVatReviewedTx } from "@/lib/services/billing/kind-transition/draft-vat-review";
 import {
   assertReceiptAllocationIntegrityTx,
   lockBillingDocumentRowsTx,
@@ -758,6 +759,10 @@ export async function issueBillingDocumentTx(
     documentType: doc.documentType,
     profile: business.profile,
   });
+  // 4a T3: a draft created before "מעבר לעוסק מורשה" with a 0% VAT line issues only after the owner's explicit VAT
+  // review of exactly this content (draft-vat-review.ts). Read from the document as locked and loaded above, so the
+  // content checked is the content frozen below. Refused before numbering. No transition → one empty read, no change.
+  await assertDraftVatReviewedTx(tx, doc);
 
   let customerData:
     | {

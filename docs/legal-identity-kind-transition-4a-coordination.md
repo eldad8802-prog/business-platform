@@ -2,7 +2,7 @@
 
 **For:** a new 4a session (billing, issuer declaration, numbering, uniform export), with no chat history.
 **From:** the legal identity track (session f3), 2026-11-23; updated 2026-11-24 after the T1 wiring (#1266, #1272, #1267) was
-merged and applied.
+merged and applied, and again on 2026-11-25 after T4 closed (#1269 + #1279). The activation conditions are in §8.
 **Status:** handover only. **This file approves nothing.** Each 4a task needs the owner's focused approval as usual.
 Billing (A0) code is changed only by 4a, never by the legal identity track.
 
@@ -40,6 +40,7 @@ Owner decisions of 2026-11-20 / 21:
 | #1214 | CI proof only (#1210 + #1204 + #1213 joined) | **Closed without merge** (owner-approved); evidence kept |
 | #1266 | Migration `20261225090000_kind_transition_issuer_declaration_wiring`: the transition calls the 4a T1 writer (contract `.billing-4a/T1-WIRING-CONTRACT.md` §2; code = `.billing-4a/t1-wiring.proposed.sql`); evidence files, `.bkt` wiring lab + batteries, rollback | **MERGED 29447009 and APPLIED in Production 2026-11-24** (record #1272 → b834ecb0, preflight 45317499245 12/12, release-migrate 45320505488, post-apply proof 45323806725 9/9) |
 | #1267 | Application: a live declaration no longer blocks; the writer's answers mapped to 409 with owner-approved Hebrew texts | **MERGED 947c6ab3 (2026-11-24)**, live (Production deployment 2026-11-24T05:00:36Z); every route still 404 while the flag is off |
+| #1279 | T4 integration: the interim-documents count and list on steps 1 and 3, the success screen and the "already moved" screen; confirm carries `interimDocumentCount` and recounts inside the transition's transaction (409 `INTERIM_DOCUMENTS_CHANGED`, atomic rollback) | **MERGED ed3e8300 (2026-11-24)**, live (Production deployment 2026-11-24T20:13:58Z); every route still 404 while the flag is off |
 
 The flag is read in one place, `lib/legal-identity/kind-transition-flag.ts` (`=== "true"`, server-only). The API
 enforces it per request; `app/business/layout.tsx` passes it to the screens. Turning it on or off = env change + redeploy.
@@ -201,6 +202,22 @@ profile.
   - counts match a seeded lab;
   - no write path;
   - the legal identity screens show the real count (they currently show the generic warning).
+- **Status 2026-11-24: DONE.**
+  - 4a side: #1269, e5acaa2d. Contract: `.billing-4a/T4-INTERIM-DOCUMENTS-CONTRACT.md`.
+  - Legal identity side: #1279, ed3e8300. Covers steps 1 and 3, the success screen, the list sheet, and the in-transaction
+    recount on confirm.
+  - Texts: the owner-approved sentence, plus four more the owner approved on 2026-11-24 (singular, none, load error,
+    changed while confirming).
+- **Lab (CI e2e 45472029498):**
+  - app battery 54/54 unwired and 65/65 wired;
+  - T4 cases T1–T8 + T7b, including the real issuance racing the real confirm in both orders;
+  - browsers 34/34 (V1–V9);
+  - flag OFF 4/4.
+
+### T3 status (2026-11-25)
+
+**OPEN.** #1273 is a Draft. The owner approved the merge at HEAD 80a9d9b5, subject to a read-only Production check of
+historical quotes; 4a runs that check and does the merge. #1273 is the only T1–T6 item not on main.
 
 ### T5 — Numbering continuity (Gate)
 
@@ -222,6 +239,9 @@ profile.
 - Retire the `LEGAL_IDENTITY_CORRECTION_ENABLED` link.
 - **Acceptance:** no screen mentions a correction request; en/he messages updated; i18n proofs green.
 
+**T5 and T6 status (4a, 2026-11-25): closed.** Both were delivered with T1 and covered by batteries 53/53. Nothing is
+missing from main.
+
 ### T7 / T8 (not gates)
 
 - **T7:** a new business file with the same id number restarts numbering at 1 for the same taxpayer. Offer a
@@ -236,6 +256,22 @@ profile.
 4. T3, T2, T4.
 5. ~~Legal identity follow-up migration (call T1).~~ Done 2026-11-24 (#1266 applied, #1267 merged).
 6. Owner enables the flag after an isolated Preview with a real Google account and a physical phone.
+
+## 8. Activation conditions (2026-11-25)
+
+The flag `BUSINESS_KIND_TRANSITION_ENABLED=true` in Production is an env change plus a redeploy. It needs the owner's
+approval and happens only after every condition below holds.
+
+| # | Condition | State |
+|---|---|---|
+| C1 | T1 + T1a: the writer, Google re-auth, and the 20261225090000 wiring applied in Production | ✅ applied (release-migrate 45292801317 and 45320505488; proof 45323806725 9/9) |
+| C2 | T2: the three v2 packages pass the official ITA simulator; no contradiction with spec 1.31 | ⏳ the owner runs the simulator (`docs/compliance/tax-authority/t2-kind-transition/t2-simulator-packages-v2.zip`) |
+| C3 | T3: #1273 merged and live | ⏳ 4a, after the read-only quote check |
+| C4 | T4 | ✅ #1269 + #1279 live |
+| C5 | T5, T6 | ✅ closed (4a) |
+| C6 | R1–R14 on a physical phone with a real Google account, on the isolated Preview | ⏳ owner actions O1–O6 in `docs/legal-identity-kind-transition-real-device-runbook.md` |
+| C7 | After C2, C3 and C6: an isolated CI run of the full lab on main | ⏳ re-run after #1273 merges |
+| C8 | The owner's activation decision: set the env var in Production and redeploy; then a read-only check (routes 200 for a signed-in exempt owner, no 5xx) | ⏳ owner |
 
 ## 7. How to verify against the legal identity code
 
