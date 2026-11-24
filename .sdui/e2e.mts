@@ -191,6 +191,7 @@ async function main() {
         await confirmBtn().click();
         await p.getByText(/פרטי הקליטה נשמרו, אבל האישור לא עבר/).waitFor({ timeout: 60_000 });
       } finally { await p.unroute("**/api/service-desk/cases/*/actions"); }
+      if (await p.getByText(/לא נשמר דבר/).count()) throw new Error("the partial failure says «nothing was saved» right after saying the details were saved");
       await shot(p, "real-intake-partial-failure-phone");
       if ((await statusOf(seed.c1)) !== "OPEN" || (await checkIns(seed.c1)) !== 0) throw new Error("confirmed despite the failure");
       if ((await versionOf(seed.c1)) !== v0 + 1) throw new Error("the details were not saved exactly once");
