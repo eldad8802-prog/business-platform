@@ -216,8 +216,27 @@ profile.
 
 ### T3 status (2026-11-25)
 
-**OPEN.** #1273 is a Draft. The owner approved the merge at HEAD 80a9d9b5, subject to a read-only Production check of
-historical quotes; 4a runs that check and does the merge. #1273 is the only T1–T6 item not on main.
+**DONE 2026-11-25.** #1273 was squash-merged as `a111cf83` (locked to the owner-approved HEAD 80a9d9b5; A0 record
+comment 7144891279). The Production deploy succeeded at 21:28Z.
+- **The pre-merge condition (owner):** a read-only Production check of historical quotes. It ran as
+  prod-readonly-evidence 45490270774, with the SQL file from #1280.
+  - There are 2 quotes, and both have a `BILLING_QUOTE_PDF_RENDERED` event.
+  - None was never produced.
+  - The gap (produced, but no event) is **0**.
+  - There are 0 `BusinessKindTransition` rows.
+- **What it contains:**
+  - the issuance gate for pre-transition 0% drafts (`BILLING_DRAFT_VAT_REVIEW_CONFIRMED` + fingerprint);
+  - the review panel on `/billing/[id]` (7 owner-approved strings);
+  - `POST/GET /api/billing/documents/[id]/vat-review`;
+  - the old-quote fix: a quote first rendered before `confirmedAt` re-renders with the issuer as sent
+    (`quote-issuer-as-sent.ts`); with no event it does not guess.
+- **Live checks:**
+  - `/api/health` 200;
+  - the new vat-review route answers 401 unauthenticated, so the code is live;
+  - `/api/billing/kind-transition/interim-documents` answers 404, so the flag is OFF;
+  - no 5xx on the routes probed;
+  - main CI on `a111cf83`: 6/6 success.
+- **Lab (verify run 45454422882):** T3 40/40 (V11), T4 35/35, T5 53/53, golden 86/86, page e2e 9/9.
 
 ### T5 — Numbering continuity (Gate)
 
@@ -266,11 +285,11 @@ approval and happens only after every condition below holds.
 |---|---|---|
 | C1 | T1 + T1a: the writer, Google re-auth, and the 20261225090000 wiring applied in Production | ✅ applied (release-migrate 45292801317 and 45320505488; proof 45323806725 9/9) |
 | C2 | T2: the three v2 packages pass the official ITA simulator; no contradiction with spec 1.31 | ⏳ the owner runs the simulator (`docs/compliance/tax-authority/t2-kind-transition/t2-simulator-packages-v2.zip`) |
-| C3 | T3: #1273 merged and live | ⏳ 4a, after the read-only quote check |
+| C3 | T3: #1273 merged and live | ✅ `a111cf83`, live 2026-11-25 (quote check 45490270774: gap 0) |
 | C4 | T4 | ✅ #1269 + #1279 live |
 | C5 | T5, T6 | ✅ closed (4a) |
 | C6 | R1–R14 on a physical phone with a real Google account, on the isolated Preview | ⏳ owner actions O1–O6 in `docs/legal-identity-kind-transition-real-device-runbook.md` |
-| C7 | After C2, C3 and C6: an isolated CI run of the full lab on main | ⏳ re-run after #1273 merges |
+| C7 | After C2, C3 and C6: an isolated CI run of the full lab on main | ⏳ f3 re-runs it on main (C3 done) |
 | C8 | The owner's activation decision: set the env var in Production and redeploy; then a read-only check (routes 200 for a signed-in exempt owner, no 5xx) | ⏳ owner |
 
 ## 7. How to verify against the legal identity code
