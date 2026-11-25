@@ -29,7 +29,7 @@
  * env: DATABASE_URL / DIRECT_URL = the runtime login (app_runtime_prod), OWNER_URL = the migration role (fixtures
  * only). Synthetic data only. Run: npx tsx lib/notifications/customer/customer-whatsapp.db.test.ts
  */
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 import { PrismaClient } from "@prisma/client";
 
@@ -66,6 +66,7 @@ async function main() {
   const { getCategory } = await import("../catalog");
   const { buildPushMessage } = await import("../push/push-content");
   const { isQuietHours, quietHoursEnd } = await import("@/lib/services/booking/booking.core");
+  const { jerusalemInstantAt, addCalendarDays, jerusalemDayKey } = await import("@/lib/utils/jerusalem-day");
   const route = await import("@/app/api/integrations/whatsapp/webhook/route");
 
   const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
@@ -100,18 +101,17 @@ async function main() {
   const custOff = (await owner.customer.create({ data: { businessId: OFF, name: "לקוח", phone: "972501112244" } })).id;
   const actor = (userId: number) => ({ actor: "OWNER" as const, userId, sourceChannel: "MOBILE" as const });
 
-  // Deterministic against the wall clock: business A lives in a fixed-offset zone where NOW is about noon, so every
-  // moment the lane runs at (now … now + 3 h, and whole days later) is outside quiet hours (22:00–08:00, local), and
-  // now + 12 h is inside them.
-  const utcHour = new Date().getUTCHours();
-  const off = utcHour - 12; // local = UTC − off
-  const tz = off === 0 ? "Etc/GMT" : off > 0 ? `Etc/GMT+${off}` : `Etc/GMT${off}`;
-  for (const b of [A, B]) await owner.bookingSettings.create({ data: { businessId: b, timeZone: tz } });
-  const base0 = Math.floor(Date.now() / MIN) * MIN;
-  const dayIn = (d: number) => new Date(base0 + d * DAY);
+  // BookingSettings allows only Asia/Jerusalem (CHECK). Deterministic against the wall clock: appointments start at
+  // noon (so a day-before reminder is due at noon), and the lane runs at the first moment from now that is outside quiet
+  // hours with three hours to spare (the retry ladder). The pending-request message (quiet bypass, 60-min TTL) is sent
+  // at the real now.
+  const tz = "Asia/Jerusalem";
+  const today = jerusalemDayKey(new Date());
+  const dayIn = (d: number) => jerusalemInstantAt(addCalendarDays(today, d), 12, 0);
   const start1 = dayIn(4), start2 = dayIn(5);
-  const dayNow = new Date();
-  ok("A0 the lab zone puts now outside quiet hours and now + 12 h inside them", !isQuietHours(dayNow, tz) && !isQuietHours(new Date(Date.now() + 3 * HOUR), tz) && isQuietHours(new Date(Date.now() + 12 * HOUR), tz), tz);
+  let dayNow = new Date();
+  while (isQuietHours(dayNow, tz) || isQuietHours(new Date(dayNow.getTime() + 3 * HOUR), tz)) dayNow = new Date(dayNow.getTime() + 30 * MIN);
+  ok("A0 the lane moment is outside quiet hours and within the 12-hour TTL of what is created now", !isQuietHours(dayNow, tz) && dayNow.getTime() - Date.now() < 11 * HOUR);
 
   const deliveries = (businessId: number, appointmentId: number) => owner.notificationDelivery.findMany({
     where: { businessId, appointmentId, recipientKind: "CUSTOMER" },
@@ -163,7 +163,7 @@ async function main() {
       && ofCat(rows, "confirmed")[0]?.status === "SUPPRESSED" && ofCat(rows, "reminder").every((r) => r.status === "SUPPRESSED"), rows);
 
   const pubAppt = await owner.appointment.create({ data: { businessId: A, kind: "CUSTOMER", status: "PROPOSED", startsAt: dayIn(7), endsAt: new Date(dayIn(7).getTime() + 30 * MIN), durationMinutes: 30, title: "תספורת", createdByActor: "CUSTOMER", sourceChannel: "PUBLIC_BOOKING" } });
-  await owner.bookingRequest.create({ data: { businessId: A, appointmentId: pubAppt.id, contactName: "מבקשת", contactPhone: "972501112255", fingerprint: `fp-${stamp}`, expiresAt: new Date(Date.now() + 12 * HOUR) } });
+  await owner.bookingRequest.create({ data: { businessId: A, appointmentId: pubAppt.id, contactName: "מבקשת", contactPhone: "972501112255", fingerprint: createHash("sha256").update(`fp-${stamp}`).digest("hex"), expiresAt: new Date(Date.now() + 12 * HOUR) } });
   await tenantTx(A, (tx) => appendAppointmentEvent(tx, { businessId: A, appointmentId: pubAppt.id, eventType: "APPOINTMENT_CREATED", ctx: { actor: "CUSTOMER", userId: null, sourceChannel: "PUBLIC_BOOKING" }, payload: { status: "PROPOSED" } }));
   rows = await deliveries(A, pubAppt.id);
   ok("A11 a public request ⇒ 'received' with the manage-link template, the request's phone", ofCat(rows, "received").length === 1 && rows[0].templateKey === "dubiz_appt_received" && rows[0].recipientPhone === "+972501112255", rows);
@@ -183,6 +183,8 @@ async function main() {
 
   /* ── B. the lane ────────────────────────────────────────────────────────────────────────────────────── */
   console.log("B. the WhatsApp lane");
+  const recv = (await deliveries(A, pubAppt.id)).map((r) => r.id);
+  await runWhatsAppWorker(new Date(), { businessId: A, deliveryIds: recv, ...q });
   let rep = await runWhatsAppWorker(dayNow, { businessId: A, ...q });
   rows = await deliveries(A, a1);
   const sentNow = rows.filter((r) => r.status === "SENT");
@@ -211,7 +213,7 @@ async function main() {
   const a6 = c6.ok ? c6.appointment.id : 0;
   await svc.confirm({ appointmentId: a6, businessId: A, actor: actor(userA) });
   const conf6 = ofCat(await deliveries(A, a6), "confirmed")[0];
-  const night = new Date(Date.now() + 12 * HOUR);
+  const night = jerusalemInstantAt(addCalendarDays(today, 1), 0, 30);
   await owner.notificationDelivery.update({ where: { id: conf6.id }, data: { expiresAt: new Date(night.getTime() + 12 * HOUR), createdAt: new Date(night.getTime() - MIN) } });
   rep = await runWhatsAppWorker(night, { businessId: A, deliveryIds: [conf6.id], ...q });
   const deferred = await owner.notificationDelivery.findUnique({ where: { id: conf6.id } });
@@ -286,7 +288,7 @@ async function main() {
   ok("B15 three lanes racing ⇒ exactly ONE send", liveSends.length === before + 1 && (await owner.notificationDelivery.findUnique({ where: { id: conf10.id } }))?.status === "SENT");
 
   const pub2 = await owner.appointment.create({ data: { businessId: A, kind: "CUSTOMER", status: "CONFIRMED", startsAt: dayIn(16), endsAt: new Date(dayIn(16).getTime() + 30 * MIN), durationMinutes: 30, title: "תספורת", createdByActor: "CUSTOMER", sourceChannel: "PUBLIC_BOOKING" } });
-  await owner.bookingRequest.create({ data: { businessId: A, appointmentId: pub2.id, status: "APPROVED", contactName: "אוטומטי", contactPhone: "972501112266", fingerprint: `fp2-${stamp}`, expiresAt: new Date(Date.now() + 12 * HOUR) } });
+  await owner.bookingRequest.create({ data: { businessId: A, appointmentId: pub2.id, status: "APPROVED", decidedAt: new Date(), contactName: "אוטומטי", contactPhone: "972501112266", fingerprint: createHash("sha256").update(`fp2-${stamp}`).digest("hex"), expiresAt: new Date(Date.now() + 12 * HOUR) } });
   await tenantTx(A, (tx) => appendAppointmentEvent(tx, { businessId: A, appointmentId: pub2.id, eventType: "APPOINTMENT_CREATED", ctx: { actor: "CUSTOMER", userId: null, sourceChannel: "PUBLIC_BOOKING" }, payload: { status: "CONFIRMED" } }));
   const confPub = ofCat(await deliveries(A, pub2.id), "confirmed")[0];
   await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [confPub.id], transport: live, ...q });
