@@ -632,6 +632,30 @@ async function main() {
       await cn.close();
     }
 
+    // ── a repair held for parts says «ממתין לחלקים» (owner 2026-11-24) — in the list and on the case; nothing else changes ──
+    {
+      const ch = await ctx(browser, seed.tokenA, PHONE);
+      const ph = await ch.newPage();
+      current = ph;
+      await check("HL1 c4 (held for parts): the list row and the case header say «ממתין לחלקים» in amber; the status stays IN_REPAIR; the next step is unchanged", async () => {
+        const st0 = await statusOf(seed.c4);
+        await ph.goto("/service-desk");
+        const row = ph.locator(`a[href="/service-desk/cases/${seed.c4}"]`).first();
+        await row.waitFor({ timeout: 120_000 });
+        const pill = row.getByText("ממתין לחלקים", { exact: true });
+        await pill.waitFor();
+        if ((await pill.getAttribute("data-tone")) !== "attention") throw new Error(`row tone ${await pill.getAttribute("data-tone")}`);
+        if (await row.getByText("בעבודה", { exact: true }).count()) throw new Error("the row still says «בעבודה»");
+        await shot(ph, "hold-parts-list-phone");
+        await openCase(ph, seed.c4);
+        await statusPill(ph, "ממתין לחלקים").waitFor();
+        await ph.locator("section[aria-label='מצב ופעולה הבאה']").getByText("כשהחלקים מגיעים — להחזיר לעבודה").waitFor();
+        await shot(ph, "hold-parts-case-phone");
+        if ((await statusOf(seed.c4)) !== st0 || st0 !== "IN_REPAIR") throw new Error(`status ${st0} → ${await statusOf(seed.c4)}`);
+      });
+      await ch.close();
+    }
+
     // ── Israel time whatever the device's zone (owner 2026-11-24): a phone set to New York still reads Israel time ──
     {
       const cz = await browser.newContext({ baseURL: BASE, locale: "he-IL", timezoneId: "America/New_York", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
