@@ -92,7 +92,19 @@ ok("the hooks write through tenantTx, never the auth plane", /tenantTx\(/.test(d
 ok("lib/auth/session-directory.ts is untouched by the engine (no tenant write on the auth plane module)", !/notifications|pushSubscription/.test(code("lib/auth/session-directory.ts")));
 
 console.log("5. existing loops and the writer");
-for (const f of ["lib/services/tasks/task-reminders.service.ts", "lib/services/booking/booking-notify.ts"]) {
+{
+  // G13 (appointments completion): the booking notices left the legacy web push loop for the engine.
+  const bn = code("lib/services/booking/booking-notify.ts");
+  ok("booking notices: through notify() (category booking.request_waiting), no legacy loop, no device read",
+    /await notify\(tx, \{/.test(bn) && /BOOKING_CATEGORY = "booking\.request_waiting"/.test(bn) &&
+    !/deliverLegacyPush|sendWebPush|pushSubscription/.test(bn));
+  ok("booking notices: a new / auto-confirmed / cancelled request is in the bell only (inAppOnly)", /inAppOnly: true/.test(bn));
+  ok("booking reminder: the engine's claim (cooldown 2 h) owes one push expiring with the request",
+    /REMINDER_COOLDOWN_HOURS = 2/.test(bn) && /push: \{ notBefore: now, expiresAt: requestExpiresAt \}/.test(bn));
+  const bs = code("lib/services/booking/booking-sweep.service.ts");
+  ok("booking sweep: the worker runs for exactly the owed reminder rows, after commit", /runPushWorker\(now, \{ businessId, deliveryIds, quiet: true \}\)/.test(bs) && !/deliverLegacyPush|sendWebPush/.test(bs));
+}
+for (const f of ["lib/services/tasks/task-reminders.service.ts"]) {
   const c = code(f);
   ok(`${f}: the shared sender, no direct sendWebPush`, /deliverLegacyPush\(/.test(c) && !/sendWebPush\(/.test(c));
   ok(`${f}: web push devices only (https endpoints)`, c.includes(`endpoint: { startsWith: "https://" }`));

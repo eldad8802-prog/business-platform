@@ -11,6 +11,8 @@
 import { randomUUID } from "node:crypto";
 import type { AppointmentEventActor, AppointmentEventType, Prisma } from "@prisma/client";
 
+import { produceAppointmentCustomerMessages } from "@/lib/notifications/customer/appointment-messages";
+
 import type { ActorContext } from "./appointment.types";
 
 /** What a payload string may be — mirrors the CHECK AppointmentEvent_payload_closed. */
@@ -81,5 +83,10 @@ export async function appendAppointmentEvent(tx: Prisma.TransactionClient, e: Jo
       digestKeyId: e.digest?.keyId ?? null,
       ...(e.occurredAt ? { occurredAt: e.occurredAt } : {}),
     },
+  });
+  // G1 (appointments completion): the customer's WhatsApp messages follow every journalled change, in this same
+  // transaction — owed, replaced or cancelled together with the change (nothing is sent here; the worker's lane does).
+  await produceAppointmentCustomerMessages(tx, {
+    businessId: e.businessId, appointmentId: e.appointmentId, eventType: e.eventType, payload,
   });
 }

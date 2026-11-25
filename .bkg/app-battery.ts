@@ -424,23 +424,24 @@ async function main() {
   await owner.bookingRequest.update({ where: { id: night.rid }, data: { createdAt: nightAt(21), expiresAt: nightAt(9, 0, true) } });
   await owner.notification.updateMany({ where: { businessId: bizA, dedupeKey: `booking-request:${night.rid}` }, data: { lastNotifiedAt: nightAt(21) } });
   const nightCount = (ch: string) => n(`SELECT count(*)::int AS n FROM "NotificationDelivery" d JOIN "Notification" x ON x.id = d."notificationId" WHERE x."dedupeKey" = 'booking-request:${night.rid}' AND d.channel = '${ch}'`);
-  const nIn0 = await nightCount("IN_APP"), nPush0 = await nightCount("PUSH");
+  const nightOwed = () => n(`SELECT count(*)::int AS n FROM "NotificationDelivery" d JOIN "Notification" x ON x.id = d."notificationId" WHERE x."dedupeKey" = 'booking-request:${night.rid}' AND d.channel = 'PUSH' AND d."subscriptionId" IS NULL AND d."userId" IS NULL`);
+  const nIn0 = await nightCount("IN_APP"), nPush0 = await nightOwed();
   await runBookingSweep(nightAt(23, 5));
   await runBookingSweep(nightAt(3, 0, true));
   await runBookingSweep(nightAt(7, 55, true));
-  ok("H7 quiet hours: nothing at 23:05, 03:00 or 07:55 though a reminder was due at 23:00", r.status === 201 && (await nightCount("IN_APP")) === nIn0 && (await nightCount("PUSH")) === nPush0);
+  ok("H7 quiet hours: nothing at 23:05, 03:00 or 07:55 though a reminder was due at 23:00", r.status === 201 && (await nightCount("IN_APP")) === nIn0 && (await nightOwed()) === nPush0);
   rep = await runBookingSweep(nightAt(8, 0, true));
-  ok("H8 08:00: exactly one reminder for the request still waiting — bell and push", (await nightCount("IN_APP")) === nIn0 + 1 && (await nightCount("PUSH")) === nPush0 + 1, JSON.stringify(rep));
+  ok("H8 08:00: exactly one reminder for the request still waiting — bell and push", (await nightCount("IN_APP")) === nIn0 + 1 && (await nightOwed()) === nPush0 + 1, JSON.stringify(rep));
   await runBookingSweep(nightAt(8, 0, true));
   await runBookingSweep(nightAt(8, 10, true));
   await runBookingSweep(nightAt(8, 50, true));
-  ok("H9 no duplicate: 08:00 again, 08:10 and 08:50 send nothing", (await nightCount("IN_APP")) === nIn0 + 1 && (await nightCount("PUSH")) === nPush0 + 1);
+  ok("H9 no duplicate: 08:00 again, 08:10 and 08:50 send nothing", (await nightCount("IN_APP")) === nIn0 + 1 && (await nightOwed()) === nPush0 + 1);
   rep = await runBookingSweep(nightAt(10, 0, true));
   ok("H10 at 09:00 it lapsed (expiry unchanged): expired, never reminded at 10:00", (await nightCount("IN_APP")) === nIn0 + 1
     && (await n(`SELECT count(*)::int AS n FROM "BookingRequest" WHERE id = ${night.rid} AND status = 'EXPIRED'`)) === 1
     && (await n(`SELECT count(*)::int AS n FROM "Notification" WHERE "dedupeKey" = 'booking-request:${night.rid}' AND "resolvedAt" IS NOT NULL`)) === 1, JSON.stringify(rep));
   await runBookingSweep(nightAt(12, 0, true));
-  ok("H11 …and nothing after", (await nightCount("IN_APP")) === nIn0 + 1 && (await nightCount("PUSH")) === nPush0 + 1);
+  ok("H11 …and nothing after", (await nightCount("IN_APP")) === nIn0 + 1 && (await nightOwed()) === nPush0 + 1);
   r = await routes.sweep.GET(req("/api/appointments/booking/sweep"));
   ok("H5 the sweep route without the cron secret → 401", r.status === 401);
   r = await routes.sweep.GET(req("/api/appointments/booking/sweep", { bearer: process.env.CRON_SECRET }));

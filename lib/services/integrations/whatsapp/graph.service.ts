@@ -331,3 +331,76 @@ export async function sendWhatsAppText(input: {
     return { ok: false, kind: "other", code: "send_network", message: "Network error sending message" };
   }
 }
+
+export type SendTemplateResult =
+  | { ok: true; providerMessageId: string }
+  | { ok: false; kind: "auth" | "transient" | "permanent"; code: string; message: string };
+
+/**
+ * Sends an approved TEMPLATE message (customer messages from the central Dubiz number — G1, appointments completion
+ * program). `POST /{phone-number-id}/messages` with `type: "template"`, the template's name and language, and its
+ * body parameters as text. The caller (lib/notifications/customer/platform-transport.ts) decides whether a real send
+ * happens at all (WHATSAPP_PLATFORM_SEND_MODE=live + the platform credentials); this function only performs it.
+ *
+ * Classification, so the worker can retry or stop:
+ *   - `auth`      → 401/403 or OAuth code 190: the platform token is wrong or revoked — not retried by the row;
+ *   - `transient` → 429, 5xx, rate / throughput codes (4, 80007, 130429, 131048, 131056), a timeout or network error;
+ *   - `permanent` → anything else (an unknown or unapproved template, an invalid number, a parameter mismatch …).
+ * The access token, the recipient, the parameters and the request body are never logged.
+ */
+export async function sendWhatsAppTemplate(input: {
+  phoneNumberId: string;
+  accessToken: string;
+  toPhone: string;
+  templateName: string;
+  languageCode: string;
+  bodyParams: readonly string[];
+  fetchImpl?: typeof fetch;
+}): Promise<SendTemplateResult> {
+  const to = input.toPhone.replace(/\D/g, "");
+  if (!input.phoneNumberId || !input.accessToken || !to || !input.templateName || !input.languageCode) {
+    return { ok: false, kind: "permanent", code: "send_config_missing", message: "Missing send inputs" };
+  }
+  const url = new URL(`${GRAPH_BASE}/${graphVersion()}/${encodeURIComponent(input.phoneNumberId)}/messages`);
+  const doFetch = input.fetchImpl ?? fetch;
+  try {
+    const res = await doFetch(url.toString(), {
+      method: "POST",
+      cache: "no-store",
+      signal: connectSignal(),
+      headers: { Authorization: `Bearer ${input.accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "template",
+        template: {
+          name: input.templateName,
+          language: { code: input.languageCode },
+          components: input.bodyParams.length > 0
+            ? [{ type: "body", parameters: input.bodyParams.map((text) => ({ type: "text", text })) }]
+            : [],
+        },
+      }),
+    });
+    const data = (await res.json().catch(() => null)) as
+      | { messages?: Array<{ id?: unknown }>; error?: { code?: unknown; message?: unknown } }
+      | null;
+    const providerId = data?.messages?.[0]?.id;
+    if (res.ok && typeof providerId === "string" && providerId.length > 0) {
+      return { ok: true, providerMessageId: providerId };
+    }
+    const rawCode = data?.error?.code;
+    const errCode = typeof rawCode === "number" ? rawCode : typeof rawCode === "string" ? Number(rawCode) : NaN;
+    const safe = safeError(data, `template_${res.status}`);
+    if (res.status === 401 || res.status === 403 || errCode === 190) return { ok: false, kind: "auth", ...safe };
+    if (res.status === 429 || res.status >= 500 || [4, 80007, 130429, 131048, 131056].includes(errCode)) {
+      return { ok: false, kind: "transient", ...safe };
+    }
+    return { ok: false, kind: "permanent", ...safe };
+  } catch (err) {
+    return isTimeout(err)
+      ? { ok: false, kind: "transient", code: "template_timeout", message: "Template send timed out" }
+      : { ok: false, kind: "transient", code: "template_network", message: "Network error sending template" };
+  }
+}

@@ -43,6 +43,11 @@ export type CategoryDefinition = {
    * an amount or a document number), so they may be shown on a locked screen.
    */
   storedTextLockScreenSafe?: true;
+  /**
+   * The push NEVER shows the stored title / summary, even when the user turned lockScreenDetails ON — the stored
+   * text names a customer (G13: the owner's booking notices). The lock screen stays generic, always.
+   */
+  lockScreenGenericOnly?: true;
   /** Internal route prefixes a deep link of this category may open. The first is the fallback. */
   hrefPrefixes: readonly string[];
 };
@@ -65,9 +70,15 @@ const CATEGORY_LIST = [
     hrefPrefixes: ["/tasks"],
   },
   {
+    // The owner's booking notices (G13, appointments completion 2026-11-25), written by notify() from
+    // lib/services/booking/booking-notify.ts: a new / auto-confirmed / customer-cancelled request in-app only (D3: no
+    // push at once), the two-hourly reminder of a request still waiting as an owed push through the engine (user
+    // preferences, quiet hours, FCM + web push, retries). Entitled under `appointments` (Basic): a request exists only
+    // where public booking is on, so this changes no business's reach. The stored text names the customer, so the
+    // lock screen is ALWAYS the generic text below.
     key: "booking.request_waiting",
     domain: "appointments",
-    featureKey: PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING,
+    featureKey: PLATFORM_FEATURE_KEYS.APPOINTMENTS,
     importance: "high",
     defaults: { inApp: true, push: true, delivery: "instant" },
     quietBypass: false,
@@ -76,6 +87,7 @@ const CATEGORY_LIST = [
     cooldownHours: 0,
     ttlMinutes: 12 * 60,
     lockScreen: { title: GENERIC_PUSH_TITLE, body: "בקשה לתור ממתינה לאישורך" },
+    lockScreenGenericOnly: true,
     hrefPrefixes: ["/calendar"],
   },
   {
@@ -557,4 +569,85 @@ export function safeHref(href: unknown, prefixes: readonly string[]): string | n
   if (/%2e|%2f|%5c/i.test(path)) return null;
   if (/^\/[^/]*:/.test(path)) return null;
   return prefixes.some((p) => path === p || path.startsWith(`${p}/`)) ? href : null;
+}
+
+/* ─────────────────────────────────────────────── customer messages (WhatsApp) ── */
+
+/**
+ * Messages to a business's CUSTOMER (G1, appointments completion program, owner decisions 2026-11-24): template
+ * messages from the central Dubiz WhatsApp number through the official Meta Cloud API. Kept OUT of
+ * NOTIFICATION_CATEGORIES on purpose: they are not a user's notification — no in-app row for the owner, no push, no
+ * user preference, no settings entry — so every user-facing surface of the engine stays exactly as it was
+ * (classifyNotification() reads their rows as UNKNOWN; the rows are written dismissed + resolved, so no list, badge or
+ * digest ever shows them).
+ *
+ * Each one is written by notifyCustomer() (lib/notifications/customer/notify-customer.ts) as a Notification with ONE
+ * delivery: recipientKind CUSTOMER, channel WHATSAPP, PENDING — sent by the worker's WhatsApp lane
+ * (lib/notifications/customer/whatsapp-worker.ts). TTL: an owed message older than its TTL is never sent, nor one
+ * after the appointment's start. quietBypass false ⇒ the lane defers it out of 22:00–08:00 in the business's time zone
+ * (or closes it 'quiet' when that is past its expiry). Entitlement: `public_booking` (plan ADVANCED; trial = full).
+ */
+export type CustomerCategoryDefinition = {
+  key: string;
+  domain: "appointments";
+  recipient: "CUSTOMER";
+  channel: "WHATSAPP";
+  featureKey: PlatformFeatureKey;
+  messageClass: "OPERATIONAL" | "VERIFICATION";
+  /** The template with the customer's manage link, and the one without (an appointment the business entered). */
+  template: { withLink: string; noLink: string };
+  quietBypass: boolean;
+  /** How long an owed message stays worth sending (expiresAt = min(creation + TTL, the appointment's start)). */
+  ttlMinutes: number;
+};
+
+const CUSTOMER_CATEGORY_LIST = [
+  {
+    // The customer has just sent the request and waits for an answer — at any hour.
+    key: "appointments.customer_received", domain: "appointments", recipient: "CUSTOMER", channel: "WHATSAPP",
+    featureKey: PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING, messageClass: "OPERATIONAL",
+    template: { withLink: "dubiz_appt_received", noLink: "dubiz_appt_received" },
+    quietBypass: true, ttlMinutes: 60,
+  },
+  {
+    key: "appointments.customer_confirmed", domain: "appointments", recipient: "CUSTOMER", channel: "WHATSAPP",
+    featureKey: PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING, messageClass: "OPERATIONAL",
+    template: { withLink: "dubiz_appt_confirmed", noLink: "dubiz_appt_confirmed_nolink" },
+    quietBypass: false, ttlMinutes: 12 * 60,
+  },
+  {
+    key: "appointments.customer_changed", domain: "appointments", recipient: "CUSTOMER", channel: "WHATSAPP",
+    featureKey: PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING, messageClass: "OPERATIONAL",
+    template: { withLink: "dubiz_appt_changed", noLink: "dubiz_appt_changed_nolink" },
+    quietBypass: false, ttlMinutes: 12 * 60,
+  },
+  {
+    key: "appointments.customer_cancelled", domain: "appointments", recipient: "CUSTOMER", channel: "WHATSAPP",
+    featureKey: PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING, messageClass: "OPERATIONAL",
+    template: { withLink: "dubiz_appt_cancelled", noLink: "dubiz_appt_cancelled" },
+    quietBypass: false, ttlMinutes: 12 * 60,
+  },
+  {
+    // Owed ahead: notBefore = start − offset (BookingSettings.reminderOffsetsMinutes), expiresAt = start.
+    key: "appointments.customer_reminder", domain: "appointments", recipient: "CUSTOMER", channel: "WHATSAPP",
+    featureKey: PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING, messageClass: "OPERATIONAL",
+    template: { withLink: "dubiz_appt_reminder", noLink: "dubiz_appt_reminder_nolink" },
+    quietBypass: false, ttlMinutes: 7 * 24 * 60,
+  },
+  {
+    // The phone verification code (workstream G). Sent at once by its caller — the code is never stored, so the lane
+    // never retries it. TTL = the code's lifetime (5 minutes, owner requirement 3).
+    key: "appointments.customer_verification", domain: "appointments", recipient: "CUSTOMER", channel: "WHATSAPP",
+    featureKey: PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING, messageClass: "VERIFICATION",
+    template: { withLink: "dubiz_booking_code", noLink: "dubiz_booking_code" },
+    quietBypass: true, ttlMinutes: 5,
+  },
+] as const satisfies readonly CustomerCategoryDefinition[];
+
+export type CustomerCategoryKey = (typeof CUSTOMER_CATEGORY_LIST)[number]["key"];
+export const CUSTOMER_MESSAGE_CATEGORIES: readonly CustomerCategoryDefinition[] = CUSTOMER_CATEGORY_LIST;
+const CUSTOMER_BY_KEY = new Map<string, CustomerCategoryDefinition>(CUSTOMER_MESSAGE_CATEGORIES.map((c) => [c.key, c]));
+
+export function getCustomerCategory(key: string): CustomerCategoryDefinition | null {
+  return CUSTOMER_BY_KEY.get(key) ?? null;
 }
