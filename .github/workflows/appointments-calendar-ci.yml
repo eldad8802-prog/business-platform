@@ -41,6 +41,7 @@ on:
       - ".bkg/lab.sh"
       - ".nte/lab.sh"
       - ".appt/b-followups-battery.ts"
+      - ".appt/daily-use-battery.ts"
       - ".appt/open-all-*"
       - "prisma/migrations/20261115100000_appointments_open_all/**"
       - "ops/evidence/appointments-open-all-*.sql"
@@ -73,6 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           npx tsx features/calendar/calendar-model.test.ts
+          npx tsx lib/services/appointment/calendar-daily-use.test.ts
           npx tsx features/public-booking/public-booking-model.test.ts
           npx tsx features/calendar/secretary-appointments.test.ts
           npx tsx "app/(shell)/secretary/secretary-hub.verify.test.ts"
@@ -169,6 +171,11 @@ jobs:
       # the calendar — permissions, isolation between businesses, validation, regression, and a 400-appointment read.
       - name: API battery — services PATCH, leads by customer, customer names (runtime role, real routes)
         run: npx tsx .appt/b-followups-battery.ts
+
+      # Calendar daily use (G7 G8 G11 G12) AS the runtime role: search (order, cap, erased rows, isolation, limit), service
+      # price / active, change customer and service (overlap under the lock, journal), closure ranges and holidays.
+      - name: API battery — calendar daily use (runtime role, real routes)
+        run: npx tsx .appt/daily-use-battery.ts
 
       - run: npx playwright install --with-deps chromium
 

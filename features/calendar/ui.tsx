@@ -44,6 +44,7 @@ export const IconHourglass = (p: IconProps) => svg(<path d="M7 4h10M7 20h10M8 4c
 export const IconHistory = (p: IconProps) => svg(<><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5" /><path d="M4 4.5v4h4M12 8v4l2.5 1.5" /></>, p);
 export const IconMove = (p: IconProps) => svg(<><path d="M12 3v18M3 12h18" /><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" /></>, p);
 export const IconEdit = (p: IconProps) => svg(<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z" />, p);
+export const IconSearch = (p: IconProps) => svg(<><circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 5 5" /></>, p);
 export const IconCopy = (p: IconProps) => svg(<><rect x="8.5" y="8.5" width="11" height="11" rx="2" /><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" /></>, p);
 
 /** A chevron that points in reading terms: "prev" → (right in RTL), "next" ← (left), "open" (a row's arrow, ←), "down". */

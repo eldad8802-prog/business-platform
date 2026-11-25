@@ -3,7 +3,8 @@
 /**
  * "יומן" — the owner's calendar, design direction A (owner-approved 2026-11-02).
  *
- *   head      Dubiz's back control (when the owner came from somewhere), "יומן" and the period, the settings entry.
+ *   head      Dubiz's back control (when the owner came from somewhere), "יומן" and the period, "חיפוש תור" (G8: a
+ *             customer's name or phone — a result opens the appointment on its day) and the settings entry.
  *   date      ‹ היום › · the week strip (day view) · יום / שבוע / חודש · the staff filter and "הצגת מבוטלים".
  *   day       a real time grid on every size: a lane per staff member on a wide screen (inactive ones too while they
  *             still have appointments that day), one column for everyone on a phone; free / outside the hours /
@@ -30,6 +31,7 @@ import { addCalendarDays } from "@/lib/utils/jerusalem-day";
 
 import { AppointmentDetails } from "./appointment-details";
 import { AppointmentForm, MoveForm, type FormDone, type Prefill } from "./appointment-form";
+import { AppointmentSearch } from "./appointment-search";
 import { CalendarApiError, customerName, forgetIntent, moveAppointment, pendingRequestCount, type CustomerWire } from "./calendar-client";
 import {
   availabilityWarning,
@@ -55,7 +57,7 @@ import {
 } from "./calendar-rules";
 import { DayStrip, Legend, MonthGrid, TimeGrid, WeekList, dayColumns, type Column, type DropTarget } from "./calendar-views";
 import { RequestsView } from "./requests-view";
-import { Chevron, Empty, FeatureOff, IconCalendar, IconGear, IconPlus, LeaveConfirm, Loading, LoadError, ScreenHead, useToast } from "./ui";
+import { Chevron, Empty, FeatureOff, IconCalendar, IconGear, IconPlus, IconSearch, LeaveConfirm, Loading, LoadError, ScreenHead, useToast } from "./ui";
 import { useCalendarData } from "./use-calendar-data";
 import s from "./calendar.module.css";
 
@@ -99,6 +101,7 @@ function CalendarBody() {
   const sheetParam = params?.get("sheet") === "1";
 
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [searching, setSearching] = useState(false);
   const [askLeave, setAskLeave] = useState(false);
   const dirty = useRef(false);
   // The sheet's own history entry has been seen: only then does its disappearing mean "back".
@@ -279,14 +282,17 @@ function CalendarBody() {
     flash(out.warnings.includes("OUTSIDE_AVAILABILITY") ? `${verb} — מחוץ לשעות הפעילות` : verb);
   };
 
+  // G10: a lane only when one was tapped or the calendar is filtered to one ("ללא עובד" = the business's lane, explicit);
+  // otherwise none, and the form picks the default (never the business's lane silently). `filterLane` (above) is exactly that.
   const newAt = (prefill: Partial<Prefill> = {}) =>
-    openSheet({ kind: "create", prefill: { day: anchor < today ? today : anchor, staffMemberId: typeof staffFilter === "number" ? staffFilter : null, ...prefill } });
+    openSheet({ kind: "create", prefill: { day: anchor < today ? today : anchor, staffMemberId: filterLane, ...prefill } });
 
   const details = selectedId !== null ? (
     <AppointmentDetails
       key={selectedId}
       id={selectedId}
       names={data.names}
+      services={data.services}
       onChanged={(m) => { void data.reload(); flash(m); }}
       onMove={(a) => openSheet({ kind: "move", appt: a })}
       onRebook={(customer) => openSheet({ kind: "create", prefill: { day: today, customer } })}
@@ -311,8 +317,25 @@ function CalendarBody() {
           root
           title="יומן"
           subtitle={<span aria-live="polite">{periodTitle}</span>}
-          end={<Link href="/calendar/manage" prefetch={false} className={s.iconBtn} aria-label="ניהול היומן" title="ניהול היומן"><IconGear size={22} /></Link>}
+          end={(
+            <>
+              <button type="button" className={s.iconBtn} aria-label="חיפוש תור" title="חיפוש תור" aria-expanded={searching} onClick={() => setSearching((x) => !x)}><IconSearch size={22} /></button>
+              <Link href="/calendar/manage" prefetch={false} className={s.iconBtn} aria-label="ניהול היומן" title="ניהול היומן"><IconGear size={22} /></Link>
+            </>
+          )}
         />
+        {searching ? (
+          <AppointmentSearch
+            names={data.names}
+            onClose={() => setSearching(false)}
+            onOpen={(hit) => {
+              setSearching(false);
+              const d = hit.startsAt ? todayKey(new Date(hit.startsAt)) : anchor;
+              if (selectedId === null) pushedDetail.current = true;
+              router.push(urlWith({ view: "day", day: d, appointment: String(hit.id), request: null, requestAction: null }), { scroll: false });
+            }}
+          />
+        ) : null}
 
         <div className={s.dateNav}>
           <button type="button" className={s.iconBtn} aria-label={view === "day" ? "היום הקודם" : view === "week" ? "השבוע הקודם" : "החודש הקודם"} onClick={() => prevNext(-1)}><Chevron dir="prev" /></button>
@@ -399,7 +422,7 @@ function CalendarBody() {
                     selectedId={selectedId}
                     canDrag={!phone}
                     onSelect={select}
-                    onCreateAt={(target) => newAt({ day: target.day, minute: target.minute, staffMemberId: target.staffMemberId === undefined ? (typeof staffFilter === "number" ? staffFilter : null) : target.staffMemberId })}
+                    onCreateAt={(target) => newAt({ day: target.day, minute: target.minute, staffMemberId: target.staffMemberId === undefined ? filterLane : target.staffMemberId })}
                     onDrop={onDrop}
                     onHeadClick={view === "week" ? (d) => setUrl({ view: "day", day: d }) : undefined}
                   />

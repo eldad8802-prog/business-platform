@@ -1,0 +1,9 @@
+{
+  "note": "Calendar daily use (appointments completion program, workstream C: G7 holidays & closure ranges, G8 search, G10 staff default, G11 service price/status, G12 fix customer/service). The routes end to end AS the runtime role on the Production-shaped lab are .appt/daily-use-battery.ts in appointments-calendar-ci.yml.",
+  "tests": {
+    "lib/services/appointment/calendar-daily-use.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): the static Israeli holiday table (5787, 5788) cross-checked against the ICU Hebrew calendar and Hebcal anchors, closure range expansion (62-day cap, DST/leap edges), holiday plans (eves partial, past days dropped, unknown ids refused), search query normalisation (name / phone digits, min 2), the G10 staff default and its storage wrapper; run on pull_request by appointments-calendar-ci.yml"
+    }
+  }
+}

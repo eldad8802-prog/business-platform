@@ -10,14 +10,16 @@
  *                 states the whole week (the API's PUT). A staff member with no hours of their own works by the
  *                 business's — shown read-only, with "שעות נפרדות לעובד" starting from a copy of them.
  *   SpecialDays   a closed day, a part-day closure or different hours on one date (the API holds one date per entry),
- *                 listed from today on; added and removed at once.
+ *                 listed from today on; added and removed at once. G7 (design proposal e): tabs "יום אחד" / "טווח" /
+ *                 "חגים" — a range of whole days (≤ 62) and the Israeli holidays (business page only), each with its
+ *                 counts first (days, appointments on them — never cancelled).
  * A read that fails says so — it is never shown as "closed every day" or "no special days".
  */
 import { useEffect, useState } from "react";
 
 import { addCalendarDays } from "@/lib/utils/jerusalem-day";
 
-import { addException, CalendarApiError, forgetIntent, getAvailability, removeException, replaceWeeklyRules, type ExceptionWire, type RuleWire } from "./calendar-client";
+import { addException, CalendarApiError, closeRange, forgetIntent, getAvailability, removeException, removeRange, replaceWeeklyRules, type ClosureOutcomeWire, type ExceptionWire, type RuleWire } from "./calendar-client";
 import {
   dayTitle,
   errorText,
@@ -33,6 +35,7 @@ import {
   timeOptionLabel,
   timeOptions,
 } from "./calendar-rules";
+import { HolidayClosures } from "./holiday-closures";
 import { IconCopy, IconLock, IconPlus, IconX, Loading, LoadError, Seg, Switch, useBeforeUnload } from "./ui";
 import s from "./calendar.module.css";
 
@@ -210,12 +213,15 @@ export function HoursEditor({ staffMemberId, onSaved, onDirty }: { staffMemberId
 }
 
 type ExKind = "ALL" | "PART" | "OPEN";
+/** Design proposal e (owner-approved 2026-11-24): one day / a range / holidays, as tabs of the existing screen. */
+type ExTab = "ONE" | "RANGE" | "HOLIDAYS";
 
 export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: number | null; onChanged: (message: string) => void }) {
   const today = todayKey(new Date());
   const [list, setList] = useState<ExceptionWire[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [stamp, setStamp] = useState(0);
+  const [tab, setTab] = useState<ExTab>("ONE");
   const [day, setDay] = useState(addCalendarDays(today, 1));
   const [kind, setKind] = useState<ExKind>("ALL");
   const [start, setStart] = useState(540);
@@ -225,6 +231,7 @@ export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: numbe
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const scope = staffMemberId ?? "biz";
+  const changed = (message: string) => { setStamp((x) => x + 1); onChanged(message); };
 
   useEffect(() => {
     let cancelled = false;
@@ -250,8 +257,7 @@ export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: numbe
       setLabel("");
       setKind("ALL");
       setDay(addCalendarDays(today, 1));
-      setStamp((x) => x + 1);
-      onChanged("היום המיוחד נשמר");
+      changed("היום המיוחד נשמר");
     } catch (e) {
       forgetIntent(intent);
       setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK"));
@@ -259,6 +265,10 @@ export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: numbe
       setBusy(false);
     }
   };
+
+  const tabs: Array<[ExTab, string]> = staffMemberId === null
+    ? [["ONE", "יום אחד"], ["RANGE", "טווח"], ["HOLIDAYS", "חגים"]]
+    : [["ONE", "יום אחד"], ["RANGE", "טווח"]];
 
   return (
     <div className={s.sheet}>
@@ -278,7 +288,7 @@ export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: numbe
                   <button type="button" className={`${s.btn} ${s.btnDangerFill} ${s.btnSm}`} disabled={busy} onClick={async () => {
                     const intent = `exception:remove:${x.id}`;
                     setBusy(true);
-                    try { await removeException(intent, x.id); setConfirming(null); setStamp((v) => v + 1); onChanged("היום המיוחד הוסר"); } catch (e) { forgetIntent(intent); setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK")); } finally { setBusy(false); }
+                    try { await removeException(intent, x.id); setConfirming(null); changed("היום המיוחד הוסר"); } catch (e) { forgetIntent(intent); setError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK")); } finally { setBusy(false); }
                   }}>כן, להסיר</button>
                   <button type="button" className={`${s.btn} ${s.btnSm}`} disabled={busy} onClick={() => setConfirming(null)}>חזרה</button>
                 </span>
@@ -290,27 +300,137 @@ export function SpecialDays({ staffMemberId, onChanged }: { staffMemberId: numbe
         </ul>
       ) : list ? <p className={s.note}>אין ימים מיוחדים קרובים.</p> : null}
 
-      <div className={s.copyBox}>
-        <span className={s.label} style={{ fontSize: 16, color: "var(--ap-ink)", fontWeight: 600 }}>הוספת יום מיוחד</span>
-        <div className={s.field}>
-          <label className={s.label} htmlFor={`ex-day-${scope}`}>תאריך</label>
-          <input id={`ex-day-${scope}`} type="date" className={s.input} value={day} min={today} onChange={(e) => e.target.value && setDay(e.target.value)} />
-        </div>
-        <Seg label="מה קורה ביום הזה" value={kind} onChange={setKind} small options={[["ALL", "סגור כל היום"], ["PART", "סגור בחלק מהיום"], ["OPEN", "שעות שונות"]]} />
-        {kind !== "ALL" ? (
-          <div className={s.range}>
-            <TimeSelect kind="start" value={start} label="משעה" onChange={setStart} />
-            <span aria-hidden="true">–</span>
-            <TimeSelect kind="end" value={end} label="עד שעה" onChange={setEnd} />
+      <Seg label="סוג הסגירה" value={tab} onChange={(t) => { setTab(t); setError(null); }} options={tabs} />
+
+      {tab === "ONE" ? (
+        <div className={s.copyBox}>
+          <span className={s.label} style={{ fontSize: 16, color: "var(--ap-ink)", fontWeight: 600 }}>הוספת יום מיוחד</span>
+          <div className={s.field}>
+            <label className={s.label} htmlFor={`ex-day-${scope}`}>תאריך</label>
+            <input id={`ex-day-${scope}`} type="date" className={s.input} value={day} min={today} onChange={(e) => e.target.value && setDay(e.target.value)} />
           </div>
-        ) : null}
-        <div className={s.field}>
-          <label className={s.label} htmlFor={`ex-label-${scope}`}>תיאור (לא חובה)</label>
-          <input id={`ex-label-${scope}`} className={s.input} value={label} maxLength={LIMITS.exceptionLabel + 20} onChange={(e) => setLabel(e.target.value)} placeholder="למשל: ערב חג" />
+          <Seg label="מה קורה ביום הזה" value={kind} onChange={setKind} small options={[["ALL", "סגור כל היום"], ["PART", "סגור בחלק מהיום"], ["OPEN", "שעות שונות"]]} />
+          {kind !== "ALL" ? (
+            <div className={s.range}>
+              <TimeSelect kind="start" value={start} label="משעה" onChange={setStart} />
+              <span aria-hidden="true">–</span>
+              <TimeSelect kind="end" value={end} label="עד שעה" onChange={setEnd} />
+            </div>
+          ) : null}
+          <div className={s.field}>
+            <label className={s.label} htmlFor={`ex-label-${scope}`}>תיאור (לא חובה)</label>
+            <input id={`ex-label-${scope}`} className={s.input} value={label} maxLength={LIMITS.exceptionLabel + 20} onChange={(e) => setLabel(e.target.value)} placeholder="למשל: ערב חג" />
+          </div>
+          {error ? <p className={s.fieldErr} role="alert">{error}</p> : null}
+          <button type="button" className={`${s.btn} ${s.btnPri}`} style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => void add()}>{busy ? "שומר…" : "הוספה"}</button>
         </div>
-        {error ? <p className={s.fieldErr} role="alert">{error}</p> : null}
-        <button type="button" className={`${s.btn} ${s.btnPri}`} style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => void add()}>{busy ? "שומר…" : "הוספה"}</button>
+      ) : null}
+      {tab === "RANGE" ? <RangeClosure staffMemberId={staffMemberId} today={today} onChanged={changed} /> : null}
+      {tab === "HOLIDAYS" && staffMemberId === null ? <HolidayClosures today={today} onChanged={changed} /> : null}
+    </div>
+  );
+}
+
+/**
+ * "טווח" (G7): whole days from–to closed (vacation, a closure of several days), up to 62, one special day per day in
+ * one request. The counts are asked as soon as both dates are set (a dry run): how many days, how many already
+ * closed, how many active appointments sit on them — those are never cancelled. "הסרת הסגירות בטווח" withdraws the
+ * closures (whole and short days) of the range; days with different hours stay.
+ */
+function RangeClosure({ staffMemberId, today, onChanged }: { staffMemberId: number | null; today: string; onChanged: (message: string) => void }) {
+  const [from, setFrom] = useState(addCalendarDays(today, 1));
+  const [to, setTo] = useState(addCalendarDays(today, 7));
+  const [label, setLabel] = useState("");
+  const [preview, setPreview] = useState<ClosureOutcomeWire | null>(null);
+  const [removeAsk, setRemoveAsk] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [tick, setTick] = useState(0);
+  const scope = staffMemberId ?? "biz";
+  const valid = from >= today && to >= from && to <= addCalendarDays(from, 61);
+  const failText = (e: unknown) => (e instanceof CalendarApiError && e.code === "INVALID_INPUT" ? "טווח עד 62 ימים, ותאריך הסיום אחרי תאריך ההתחלה." : e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK"));
+
+  useEffect(() => {
+    if (!valid) return;
+    let cancelled = false;
+    const h = window.setTimeout(() => {
+      setPreview(null);
+      closeRange({ staffMemberId, fromDay: from, toDay: to, dryRun: true })
+        .then((r) => { if (!cancelled) { setPreview(r); setError(null); } })
+        .catch((e) => { if (!cancelled) setError(failText(e)); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(h); };
+  }, [staffMemberId, from, to, valid, tick]);
+
+  const apply = async () => {
+    const problem = textProblem("התיאור", label.trim(), LIMITS.exceptionLabel);
+    if (problem) { setError(problem); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      const out = await closeRange({ staffMemberId, fromDay: from, toDay: to, label: label.trim() || null });
+      setLabel("");
+      setTick((x) => x + 1);
+      onChanged(`נסגרו ${out.created.toLocaleString("he-IL")} ימים${out.appointmentsAffected ? ` · ${out.appointmentsAffected.toLocaleString("he-IL")} תורים בימים האלה לא בוטלו` : ""}`);
+    } catch (e) {
+      setError(failText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clear = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (removeAsk === null) { setRemoveAsk((await removeRange({ staffMemberId, fromDay: from, toDay: to, dryRun: true })).removed); return; }
+      const out = await removeRange({ staffMemberId, fromDay: from, toDay: to });
+      setRemoveAsk(null);
+      setTick((x) => x + 1);
+      onChanged(`הוסרו ${out.removed.toLocaleString("he-IL")} סגירות`);
+    } catch (e) {
+      setError(failText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={s.copyBox}>
+      <div className={s.row2}>
+        <div className={s.field}>
+          <label className={s.label} htmlFor={`rg-from-${scope}`}>מתאריך</label>
+          <input id={`rg-from-${scope}`} type="date" className={s.input} value={from} min={today} onChange={(e) => { if (e.target.value) { setFrom(e.target.value); setRemoveAsk(null); } }} />
+        </div>
+        <div className={s.field}>
+          <label className={s.label} htmlFor={`rg-to-${scope}`}>עד תאריך</label>
+          <input id={`rg-to-${scope}`} type="date" className={s.input} value={to} min={from} max={addCalendarDays(from, 61)} onChange={(e) => { if (e.target.value) { setTo(e.target.value); setRemoveAsk(null); } }} />
+        </div>
       </div>
+      {!valid ? <p className={s.fieldErr} role="alert">טווח עד 62 ימים, מהיום והלאה, ותאריך הסיום אחרי תאריך ההתחלה.</p> : null}
+      <div className={s.field}>
+        <label className={s.label} htmlFor={`rg-label-${scope}`}>תיאור (לא חובה)</label>
+        <input id={`rg-label-${scope}`} className={s.input} value={label} maxLength={LIMITS.exceptionLabel + 20} onChange={(e) => setLabel(e.target.value)} placeholder="למשל: חופשה" />
+      </div>
+      {valid && preview ? (
+        <div className={s.warnBox} role="status">
+          <strong>{preview.created.toLocaleString("he-IL")} ימים ייסגרו{preview.skipped ? ` · ${preview.skipped.toLocaleString("he-IL")} כבר סגורים` : ""}</strong>
+          <span>{preview.appointmentsAffected ? `${preview.appointmentsAffected.toLocaleString("he-IL")} תורים קיימים נופלים בימים שנבחרו. הם לא יבוטלו; אפשר לראות אותם ביומן ולהזיז.` : "אין תורים קיימים בימים שנבחרו."}</span>
+        </div>
+      ) : null}
+      {error ? <p className={s.fieldErr} role="alert">{error}</p> : null}
+      <button type="button" className={`${s.btn} ${s.btnPri} ${s.btnWide}`} disabled={busy || !valid || !preview || !preview.created} onClick={() => void apply()}>
+        {busy ? "שומר…" : preview ? `סגירה של ${preview.created.toLocaleString("he-IL")} ימים` : "סגירה"}
+      </button>
+      {removeAsk !== null ? (
+        <div className={s.confirmRow}>
+          <button type="button" className={`${s.btn} ${s.btnDangerFill}`} disabled={busy || removeAsk === 0} onClick={() => void clear()}>{removeAsk ? `כן, להסיר ${removeAsk.toLocaleString("he-IL")} סגירות` : "אין סגירות בטווח"}</button>
+          <button type="button" className={s.btn} disabled={busy} onClick={() => setRemoveAsk(null)}>חזרה</button>
+        </div>
+      ) : (
+        <button type="button" className={`${s.btn} ${s.btnDanger}`} style={{ alignSelf: "flex-start" }} disabled={busy || !valid} onClick={() => void clear()}>הסרת הסגירות בטווח</button>
+      )}
+      <p className={s.hint}>ההסרה מסירה רק סגירות (יום שלם או יום קצר) בטווח; ימים עם שעות שונות נשארים.</p>
     </div>
   );
 }

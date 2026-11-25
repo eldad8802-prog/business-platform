@@ -8,6 +8,9 @@
  *                             how long (the same editor as the staff page), and the booking rules in plain words:
  *                             preparation before / tidying after, "שעות מוצעות כל", "אפשר לקבוע לפחות … מראש" (minutes,
  *                             hours or days — stored in minutes, as before), "עד … ימים קדימה".
+ * G11: the list shows each service's price, and inactive services in their own group ("לא פעילים"); a service's page
+ * edits its price (a fixed amount, or none = no public price) and turns it off / on ("פעיל להזמנות"). An inactive
+ * service cannot be booked (the server refuses it) while the appointments that already have it keep it.
  * The form shows what the SERVER holds and reads it again after every save. Leaving with unsaved changes asks first.
  */
 import Link from "next/link";
@@ -17,7 +20,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 
 import { AssignmentEditor, assignmentErrorText, saveAssignment } from "./assignment-editor";
-import { CalendarApiError, createService, forgetIntent, getPolicy, listServices, listStaff, savePolicy, updateService, type PolicyWire, type ServiceWire } from "./calendar-client";
+import { CalendarApiError, createService, forgetIntent, getPolicy, listServices, listStaff, priceLabel, savePolicy, updateService, type PolicyWire, type ServiceWire } from "./calendar-client";
 import {
   durationLabel,
   errorText,
@@ -35,7 +38,7 @@ import {
   type LeadUnit,
 } from "./calendar-rules";
 import { useLeaveGuard } from "./manage-screens";
-import { Chevron, Empty, FeatureOff, IconPlus, IconScissors, Loading, LoadError, ScreenHead, useBeforeUnload, useToast } from "./ui";
+import { Chevron, Empty, FeatureOff, IconPlus, IconScissors, Loading, LoadError, ScreenHead, Switch, useBeforeUnload, useToast } from "./ui";
 import s from "./calendar.module.css";
 
 const asText = (e: unknown) => (e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK"));
@@ -65,7 +68,7 @@ export function ServicesScreen() {
   useEffect(() => {
     if (!on) return;
     let cancelled = false;
-    listServices().then((v) => { if (!cancelled) { setServices(v.filter((x) => x.active)); setLoadError(null); } }).catch((e) => { if (!cancelled) setLoadError(asText(e)); });
+    listServices().then((v) => { if (!cancelled) { setServices(v); setLoadError(null); } }).catch((e) => { if (!cancelled) setLoadError(asText(e)); });
     listStaff().then((v) => { if (!cancelled) setStaff(v); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [on, tick]);
@@ -131,30 +134,44 @@ export function ServicesScreen() {
 
         {loadError ? <LoadError text={`לא הצלחתי לטעון את השירותים. ${loadError}`} onRetry={() => setTick((x) => x + 1)} /> : null}
         {!loadError && services === null ? <Loading label="טוען שירותים" /> : null}
-        {services && !services.length && !adding ? (
+        {services && !services.some((x) => x.active) && !adding ? (
           <Empty title="עוד אין שירותים" icon={<IconScissors size={32} />}>
             <span>אפשר לקבוע תורים גם בלי שירות, עם משך שבוחרים בכל תור — או להוסיף שירות עכשיו.</span>
             <button type="button" className={`${s.btn} ${s.btnPri}`} onClick={() => setAdding(true)}><IconPlus size={18} /> הוספת שירות</button>
           </Empty>
         ) : null}
-        {services?.length ? (
+        {services?.some((x) => x.active) ? (
           <ul className={s.list} style={{ marginTop: 16 }}>
-            {services.map((x) => (
-              <li key={x.id}>
-                <Link href={`/calendar/services/${x.id}`} prefetch={false} className={s.listRow}>
-                  <span className={s.lineIcon}><IconScissors /></span>
-                  <span className={s.rowText}>
-                    <span className={s.rowTitle} style={{ fontSize: 17 }}>{x.name}</span>
-                    <span className={s.rowSub}>{[x.durationMinutes ? durationLabel(x.durationMinutes) : "ללא משך", performers(x.id)].filter(Boolean).join(" · ")}</span>
-                  </span>
-                  <span className={s.rowEnd}><Chevron dir="open" /></span>
-                </Link>
-              </li>
-            ))}
+            {services.filter((x) => x.active).map((x) => <ServiceRow key={x.id} svc={x} who={performers(x.id)} />)}
           </ul>
+        ) : null}
+        {services?.some((x) => !x.active) ? (
+          <section className={s.section} aria-labelledby="svc-off-title">
+            <h2 id="svc-off-title">לא פעילים</h2>
+            <p className={s.hint}>לא מוצעים בתור חדש. תורים שכבר נקבעו איתם נשארים כמו שהם.</p>
+            <ul className={s.list}>
+              {services.filter((x) => !x.active).map((x) => <ServiceRow key={x.id} svc={x} who={null} />)}
+            </ul>
+          </section>
         ) : null}
       </div>
     </main>
+  );
+}
+
+function ServiceRow({ svc, who }: { svc: ServiceWire; who: string | null }) {
+  const price = priceLabel(svc);
+  return (
+    <li>
+      <Link href={`/calendar/services/${svc.id}`} prefetch={false} className={s.listRow}>
+        <span className={s.lineIcon}><IconScissors /></span>
+        <span className={s.rowText}>
+          <span className={s.rowTitle} style={{ fontSize: 17 }}>{svc.name}</span>
+          <span className={s.rowSub}>{[svc.durationMinutes ? durationLabel(svc.durationMinutes) : "ללא משך", price ?? "ללא מחיר", who, svc.active ? null : "לא פעיל"].filter(Boolean).join(" · ")}</span>
+        </span>
+        <span className={s.rowEnd}><Chevron dir="open" /></span>
+      </Link>
+    </li>
   );
 }
 
@@ -181,7 +198,7 @@ export function ServiceDetailScreen({ id }: { id: number }) {
     if (!on) return;
     let cancelled = false;
     listServices()
-      .then((v) => { if (cancelled) return; const x = v.find((y) => y.id === id && y.active) ?? null; setService(x); setMissing(!x); setLoadError(null); })
+      .then((v) => { if (cancelled) return; const x = v.find((y) => y.id === id) ?? null; setService(x); setMissing(!x); setLoadError(null); })
       .catch((e) => { if (!cancelled) setLoadError(asText(e)); });
     return () => { cancelled = true; };
   }, [on, id, tick]);
@@ -191,7 +208,7 @@ export function ServiceDetailScreen({ id }: { id: number }) {
   return (
     <main className={s.screen} data-page-intent="content">
       <div className={s.narrow}>
-        <ScreenHead title={service?.name ?? "שירות"} subtitle={service?.durationMinutes ? durationLabel(service.durationMinutes) : undefined} fallback="/calendar/services" onBeforeLeave={guard.onBeforeLeave} />
+        <ScreenHead title={service?.name ?? "שירות"} subtitle={service ? [service.durationMinutes ? durationLabel(service.durationMinutes) : null, priceLabel(service), service.active ? null : "לא פעיל"].filter(Boolean).join(" · ") || undefined : undefined} fallback="/calendar/services" onBeforeLeave={guard.onBeforeLeave} />
         {guard.node}
         {loadError ? <LoadError text={`לא הצלחתי לטעון את השירות. ${loadError}`} onRetry={reload} /> : null}
         {!loadError && !service && !missing ? <Loading label="טוען את השירות" /> : null}
@@ -206,6 +223,12 @@ export function ServiceDetailScreen({ id }: { id: number }) {
 function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; onSaved: (message: string) => void; onDirty: (dirty: boolean) => void }) {
   const [name, setName] = useState(service.name);
   const [duration, setDuration] = useState(service.durationMinutes ? String(service.durationMinutes) : "");
+  // G11: a fixed price is edited here; another kind of price set elsewhere in Dubiz (from / range / quote) is shown and
+  // kept unless the owner types a fixed amount instead.
+  const fixedNow = service.priceMode === "FIXED" && service.priceAmount !== null && service.priceAmount !== undefined ? String(Number(service.priceAmount)) : "";
+  const [price, setPrice] = useState(fixedNow);
+  const [active, setActive] = useState(service.active);
+  const otherPrice = service.priceMode === "FROM" || service.priceMode === "RANGE" || service.priceMode === "QUOTE_REQUIRED" ? priceLabel(service) : null;
   const [policy, setPolicy] = useState<PolicyWire | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [leadUnit, setLeadUnit] = useState<LeadUnit>("minutes");
@@ -236,7 +259,9 @@ function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; on
 
   const valueOf = (key: PolicyKey) => (key === "minLeadMinutes" ? Number(draft[key]) * UNIT_MINUTES[leadUnit] : Number(draft[key]));
   const minutes = duration.trim() ? Number(duration) : null;
-  const serviceDirty = name.trim() !== service.name || minutes !== service.durationMinutes;
+  const priceDirty = price.trim() !== fixedNow;
+  const priceAmount = price.trim() ? Number(price) : null;
+  const serviceDirty = name.trim() !== service.name || minutes !== service.durationMinutes || priceDirty || active !== service.active;
   const policyChanges: Partial<Record<PolicyKey, number>> = {};
   if (policy) for (const f of RULES) if (valueOf(f.key) !== policy[f.key]) policyChanges[f.key] = valueOf(f.key);
   const whoDirty = staff !== null && !samePick(pick, currentPick(staff, axis));
@@ -247,7 +272,8 @@ function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; on
 
   const save = async () => {
     const n = name.trim();
-    let problem = !n ? "צריך שם לשירות." : textProblem("השם", n, 120) ?? durationProblem(minutes);
+    let problem = !n ? "צריך שם לשירות." : textProblem("השם", n, 120) ?? durationProblem(minutes)
+      ?? (priceAmount !== null && !(Number.isFinite(priceAmount) && priceAmount >= 0) ? "המחיר צריך להיות מספר, אפס או יותר." : null);
     for (const f of RULES) {
       const v = valueOf(f.key);
       if (!problem && (!Number.isInteger(v) || v < f.lo || v > f.hi)) {
@@ -259,7 +285,12 @@ function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; on
     setError(null);
     try {
       if (serviceDirty) {
-        await updateService(service.id, { ...(n !== service.name ? { name: n } : {}), ...(minutes !== service.durationMinutes ? { durationMinutes: minutes } : {}) });
+        await updateService(service.id, {
+          ...(n !== service.name ? { name: n } : {}),
+          ...(minutes !== service.durationMinutes ? { durationMinutes: minutes } : {}),
+          ...(priceDirty ? { price: priceAmount !== null ? { priceMode: "FIXED" as const, priceAmount } : { priceMode: "NO_PUBLIC_PRICE" as const } } : {}),
+          ...(active !== service.active ? { active } : {}),
+        });
       }
       if (policy && Object.keys(policyChanges).length) {
         const intent = `policy:${service.id}:${policy.version ?? 0}:${JSON.stringify(policyChanges)}`;
@@ -300,7 +331,17 @@ function ServiceEditor({ service, onSaved, onDirty }: { service: ServiceWire; on
             <input id="svc-duration" type="number" inputMode="numeric" min={LIMITS.minDuration} max={LIMITS.maxDuration} step={5} className={s.input} value={duration} onChange={(e) => setDuration(e.target.value)} />
           </div>
         </div>
-        <p className={s.hint}>זה המשך שהיומן מציע בתור חדש. השם והמשך משותפים לקטלוג השירותים בכל דוביז.</p>
+        <div className={s.field}>
+          <label className={s.label} htmlFor="svc-price">מחיר בש״ח (לא חובה)</label>
+          <input id="svc-price" type="number" inputMode="decimal" min={0} step="any" className={s.input} style={{ maxWidth: 160 }} value={price} onChange={(e) => setPrice(e.target.value)} placeholder={otherPrice ?? ""} />
+          <span className={s.hint}>{otherPrice && !priceDirty ? `המחיר בקטלוג: ${otherPrice}. מחיר שיוקלד כאן יחליף אותו במחיר קבוע.` : "בלי מחיר — השירות מופיע בלי מחיר פומבי."}</span>
+        </div>
+        <div className={s.setRow}>
+          <label htmlFor="svc-active">פעיל להזמנות</label>
+          <Switch id="svc-active" checked={active} onChange={setActive} label="פעיל להזמנות" />
+        </div>
+        {!active ? <p className={s.hint}>שירות לא פעיל לא מוצע בתור חדש (גם לא בקישור ההזמנה). תורים שכבר נקבעו איתו נשארים.</p> : null}
+        <p className={s.hint}>זה המשך שהיומן מציע בתור חדש. השם, המשך, המחיר והמצב משותפים לקטלוג השירותים בכל דוביז.</p>
       </section>
 
       {loadError ? <LoadError text={`לא הצלחתי לטעון את כללי הקביעה. ${loadError}`} onRetry={() => setStamp((x) => x + 1)} /> : null}

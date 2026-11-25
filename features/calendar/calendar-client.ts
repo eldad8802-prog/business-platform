@@ -105,8 +105,36 @@ export const changeStatus = (
 export const updateDetails = (
   intent: string,
   id: number,
-  input: { title?: string | null; notes?: string | null; locationKind?: string | null; locationDetail?: string | null; expectedVersion: number },
+  input: {
+    title?: string | null;
+    notes?: string | null;
+    locationKind?: string | null;
+    locationDetail?: string | null;
+    /** G12: another customer / service; a new length only when the owner confirmed it. */
+    customerId?: number | null;
+    businessServiceId?: number | null;
+    durationMinutes?: number;
+    expectedVersion: number;
+  },
 ) => write<WriteResult>(intent, "PATCH", `/api/appointments/${id}/details`, input);
+
+/** G8 — the owner's search: name or phone (2+ characters), upcoming first, then recent past; at most 30. */
+export type SearchHitWire = {
+  id: number;
+  kind: "CUSTOMER" | "INTERNAL" | "BLOCK";
+  status: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  staffMemberId: number | null;
+  businessServiceId: number | null;
+  customerId: number | null;
+  customerName: string | null;
+  title: string | null;
+  upcoming: boolean;
+};
+
+export const searchAppointments = (q: string) =>
+  call<{ results: SearchHitWire[] }>("GET", `/api/appointments/search?${new URLSearchParams({ q })}`).then((r) => r.results);
 
 export type SlotWire = { startsAt: string; endsAt: string };
 
@@ -169,6 +197,30 @@ export const addException = (
 export const removeException = (intent: string, id: number) =>
   write<{ exception: ExceptionWire }>(intent, "DELETE", `/api/appointments/availability/exceptions/${id}`, undefined);
 
+/** G7 — what a closure write did (or would do, on a dry run): days added, days already closed, appointments on them. */
+export type ClosureOutcomeWire = {
+  dryRun: boolean;
+  created: number;
+  skipped: number;
+  appointmentsAffected: number;
+  days: Array<{ dayKey: string; startMinute: number | null; endMinute: number | null; status: "created" | "exists"; appointments: number }>;
+};
+
+/** Whole days from–to closed (≤ 62), one special day per day. Repeat-safe on the server (a closed day is skipped). */
+export const closeRange = (input: { staffMemberId: number | null; fromDay: string; toDay: string; label?: string | null; dryRun?: boolean }) =>
+  call<ClosureOutcomeWire>("POST", "/api/appointments/availability/exceptions/range", input);
+
+/** Every special day of the scope inside from–to withdrawn (kept as history). */
+export const removeRange = (input: { staffMemberId: number | null; fromDay: string; toDay: string; dryRun?: boolean }) =>
+  call<{ dryRun: boolean; removed: number }>("DELETE", "/api/appointments/availability/exceptions/range", input);
+
+export type HolidayWire = { id: string; year: number; key: string; name: string; eve: boolean; defaultOn: boolean; dayKey: string };
+
+export const listHolidays = () => call<{ holidays: HolidayWire[] }>("GET", "/api/appointments/availability/holidays").then((r) => r.holidays);
+
+export const applyHolidays = (input: { holidays: string[]; eveClosingMinute: number; staffMemberId?: number | null; dryRun?: boolean }) =>
+  call<ClosureOutcomeWire>("POST", "/api/appointments/availability/holidays", input);
+
 export type PolicyWire = {
   businessServiceId: number;
   bufferBeforeMinutes: number;
@@ -191,16 +243,32 @@ export const savePolicy = (intent: string, serviceId: number, input: Partial<Omi
 
 // ── The catalog, customers and leads (existing routes) ──────────────────────────────────────────
 
-export type ServiceWire = { id: number; name: string; durationMinutes: number | null; active: boolean };
+export type PriceModeWire = "FIXED" | "FROM" | "RANGE" | "QUOTE_REQUIRED" | "NO_PUBLIC_PRICE";
+export type ServiceWire = {
+  id: number;
+  name: string;
+  durationMinutes: number | null;
+  active: boolean;
+  /** G11: the catalog's public price (null mode = a row that predates price semantics). Amounts as decimal strings. */
+  priceMode?: PriceModeWire | null;
+  priceAmount?: string | null;
+  priceMax?: string | null;
+};
+
+type ServiceRowWire = { id: number; name: string; durationMinutes: number | null; active: boolean; priceMode?: PriceModeWire | null; priceAmount?: string | null; priceMax?: string | null };
+const serviceOf = (r: ServiceRowWire): ServiceWire => ({
+  id: r.id, name: r.name, durationMinutes: r.durationMinutes, active: r.active,
+  priceMode: r.priceMode ?? null, priceAmount: r.priceAmount ?? null, priceMax: r.priceMax ?? null,
+});
 
 export async function listServices(): Promise<ServiceWire[]> {
-  const r = await call<{ offerings: Array<{ kind: string; canonicalId: number; name: string; durationMinutes: number | null; active: boolean }> }>(
+  const r = await call<{ offerings: Array<{ kind: string; canonicalId: number; name: string; durationMinutes: number | null; active: boolean; priceMode: PriceModeWire | null; priceAmount: string | null; priceMax: string | null }> }>(
     "GET",
     "/api/business/services",
   );
   return r.offerings
     .filter((o) => o.kind === "SERVICE")
-    .map((o) => ({ id: o.canonicalId, name: o.name, durationMinutes: o.durationMinutes, active: o.active }));
+    .map((o) => serviceOf({ id: o.canonicalId, name: o.name, durationMinutes: o.durationMinutes, active: o.active, priceMode: o.priceMode, priceAmount: o.priceAmount, priceMax: o.priceMax }));
 }
 
 /**
@@ -208,20 +276,42 @@ export async function listServices(): Promise<ServiceWire[]> {
  * a fixed price; without a price it is listed with no public price.
  */
 export async function createService(input: { name: string; durationMinutes: number | null; priceAmount?: number | null }): Promise<ServiceWire> {
-  const r = await call<{ service: { id: number; name: string; durationMinutes: number | null; active: boolean } }>("POST", "/api/business/services", {
+  const r = await call<{ service: ServiceRowWire }>("POST", "/api/business/services", {
     name: input.name,
     durationMinutes: input.durationMinutes,
     ...(input.priceAmount !== undefined && input.priceAmount !== null
       ? { priceMode: "FIXED", priceAmount: input.priceAmount }
       : { priceMode: "NO_PUBLIC_PRICE" }),
   });
-  return { id: r.service.id, name: r.service.name, durationMinutes: r.service.durationMinutes, active: r.service.active };
+  return serviceOf(r.service);
 }
 
-/** Edit a catalog service's name and length (PATCH /api/business/services/[id]); price and status stay as they are. */
-export async function updateService(id: number, input: { name?: string; durationMinutes?: number | null }): Promise<ServiceWire> {
-  const r = await call<{ service: { id: number; name: string; durationMinutes: number | null; active: boolean } }>("PATCH", `/api/business/services/${id}`, input);
-  return { id: r.service.id, name: r.service.name, durationMinutes: r.service.durationMinutes, active: r.service.active };
+/**
+ * Edit a catalog service (PATCH /api/business/services/[id]): name, length and — G11 — price (a fixed amount, or none =
+ * no public price) and whether it is active. Fields left out stay as they are.
+ */
+export async function updateService(
+  id: number,
+  input: { name?: string; durationMinutes?: number | null; price?: { priceMode: "FIXED"; priceAmount: number } | { priceMode: "NO_PUBLIC_PRICE" }; active?: boolean },
+): Promise<ServiceWire> {
+  const { price, ...rest } = input;
+  const r = await call<{ service: ServiceRowWire }>("PATCH", `/api/business/services/${id}`, { ...rest, ...(price ?? {}) });
+  return serviceOf(r.service);
+}
+
+/** The price as the owner reads it ("₪120", "החל מ־₪80", "₪80–₪120", "לפי הצעת מחיר"), or null when there is none. */
+export function priceLabel(svc: Pick<ServiceWire, "priceMode" | "priceAmount" | "priceMax">): string | null {
+  const money = (v: string | null | undefined) => {
+    const n = v === null || v === undefined ? NaN : Number(v);
+    return Number.isFinite(n) ? `₪${n.toLocaleString("he-IL", { maximumFractionDigits: 2 })}` : null;
+  };
+  switch (svc.priceMode) {
+    case "FIXED": return money(svc.priceAmount);
+    case "FROM": { const m = money(svc.priceAmount); return m ? `החל מ־${m}` : null; }
+    case "RANGE": { const a = money(svc.priceAmount); const b = money(svc.priceMax); return a && b ? `${a}–${b}` : null; }
+    case "QUOTE_REQUIRED": return "לפי הצעת מחיר";
+    default: return null;
+  }
 }
 
 export type CustomerWire = { id: number; name: string; phone: string | null };

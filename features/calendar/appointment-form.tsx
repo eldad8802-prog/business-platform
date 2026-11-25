@@ -29,6 +29,7 @@ import {
   forgetIntent,
   moveAppointment,
   openLeadOf,
+  priceLabel,
   searchCustomers,
   type CustomerWire,
   type ServiceWire,
@@ -62,6 +63,7 @@ import {
   keepStaffFor,
   staffForService,
 } from "./calendar-rules";
+import { defaultStaffChoice, readLastStaff, rememberLastStaff } from "./staff-default";
 import { Chevron, IconCalendar, IconClock, IconScissors, IconUser, IconUsers, IconX } from "./ui";
 import s from "./calendar.module.css";
 
@@ -69,11 +71,18 @@ type Kind = "CUSTOMER" | "INTERNAL" | "BLOCK";
 const KIND_TAB: Array<[Kind, string]> = [["CUSTOMER", "תור ללקוח"], ["INTERNAL", "פגישה"], ["BLOCK", "חסימה"]];
 const LOCATIONS = ["IN_PERSON", "PHONE", "ONLINE"] as const;
 
+/**
+ * `staffMemberId`: undefined = no lane was tapped (the form picks a default, G10); null = the business's own lane was
+ * tapped or filtered to (kept, explicit); a number = that staff lane.
+ */
 export type Prefill = { day: DayKey; minute?: number; staffMemberId?: number | null; customer?: CustomerWire | null };
 
 export type FormDone = { appointment: AppointmentWire; warnings: string[] };
 
-type FieldKey = "customer" | "title" | "time" | "duration" | "notes" | "locationDetail" | "end";
+type FieldKey = "customer" | "title" | "time" | "duration" | "notes" | "locationDetail" | "end" | "staff";
+
+/** G10: the business's own lane closes the time for every staff lane — said whenever it is chosen. */
+const BUSINESS_LANE_NOTE = "„ללא עובד / כל העסק” תופס את הזמן לכל העובדים — אף עובד לא יוכל לקבל תור בזמן הזה.";
 
 const SLOTS_SHOWN = 9;
 
@@ -215,7 +224,15 @@ export function AppointmentForm({
   const [customer, setCustomer] = useState<CustomerWire | null>(prefill.customer ?? null);
   const [leadId, setLeadId] = useState<number | null>(null);
   const [serviceId, setServiceId] = useState<number | null>(null);
-  const [staffId, setStaffId] = useState<number | null>(prefill.staffMemberId ?? null);
+  // G10: the lane tapped, else the last staff member booked on this device, else the only active one; with two or more
+  // and nothing to go by, the form asks — the business's own lane is never chosen silently.
+  const [initialStaff] = useState(() => defaultStaffChoice({
+    tapped: prefill.staffMemberId,
+    lastUsed: readLastStaff(),
+    activeStaffIds: activeStaff.map((x) => x.id),
+  }));
+  const [staffId, setStaffId] = useState<number | null>(initialStaff.staffId);
+  const [staffPending, setStaffPending] = useState(initialStaff.pending);
   const [staffCleared, setStaffCleared] = useState<string | null>(null);
   const [day, setDay] = useState<DayKey>(prefill.day);
   const [time, setTime] = useState(prefill.minute !== undefined ? clock(prefill.minute) : "");
@@ -278,6 +295,7 @@ export function AppointmentForm({
 
   const fieldErrors: Partial<Record<FieldKey, string>> = {};
   if (kind === "CUSTOMER" && !customer) fieldErrors.customer = "צריך לבחור לקוח.";
+  if (staffPending && activeStaff.length > 0) fieldErrors.staff = kind === "BLOCK" ? "צריך לבחור למי לחסום." : "צריך לבחור עובד (או „ללא עובד / כל העסק”).";
   if (kind === "INTERNAL" && !title.trim()) fieldErrors.title = "צריך נושא לפגישה.";
   else if (textProblem("הכותרת", title, LIMITS.title)) fieldErrors.title = textProblem("הכותרת", title, LIMITS.title)!;
   if (startMinute === null) fieldErrors.time = kind === "BLOCK" ? "צריך שעת התחלה." : "צריך לבחור שעה.";
@@ -318,6 +336,7 @@ export function AppointmentForm({
         locationDetail: kind === "BLOCK" ? null : locationDetail.trim() || null,
         status: kind === "BLOCK" || !proposed ? "CONFIRMED" : "PROPOSED",
       });
+      rememberLastStaff(staffId);
       onDirty(false);
       onDone({ appointment: out.appointment, warnings: out.warnings ?? [] });
     } catch (e) {
@@ -385,11 +404,19 @@ export function AppointmentForm({
             <select id="appt-service" className={s.lineSelect} value={serviceId ?? ""} onChange={(e) => {
               const next = e.target.value ? Number(e.target.value) : null;
               const kept = keepStaffFor(staff, next, staffId);
-              setStaffCleared(kept === null && staffId !== null ? (activeStaff.find((x) => x.id === staffId)?.displayName ?? "העובד") : null);
-              setServiceId(next); setStaffId(kept); setDurationTouched(false); touch();
+              const cleared = kept === null && staffId !== null;
+              setStaffCleared(cleared ? (activeStaff.find((x) => x.id === staffId)?.displayName ?? "העובד") : null);
+              if (cleared) {
+                // Never fall back to the business's lane silently: the only performer, or ask.
+                const d = defaultStaffChoice({ tapped: undefined, lastUsed: null, activeStaffIds: staffForService(staff, next).map((x) => x.id) });
+                setStaffId(d.staffId); setStaffPending(d.pending);
+              } else {
+                setStaffId(kept);
+              }
+              setServiceId(next); setDurationTouched(false); touch();
             }}>
               <option value="">ללא שירות מסוים</option>
-              {activeServices.map((x) => <option key={x.id} value={x.id}>{x.name}{x.durationMinutes ? ` · ${durationLabel(x.durationMinutes)}` : ""}</option>)}
+              {activeServices.map((x) => { const price = priceLabel(x); return <option key={x.id} value={x.id}>{x.name}{x.durationMinutes ? ` · ${durationLabel(x.durationMinutes)}` : ""}{price ? ` · ${price}` : ""}</option>; })}
             </select>
             <Chevron dir="down" />
           </Line>
@@ -402,14 +429,22 @@ export function AppointmentForm({
         )}
 
         {activeStaff.length ? (
-          <Line label={kind === "BLOCK" ? "למי לחסום" : kind === "INTERNAL" ? "עם מי" : "צוות"} icon={<IconUser />} htmlFor="appt-staff">
-            <select id="appt-staff" className={s.lineSelect} value={staffId ?? ""} onChange={(e) => { setStaffId(e.target.value ? Number(e.target.value) : null); setStaffCleared(null); touch(); }}>
-              <option value="">{kind === "BLOCK" ? "כל העסק" : "ללא עובד"}</option>
+          <Line label={kind === "BLOCK" ? "למי לחסום" : kind === "INTERNAL" ? "עם מי" : "צוות"} icon={<IconUser />} htmlFor="appt-staff" error={shownErrors.staff} errorId="appt-staff-err">
+            <select id="appt-staff" className={`${s.lineSelect} ${shownErrors.staff ? s.inputBad : ""}`} value={staffPending ? "" : staffId === null ? "business" : String(staffId)}
+              aria-invalid={!!shownErrors.staff} aria-describedby={shownErrors.staff ? "appt-staff-err" : undefined}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return;
+                setStaffId(v === "business" ? null : Number(v)); setStaffPending(false); setStaffCleared(null); touch();
+              }}>
+              {staffPending ? <option value="" disabled>{kind === "BLOCK" ? "בחירה…" : "בחירת עובד…"}</option> : null}
               {staffChoices.map((x) => <option key={x.id} value={x.id}>{x.displayName}</option>)}
+              <option value="business">ללא עובד / כל העסק</option>
             </select>
             <Chevron dir="down" />
           </Line>
         ) : null}
+        {activeStaff.length && !staffPending && staffId === null ? <p className={s.note} role="note" style={{ paddingTop: 6 }}>{BUSINESS_LANE_NOTE}</p> : null}
         {staffCleared ? <p className={s.note} role="status" style={{ paddingTop: 6 }}>{staffCleared} לא מבצע/ת את השירות הזה, ולכן הבחירה נוקתה.</p> : null}
         {kind === "CUSTOMER" && serviceId !== null && staffChoices.length < activeStaff.length ? <p className={s.note} style={{ paddingTop: 6 }}>מוצגים רק מי שמבצעים את השירות.</p> : null}
 
@@ -553,7 +588,7 @@ export function AppointmentForm({
 
 // ── The customer field: search, pick, or create ──────────────────────────────────────────────────
 
-function CustomerField({ value, onChange, autoFocus, error }: { value: CustomerWire | null; onChange: (c: CustomerWire | null) => void; autoFocus: boolean; error?: string }) {
+export function CustomerField({ value, onChange, autoFocus, error }: { value: CustomerWire | null; onChange: (c: CustomerWire | null) => void; autoFocus: boolean; error?: string }) {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<CustomerWire[] | null>(null);
   const [failed, setFailed] = useState(false);
