@@ -16,7 +16,22 @@ import { telHref, whatsAppChatHref } from "@/components/customers/customer-conta
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { uuidV7 } from "@/lib/tasks/tasks-client";
 
-import { CalendarApiError, changeStatus, customerName, forgetIntent, getAppointment, updateDetails, type CustomerWire } from "./calendar-client";
+import { arrivalRefusal, correctionTargets, CORRECTION_REASONS, lateness } from "@/lib/services/appointment/appointment-arrival.core";
+
+import {
+  CalendarApiError,
+  changeSeries,
+  changeStatus,
+  correctStatus,
+  customerName,
+  forgetIntent,
+  getAppointment,
+  getSeries,
+  markArrived,
+  updateDetails,
+  type CustomerWire,
+  type SeriesSummaryWire,
+} from "./calendar-client";
 import {
   ACTOR_LABEL,
   actionsFor,
@@ -49,7 +64,27 @@ import s from "./calendar.module.css";
 const DATE_LONG = new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Jerusalem" });
 const STAMP = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
 
-type Mode = "view" | "cancel" | "edit" | "complete" | "no_show";
+type Mode = "view" | "cancel" | "edit" | "complete" | "no_show" | "correct";
+type Scope = "one" | "following";
+
+/** G6: the closed correction reasons, in the owner's words (the journal keeps the token). */
+const CORRECTION_LABEL: Record<(typeof CORRECTION_REASONS)[number], string> = {
+  WRONG_MARK: "סימנתי בטעות",
+  CUSTOMER_CAME: "הלקוח כן הגיע",
+  CUSTOMER_DID_NOT_COME: "הלקוח לא הגיע",
+  NOT_CANCELED: "התור לא בוטל",
+  OTHER: "סיבה אחרת",
+};
+const CORRECT_TO_LABEL: Record<string, string> = { CONFIRMED: "מאושר (פתוח)", COMPLETED: "התקיים", NO_SHOW: "לא הגיע", CANCELED: "בוטל" };
+const FREQUENCY_LABEL: Record<string, string> = { WEEKLY: "כל שבוע", BIWEEKLY: "כל שבועיים" };
+
+/** "מאחר/ת 12 דק׳" / "הגיע/ה באיחור של 12 דק׳" / "הגיע/ה" — computed from the row and the clock, never stored. */
+export function latenessText(l: ReturnType<typeof lateness>): { text: string; late: boolean } | null {
+  if (l.state === "late") return { text: `מאחר/ת ${l.minutes.toLocaleString("he-IL")} דק׳`, late: true };
+  if (l.state === "arrived_late") return { text: `הגיע/ה באיחור של ${l.minutes.toLocaleString("he-IL")} דק׳`, late: true };
+  if (l.state === "arrived") return { text: "הגיע/ה", late: false };
+  return null;
+}
 
 export function AppointmentDetails({
   id,
@@ -76,6 +111,7 @@ export function AppointmentDetails({
   const [busy, setBusy] = useState(false);
   const [stamp, setStamp] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
+  const [series, setSeries] = useState<SeriesSummaryWire | null>(null);
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -87,6 +123,8 @@ export function AppointmentDetails({
         setLoadError(null);
         // The customer's phone (for the call / WhatsApp links) — the card's first section; nothing if it fails.
         if (d.appointment.customerId !== null) customerName(d.appointment.customerId).then((c) => { if (!cancelled) setCustomer(c); }).catch(() => undefined);
+        // G5: the series this occurrence belongs to (its rule, place and version) — nothing if it fails.
+        if (d.appointment.seriesId) getSeries(d.appointment.seriesId).then((v) => { if (!cancelled) setSeries(v); }).catch(() => undefined);
       })
       .catch((e) => { if (!cancelled) setLoadError(e instanceof CalendarApiError ? errorText(e.code, e.status) : errorText("NETWORK")); });
     return () => { cancelled = true; };
@@ -119,14 +157,22 @@ export function AppointmentDetails({
   const stateWord = a.kind === "BLOCK" ? (a.status === "CANCELED" ? "החסימה בוטלה" : KIND_LABEL.BLOCK) : STATUS_LABEL[a.status];
   const what = a.kind === "BLOCK" ? "החסימה" : a.kind === "INTERNAL" ? "הפגישה" : "התור";
 
-  const runStatus = async (to: keyof typeof STATUS_TO, extra: { cancelReason?: string; reason?: string | null } = {}) => {
+  const runStatus = async (to: keyof typeof STATUS_TO, extra: { cancelReason?: string; reason?: string | null } = {}, scope: Scope | null = null) => {
     // One status change at a time: a second tap while the first is on its way is ignored.
     if (inFlight.current) return;
     inFlight.current = true;
-    const intent = `appt:status:${a.id}:${to}:${a.version}`;
+    const intent = `appt:status:${a.id}:${to}:${a.version}:${scope ?? ""}`;
     setBusy(true);
     setError(null);
     try {
+      if (to === "cancel" && scope && a.seriesId && series) {
+        // G5: cancel this occurrence, or it and the ones after it, through the series (its version goes up).
+        const out = await changeSeries(intent, a.seriesId, { action: "cancel", scope, appointmentId: a.id, expectedVersion: series.series.version, ...extra });
+        setMode("view");
+        setStamp((x) => x + 1);
+        onChanged(scope === "one" ? "התור בוטל" : `בוטלו ${out.changed.toLocaleString("he-IL")} תורים מהסדרה`);
+        return;
+      }
       await changeStatus(intent, a.id, { to: STATUS_TO[to], expectedVersion: a.version, ...extra });
       const words = { confirm: "התור אושר", complete: "סומן שהתור התקיים", no_show: "סומן שהלקוח לא הגיע", cancel: a.kind === "BLOCK" ? "החסימה בוטלה" : a.kind === "INTERNAL" ? "הפגישה בוטלה" : "התור בוטל" } as const;
       setMode("view");
@@ -142,6 +188,36 @@ export function AppointmentDetails({
       inFlight.current = false;
     }
   };
+
+  /** G6 — ARRIVED, and a final status set right. Same discipline as a status change: one at a time, the version seen. */
+  const runOther = async (intent: string, call: () => Promise<unknown>, done: string) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await call();
+      setMode("view");
+      setStamp((x) => x + 1);
+      onChanged(done);
+    } catch (e) {
+      forgetIntent(intent);
+      const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "NETWORK");
+      setError(errorText(typeof err.details.reason === "string" ? err.details.reason : err.code, err.status));
+      if (err.code === "VERSION_CONFLICT" || err.code === "INVALID_TRANSITION") setStamp((x) => x + 1);
+    } finally {
+      setBusy(false);
+      inFlight.current = false;
+    }
+  };
+  const arrive = () => {
+    const intent = `appt:arrival:${a.id}:${a.version}`;
+    void runOther(intent, () => markArrived(intent, a.id, a.version), "סומן שהלקוח הגיע");
+  };
+  const canArrive = arrivalRefusal({ ...a, startsAt: a.startsAt, actualStartedAt: a.actualStartedAt ?? null }, now) === null;
+  const late = latenessText(lateness({ ...a, actualStartedAt: a.actualStartedAt ?? null }, now));
+  const targets = a.sourceChannel === "PUBLIC_BOOKING" ? [] : correctionTargets(a);
+  const occurrence = series && a.seriesIndex !== null && a.seriesIndex !== undefined ? series : null;
 
   const started = !a.startsAt || Date.parse(a.startsAt) <= now.getTime();
 
@@ -160,6 +236,7 @@ export function AppointmentDetails({
           {a.startsAt ? <>{DATE_LONG.format(new Date(a.startsAt))} · <bdi dir="ltr">{timeLabel(a).replace(/[⁦⁩]/g, "")}</bdi></> : "ללא מועד"}
           {minutes ? ` (${durationLabel(minutes)})` : ""}
         </p>
+        {late ? <p className={s.detWhen}><span className={late.late ? s.lateTag : s.arrivedTag} role="status">{late.text}</span></p> : null}
         {staff || a.kind === "BLOCK" ? (
           <p className={s.detWhen} style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {staff ? <><span className={s.dot} style={{ ["--lane" as string]: staff.color ?? "#b9b0a7" }} aria-hidden="true" />{staff.displayName}{staff.active ? "" : " (לא פעיל)"}</> : "כל העסק"}
@@ -177,6 +254,9 @@ export function AppointmentDetails({
 
       {mode === "view" ? (
         <div className={s.actionsCol}>
+          {canArrive ? (
+            <button type="button" className={`${s.btn} ${s.btnSoft}`} disabled={busy} onClick={arrive}>הלקוח הגיע</button>
+          ) : null}
           {a.status === "PROPOSED" && actions.includes("confirm") ? (
             <button type="button" className={`${s.btn} ${s.btnPri}`} disabled={busy} onClick={() => void runStatus("confirm")}>אישור {what}</button>
           ) : null}
@@ -199,7 +279,10 @@ export function AppointmentDetails({
           ) : null}
           {isTerminal(a.status) ? (
             <>
-              <p className={s.finalNote}>{a.kind === "BLOCK" ? "החסימה הוסרה, והזמן פנוי ביומן." : `זה סטטוס סופי — אי אפשר לשנות את ${what} הזה.`}</p>
+              <p className={s.finalNote}>{a.kind === "BLOCK" ? "החסימה הוסרה, והזמן פנוי ביומן." : targets.length ? `זה סטטוס סופי. סומן בטעות? אפשר לתקן.` : `זה סטטוס סופי — אי אפשר לשנות את ${what} הזה.`}</p>
+              {targets.length ? (
+                <button type="button" className={s.btn} style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => setMode("correct")}>תיקון סטטוס</button>
+              ) : null}
               {a.kind === "CUSTOMER" && a.customerId !== null && custName ? (
                 <button type="button" className={`${s.btn} ${s.btnSoft}`} onClick={() => onRebook({ id: a.customerId!, name: custName, phone: customer?.phone ?? null })}>
                   <IconPlus size={18} /> קביעת תור חדש ל{custName}
@@ -218,7 +301,22 @@ export function AppointmentDetails({
           onConfirm={() => void runStatus(mode)}
         />
       ) : null}
-      {mode === "cancel" ? <CancelBox appt={a} busy={busy} onCancel={() => setMode("view")} onConfirm={(reason, note) => void runStatus("cancel", { cancelReason: reason, reason: note })} /> : null}
+      {mode === "cancel" ? (
+        <CancelBox appt={a} inSeries={!!occurrence} busy={busy} onCancel={() => setMode("view")}
+          onConfirm={(reason, note, scope) => void runStatus("cancel", { cancelReason: reason, reason: note }, occurrence ? scope : null)} />
+      ) : null}
+      {mode === "correct" ? (
+        <CorrectBox
+          appt={a}
+          targets={targets}
+          busy={busy}
+          onCancel={() => setMode("view")}
+          onConfirm={(to, reasonCode, note) => {
+            const intent = `appt:correct:${a.id}:${to}:${a.version}`;
+            void runOther(intent, () => correctStatus(intent, a.id, { to: to as "CONFIRMED", reasonCode, note, expectedVersion: a.version }), "הסטטוס תוקן");
+          }}
+        />
+      ) : null}
       {mode === "edit" ? (
         <EditBox
           appt={a}
@@ -236,6 +334,14 @@ export function AppointmentDetails({
           <><dt>לקוח</dt><dd><Link href={`/customers/${a.customerId}`} prefetch={false}>{custName ?? "כרטיס הלקוח"}</Link>{phone && !a.booking ? <> · <bdi dir="ltr">{formatPhoneForDisplay(phone)}</bdi></> : null}</dd></>
         ) : null}
         {service ? <><dt>שירות</dt><dd>{service}</dd></> : null}
+        {occurrence ? (
+          <><dt>תור חוזר</dt><dd>
+            {FREQUENCY_LABEL[occurrence.series.frequency] ?? ""}
+            {occurrence.series.occurrenceCount ? ` · ${(a.seriesIndex! + 1).toLocaleString("he-IL")} מתוך ${occurrence.series.occurrenceCount.toLocaleString("he-IL")}` : ""}
+            {occurrence.series.endsOn ? ` · עד ${new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", year: "2-digit", timeZone: "UTC" }).format(new Date(occurrence.series.endsOn))}` : ""}
+            {occurrence.series.cancelledAt ? " · הסדרה בוטלה" : ""}
+          </dd></>
+        ) : null}
         {a.locationKind || a.locationDetail ? (
           <><dt>מיקום</dt><dd>{[a.locationKind ? LOCATION_LABEL[a.locationKind] : null].filter(Boolean).join("")}{a.locationKind && a.locationDetail ? " · " : ""}{a.locationDetail ? (/^https?:\/\//i.test(a.locationDetail) ? <a href={a.locationDetail} target="_blank" rel="noopener noreferrer" dir="ltr">{a.locationDetail}</a> : a.locationDetail) : null}</dd></>
         ) : null}
@@ -303,6 +409,12 @@ function historyDetail(h: HistoryWire, names: Names): string {
     }
     return parts.length ? ` ${parts.join(" · ")}` : "";
   }
+  if (h.type === "STATUS_CORRECTED" && typeof h.payload.to === "string") {
+    return ` · ל${STATUS_LABEL[h.payload.to as keyof typeof STATUS_LABEL] ?? "סטטוס אחר"}`;
+  }
+  if (h.type === "SERIES_CHANGED" && typeof h.payload.changed === "number") {
+    return ` · ${h.payload.scope === "following" ? "התור הזה והבאים" : "רק התור הזה"} (${h.payload.changed.toLocaleString("he-IL")})`;
+  }
   if (h.type === "APPOINTMENT_CANCELED" && typeof h.payload.cancelReason === "string" && h.payload.cancelReason in CANCEL_REASON_LABEL) {
     return ` · ${CANCEL_REASON_LABEL[h.payload.cancelReason as keyof typeof CANCEL_REASON_LABEL]}`;
   }
@@ -341,8 +453,15 @@ function FinalConfirm({ kind, busy, onBack, onConfirm }: { kind: "complete" | "n
  * after the box opens, and the button that sits where "ביטול התור" was is "חזרה" — a tap that lands there by
  * accident keeps the appointment.
  */
-function CancelBox({ appt, busy, onCancel, onConfirm }: { appt: AppointmentWire; busy: boolean; onCancel: () => void; onConfirm: (reason: string, note: string | null) => void }) {
+function CancelBox({ appt, inSeries, busy, onCancel, onConfirm }: {
+  appt: AppointmentWire;
+  inSeries: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string, note: string | null, scope: Scope) => void;
+}) {
   const [reason, setReason] = useState<string>("OWNER_CANCELED");
+  const [scope, setScope] = useState<Scope>("one");
   const [note, setNote] = useState("");
   const armed = useArmed();
   // The note is added to the appointment's notes, which hold at most 4,000 characters (the database's bound).
@@ -353,6 +472,13 @@ function CancelBox({ appt, busy, onCancel, onConfirm }: { appt: AppointmentWire;
   return (
     <div className={s.confirm}>
       <strong>{block ? "להסיר את החסימה? הזמן יתפנה ביומן." : appt.kind === "INTERNAL" ? "לבטל את הפגישה? הזמן יתפנה ביומן." : "למה התור מבוטל? הזמן יתפנה ביומן."}</strong>
+      {inSeries ? (
+        <div className={s.chips} role="radiogroup" aria-label="מה לבטל">
+          {([["one", "רק התור הזה"], ["following", "התור הזה והבאים"]] as const).map(([v, label]) => (
+            <button key={v} type="button" role="radio" aria-checked={scope === v} className={s.chip} onClick={() => setScope(v)}>{label}</button>
+          ))}
+        </div>
+      ) : null}
       {!block ? (
         <div className={s.chips} role="radiogroup" aria-label="סיבת הביטול">
           {OWNER_CANCEL_REASONS.map((r) => (
@@ -368,12 +494,57 @@ function CancelBox({ appt, busy, onCancel, onConfirm }: { appt: AppointmentWire;
         {problem ? <span className={s.fieldErr}>{problem}</span> : null}
       </div>
       <div className={s.actionsCol}>
-        <button type="button" className={`${s.btn} ${s.btnDangerFill}`} disabled={busy || !!problem || !armed} aria-disabled={busy || !!problem || !armed} onClick={() => onConfirm(reason, note.trim() || null)}>
+        <button type="button" className={`${s.btn} ${s.btnDangerFill}`} disabled={busy || !!problem || !armed} aria-disabled={busy || !!problem || !armed} onClick={() => onConfirm(reason, note.trim() || null, scope)}>
           {busy ? "מבטל…" : block ? "כן, להסיר את החסימה" : appt.kind === "INTERNAL" ? "כן, לבטל את הפגישה" : "כן, לבטל את התור"}
         </button>
         <button type="button" className={s.btn} onClick={onCancel} disabled={busy}>
           {block ? "חזרה, להשאיר את החסימה" : "חזרה, להשאיר את התור"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * G6 — a final status set right. Only the statuses the lifecycle allows from "מאושר" (or "מאושר" itself), with a
+ * closed reason the journal keeps; an optional short note goes to the appointment's notes. Asked once, like a cancel.
+ */
+function CorrectBox({ appt, targets, busy, onCancel, onConfirm }: {
+  appt: AppointmentWire;
+  targets: string[];
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (to: string, reasonCode: string, note: string | null) => void;
+}) {
+  const [to, setTo] = useState<string>(targets[0]);
+  const [reasonCode, setReasonCode] = useState<string>("WRONG_MARK");
+  const [note, setNote] = useState("");
+  const armed = useArmed();
+  const problem = textProblem("ההסבר", note, LIMITS.cancelReason);
+  return (
+    <div className={s.confirm}>
+      <strong>תיקון סטטוס — כרגע „{STATUS_LABEL[appt.status]}”</strong>
+      <span className={s.label}>הסטטוס הנכון</span>
+      <div className={s.chips} role="radiogroup" aria-label="הסטטוס הנכון">
+        {targets.map((t) => (
+          <button key={t} type="button" role="radio" aria-checked={to === t} className={s.chip} onClick={() => setTo(t)}>{CORRECT_TO_LABEL[t] ?? t}</button>
+        ))}
+      </div>
+      <span className={s.label}>למה</span>
+      <div className={s.chips} role="radiogroup" aria-label="סיבת התיקון">
+        {CORRECTION_REASONS.map((r) => (
+          <button key={r} type="button" role="radio" aria-checked={reasonCode === r} className={s.chip} onClick={() => setReasonCode(r)}>{CORRECTION_LABEL[r]}</button>
+        ))}
+      </div>
+      <div className={s.field}>
+        <label className={s.label} htmlFor="correct-note">הסבר קצר (לא חובה)</label>
+        <input id="correct-note" className={s.input} value={note} maxLength={LIMITS.cancelReason + 50} onChange={(e) => setNote(e.target.value)} />
+        {problem ? <span className={s.fieldErr}>{problem}</span> : null}
+      </div>
+      {to === "CONFIRMED" && appt.status === "CANCELED" ? <p className={s.hint}>התור יחזור ליומן ויתפוס שוב את הזמן — רק אם הזמן עדיין פנוי.</p> : null}
+      <div className={s.confirmRow}>
+        <button type="button" className={`${s.btn} ${s.btnPri}`} disabled={busy || !!problem || !armed} onClick={() => onConfirm(to, reasonCode, note.trim() || null)}>{busy ? "שומר…" : "תיקון"}</button>
+        <button type="button" className={s.btn} disabled={busy} onClick={onCancel}>חזרה</button>
       </div>
     </div>
   );

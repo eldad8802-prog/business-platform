@@ -1,0 +1,75 @@
+# Appointments completion E — recurring appointments (G5), arrival / lateness / status correction (G6) and the setup
+# wizard's server (G9), on migration 20261226090000_appointments_completion (stacked on the DB package; not applied
+# anywhere by this workflow except its own ephemeral PostgreSQL).
+#
+#   1. Pure rules: the series' end and days (no open-ended series, 1..104 occurrences, ≤ 730 days), the same local
+#      time across both clock changes, lateness computed (never stored), arrival and correction targets.
+#   2. The application AS the restricted runtime (app_runtime_prod, NOBYPASSRLS) on .apc/lab.sh --with-apc: the new
+#      routes behind the flag, preview, create (skips reported, journal, idempotency), concurrent series never
+#      double-book, tenant isolation (service + raw RLS + composite FK), this / following changes (split, version),
+#      ARRIVED and STATUS_CORRECTED, the setup wizard never overwrites, the erasure line.
+name: appointments recurring + arrival — app lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/appointment/**"
+      - "app/api/appointments/**"
+      - "features/calendar/**"
+      - "app/(shell)/calendar/**"
+      - ".github/workflows/appointments-recurring-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: recurring + arrival + setup (PG17, real migration, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: ape_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: ape_ci_synthetic_super_pw
+      LAB_PASSWORD: ape_ci_synthetic_role_pw
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. Pure rules
+        run: npx tsx lib/services/appointment/appointment-series-core.test.ts
+
+      - name: 2. The application as the restricted runtime
+        run: |
+          set -euo pipefail
+          bash .apc/lab.sh ape_app --with-apc
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/ape_app?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/ape_app?$TZQ&pool_timeout=30" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/ape_app?$TZQ&pool_timeout=30" \
+            npx tsx lib/services/appointment/appointment-series.db.test.ts

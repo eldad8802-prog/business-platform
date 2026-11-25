@@ -564,3 +564,24 @@ button.colHead:hover { background: var(--ap-sunk); }
 .reqMatch { color: var(--ap-ok); font-weight: 600; }
 .reqRecent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .reqRecent li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--ap-line-soft); font-size: 15px; flex-wrap: wrap; }
+
+/* ── Recurring (G5, design b): one card at the bottom of the booking form ── */
+.repeatBox { background: var(--ap-surface); border: 1px solid var(--ap-line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.repeatHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 16px; font-weight: 600; color: var(--ap-ink); }
+.repeatBody { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--ap-line-soft); padding-top: 10px; }
+
+/* ── Arrival and lateness (G6) ── */
+.lateTag { display: inline-flex; align-items: center; gap: 4px; border-radius: 8px; padding: 2px 8px; font-size: 13px; font-weight: 500; background: var(--ap-wait-bg); color: var(--ap-wait); }
+.arrivedTag { display: inline-flex; align-items: center; gap: 4px; border-radius: 8px; padding: 2px 8px; font-size: 13px; font-weight: 500; background: var(--ap-ok-bg); color: var(--ap-ok); }
+
+/* ── First-time setup (G9, design a) ── */
+.wizSteps { display: flex; gap: 6px; margin: 4px 0 6px; }
+.wizSteps i { flex: 1; height: 5px; border-radius: 3px; background: var(--ap-line); }
+.wizSteps i[data-on="true"] { background: var(--ap-accent); }
+.wizCard { background: var(--ap-surface); border: 1px solid var(--ap-line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.wizRow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--ap-line-soft); }
+.wizRow:last-child { border-bottom: 0; }
+.wizRow input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--ap-accent); flex: none; }
+.wizRowMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.wizRowMeta { display: flex; gap: 8px; align-items: center; color: var(--ap-ink-3); font-size: 14px; }
+.wizSkip { font: inherit; font-size: 15px; background: none; border: 0; color: var(--ap-ink-3); cursor: pointer; padding: 8px; min-height: 44px; }

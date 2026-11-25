@@ -23,15 +23,23 @@ import { addCalendarDays, jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 import {
   CalendarApiError,
+  changeSeries,
   createAppointment,
   createCustomer,
+  createSeries,
   findSlots,
   forgetIntent,
+  getAppointment,
+  getSeries,
   moveAppointment,
   openLeadOf,
+  previewSeries,
   searchCustomers,
   type CustomerWire,
+  type SeriesPreviewWire,
+  type SeriesRequest,
   type ServiceWire,
+  type SkippedWire,
   type SlotWire,
 } from "./calendar-client";
 import {
@@ -62,7 +70,7 @@ import {
   keepStaffFor,
   staffForService,
 } from "./calendar-rules";
-import { Chevron, IconCalendar, IconClock, IconScissors, IconUser, IconUsers, IconX } from "./ui";
+import { Chevron, IconCalendar, IconClock, IconScissors, IconUser, IconUsers, IconX, Seg, Switch } from "./ui";
 import s from "./calendar.module.css";
 
 type Kind = "CUSTOMER" | "INTERNAL" | "BLOCK";
@@ -71,7 +79,41 @@ const LOCATIONS = ["IN_PERSON", "PHONE", "ONLINE"] as const;
 
 export type Prefill = { day: DayKey; minute?: number; staffMemberId?: number | null; customer?: CustomerWire | null };
 
-export type FormDone = { appointment: AppointmentWire; warnings: string[] };
+/** `message` replaces the screen's default words (a series says how many were booked and skipped). */
+export type FormDone = { appointment: AppointmentWire; warnings: string[]; message?: string };
+
+/** The series' bounds (the API's and the database's): 1..104 occurrences, an end date at most 730 days ahead. */
+export const SERIES_LIMITS = { maxCount: 104, maxSpanDays: 730 } as const;
+export type Repeat = { on: boolean; frequency: "WEEKLY" | "BIWEEKLY"; endMode: "count" | "date"; count: string; until: string };
+
+const SHORT_DAY = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: "UTC" });
+/** "15.12" for a day key (a calendar day, no instant: read at UTC noon). */
+export const dayLabel = (dayKey: string) => SHORT_DAY.format(new Date(`${dayKey}T12:00:00.000Z`));
+
+/** The words of skipped occurrences: "2 מתוך 12 המועדים תפוסים (15.12, 29.12)". */
+export function skippedText(skipped: Array<Pick<SkippedWire, "dayKey" | "reason">>, total: number): string | null {
+  if (!skipped.length) return null;
+  const taken = skipped.filter((x) => x.reason === "CONFLICT");
+  const closed = skipped.filter((x) => x.reason === "CLOSED");
+  const list = (xs: typeof skipped) => xs.slice(0, 6).map((x) => dayLabel(x.dayKey)).join(", ") + (xs.length > 6 ? " ועוד" : "");
+  const parts: string[] = [];
+  if (taken.length) parts.push(`${taken.length.toLocaleString("he-IL")} מתוך ${total.toLocaleString("he-IL")} המועדים תפוסים (${list(taken)})`);
+  if (closed.length) parts.push(`${closed.length.toLocaleString("he-IL")} בימים סגורים (${list(closed)})`);
+  return parts.join(" · ");
+}
+
+/** What the recurring part of the form still needs, in Hebrew (null when it is complete). */
+export function repeatProblem(r: Repeat, day: DayKey): string | null {
+  if (!r.on) return null;
+  if (r.endMode === "count") {
+    const n = Number(r.count);
+    return Number.isInteger(n) && n >= 1 && n <= SERIES_LIMITS.maxCount ? null : `מספר הפעמים: בין 1 ל־${SERIES_LIMITS.maxCount}.`;
+  }
+  if (!r.until) return "צריך תאריך סיום לסדרה.";
+  if (r.until < day) return "תאריך הסיום לפני התור הראשון.";
+  if (r.until > addCalendarDays(day, SERIES_LIMITS.maxSpanDays)) return "סדרה יכולה להימשך עד שנתיים.";
+  return null;
+}
 
 type FieldKey = "customer" | "title" | "time" | "duration" | "notes" | "locationDetail" | "end";
 
@@ -236,6 +278,8 @@ export function AppointmentForm({
   const [conflict, setConflict] = useState<SlotWire[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [repeat, setRepeat] = useState<Repeat>({ on: false, frequency: "WEEKLY", endMode: "count", count: "12", until: "" });
+  const [preview, setPreview] = useState<{ key: string; value: SeriesPreviewWire | null; failed: boolean } | null>(null);
   // The moment the form opened: "השעה כבר עברה" is said against it (render stays pure).
   const [openedAt] = useState(() => Date.now());
   const intent = useRef(`appt:create:${uuidV7()}`);
@@ -276,6 +320,41 @@ export function AppointmentForm({
     return () => { cancelled = true; window.clearTimeout(t); };
   }, [day, effectiveDuration, kind, serviceId, staffId, slotsTick]);
 
+  // A recurring request: what it would book and skip, asked again whenever the answer could change (read-only).
+  const repeatIssue = repeatProblem(repeat, day);
+  const seriesInput = (startsAt: string): SeriesRequest => ({
+    kind,
+    startsAt,
+    durationMinutes: effectiveDuration,
+    staffMemberId: staffId,
+    businessServiceId: kind === "CUSTOMER" ? serviceId : null,
+    customerId: kind === "CUSTOMER" ? customer?.id ?? null : null,
+    leadId: kind === "CUSTOMER" ? leadId : null,
+    title: title.trim() || null,
+    notes: notes.trim() || null,
+    locationKind: kind === "BLOCK" ? null : locationKind || null,
+    locationDetail: kind === "BLOCK" ? null : locationDetail.trim() || null,
+    status: kind === "BLOCK" || !proposed ? "CONFIRMED" : "PROPOSED",
+    frequency: repeat.frequency,
+    ...(repeat.endMode === "count" ? { occurrenceCount: Number(repeat.count) } : { endsOn: repeat.until }),
+  });
+  const previewKey = repeat.on && !repeatIssue && startMinute !== null && effectiveDuration >= LIMITS.minDuration && effectiveDuration <= LIMITS.maxDuration
+    ? JSON.stringify([kind, day, startMinute, effectiveDuration, staffId, kind === "CUSTOMER" ? serviceId : null, repeat.frequency, repeat.endMode, repeat.count, repeat.until])
+    : null;
+  useEffect(() => {
+    if (previewKey === null) return;
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      previewSeries(seriesInput(instantAt(day, startMinute!).toISOString()))
+        .then((v) => { if (!cancelled) setPreview({ key: previewKey, value: v, failed: false }); })
+        .catch(() => { if (!cancelled) setPreview({ key: previewKey, value: null, failed: true }); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(t); };
+    // seriesInput reads the values the key is made of; the key alone decides when to ask again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey]);
+  const shownPreview = preview && preview.key === previewKey ? preview : null;
+
   const fieldErrors: Partial<Record<FieldKey, string>> = {};
   if (kind === "CUSTOMER" && !customer) fieldErrors.customer = "צריך לבחור לקוח.";
   if (kind === "INTERNAL" && !title.trim()) fieldErrors.title = "צריך נושא לפגישה.";
@@ -302,6 +381,28 @@ export function AppointmentForm({
       return;
     }
     const startsAt = startOverride ?? instantAt(day, startMinute!).toISOString();
+    if (repeat.on) {
+      if (repeatIssue) { setTried(true); return; }
+      setBusy(true);
+      try {
+        const out = await createSeries(intent.current, seriesInput(startsAt));
+        const first = await getAppointment(out.firstAppointmentId).then((r) => r.appointment);
+        const made = out.occurrences.length;
+        const skippedWords = skippedText(out.skipped, made + out.skipped.length);
+        onDirty(false);
+        onDone({ appointment: first, warnings: out.warnings ?? [], message: `נקבעו ${made.toLocaleString("he-IL")} תורים${skippedWords ? ` · לא נקבעו: ${skippedWords}` : ""}` });
+      } catch (e) {
+        forgetIntent(intent.current);
+        intent.current = `appt:create:${uuidV7()}`;
+        const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "NETWORK");
+        setError(err.code === "SLOT_CONFLICT" ? "אף אחד מהמועדים בסדרה אינו פנוי. אפשר לבחור שעה אחרת."
+          : err.code === "INVALID_INPUT" && typeof err.details.field === "string" ? `${FIELD_LABEL[err.details.field] ?? "אחד השדות"}: ${errorText(err.code)}`
+            : errorText(err.code, err.status));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     try {
       const out = await createAppointment(intent.current, {
@@ -355,7 +456,10 @@ export function AppointmentForm({
   const endsAt = startMinute !== null && effectiveDuration > 0 ? clock(startMinute + effectiveDuration) : null;
   const staffName = staffId !== null ? activeStaff.find((x) => x.id === staffId)?.displayName : null;
   const titleText = kind === "BLOCK" ? "חסימת זמן" : kind === "INTERNAL" ? "פגישה חדשה" : "קביעת תור";
-  const verb = kind === "BLOCK" ? "חסימת הזמן" : outside ? "לקבוע בכל זאת" : kind === "INTERNAL" ? "קביעת פגישה" : "קביעת תור";
+  const bookable = shownPreview?.value?.bookable ?? null;
+  const verb = repeat.on
+    ? bookable !== null ? `קביעת ${bookable.toLocaleString("he-IL")} ${kind === "BLOCK" ? "חסימות" : kind === "INTERNAL" ? "פגישות" : "תורים"}` : "קביעת הסדרה"
+    : kind === "BLOCK" ? "חסימת הזמן" : outside ? "לקבוע בכל זאת" : kind === "INTERNAL" ? "קביעת פגישה" : "קביעת תור";
 
   return (
     <form className={`${s.sheet} ${s.form}`} onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
@@ -472,6 +576,15 @@ export function AppointmentForm({
         </section>
       ) : null}
 
+      <RepeatCard
+        repeat={repeat}
+        day={day}
+        onChange={(r) => { setRepeat(r); touch(); setError(null); setConflict(null); }}
+        problem={repeatIssue}
+        preview={shownPreview}
+        loading={previewKey !== null && !shownPreview}
+      />
+
       <div>
         <button type="button" className={s.fold} aria-expanded={more} aria-controls="appt-more" onClick={() => setMore(!more)}>
           <span>עוד פרטים</span><Chevron dir={more ? "up" : "down"} />
@@ -548,6 +661,59 @@ export function AppointmentForm({
         <button type="submit" className={`${s.btn} ${s.btnPri} ${s.btnWide}`} disabled={busy}>{busy ? "שומר…" : verb}</button>
       </div>
     </form>
+  );
+}
+
+// ── Recurring (G5, design b): one switch at the bottom of the form ─────────────────────────────────
+
+function RepeatCard({ repeat, day, onChange, problem, preview, loading }: {
+  repeat: Repeat;
+  day: DayKey;
+  onChange: (r: Repeat) => void;
+  problem: string | null;
+  preview: { value: SeriesPreviewWire | null; failed: boolean } | null;
+  loading: boolean;
+}) {
+  const v = preview?.value ?? null;
+  const skipped = v ? v.occurrences.filter((o) => !o.ok).map((o) => ({ dayKey: o.dayKey, reason: (o.reason ?? "CONFLICT") as SkippedWire["reason"] })) : [];
+  const words = v ? skippedText(skipped, v.occurrences.length) : null;
+  return (
+    <section className={s.repeatBox} aria-label="תור חוזר">
+      <div className={s.repeatHead}>
+        <label htmlFor="appt-repeat">תור חוזר</label>
+        <Switch id="appt-repeat" label="תור חוזר" checked={repeat.on} onChange={(on) => onChange({ ...repeat, on })} />
+      </div>
+      {repeat.on ? (
+        <div className={s.repeatBody}>
+          <span className={s.label}>כל</span>
+          <Seg label="תדירות" value={repeat.frequency} options={[["WEEKLY", "שבוע"], ["BIWEEKLY", "שבועיים"]]} onChange={(frequency) => onChange({ ...repeat, frequency })} />
+          <span className={s.label}>עד</span>
+          <Seg label="סיום הסדרה" value={repeat.endMode} options={[["count", `${Number(repeat.count) > 0 ? repeat.count : "מספר"} פעמים`], ["date", "תאריך"]]} onChange={(endMode) => onChange({ ...repeat, endMode })} />
+          {repeat.endMode === "count" ? (
+            <div className={s.field}>
+              <label className={s.label} htmlFor="appt-repeat-count">כמה פעמים</label>
+              <input id="appt-repeat-count" type="number" inputMode="numeric" min={1} max={SERIES_LIMITS.maxCount} className={`${s.input} ${problem ? s.inputBad : ""}`} style={{ maxWidth: 110 }}
+                value={repeat.count} onChange={(e) => onChange({ ...repeat, count: e.target.value })} aria-describedby={problem ? "appt-repeat-err" : undefined} />
+            </div>
+          ) : (
+            <div className={s.field}>
+              <label className={s.label} htmlFor="appt-repeat-until">עד תאריך</label>
+              <input id="appt-repeat-until" type="date" min={day} max={addCalendarDays(day, SERIES_LIMITS.maxSpanDays)} className={`${s.input} ${problem ? s.inputBad : ""}`}
+                value={repeat.until} onChange={(e) => onChange({ ...repeat, until: e.target.value })} aria-describedby={problem ? "appt-repeat-err" : undefined} />
+            </div>
+          )}
+          <FieldErr id="appt-repeat-err" text={problem ?? undefined} />
+          {loading ? <p className={s.hint} aria-busy="true">בודק את המועדים…</p> : null}
+          {preview?.failed ? <p className={s.hint}>לא הצלחתי לבדוק את המועדים מראש. בשמירה ייבדק כל מועד.</p> : null}
+          {v && words ? (
+            <div className={s.warnBox} role="status">
+              <span>{words}. {v.bookable ? `נקבע ${v.bookable.toLocaleString("he-IL")}; את השאר אפשר לקבוע בנפרד.` : "אין מועד פנוי בסדרה הזו."}</span>
+            </div>
+          ) : null}
+          {v && !words ? <p className={s.hint} role="status">כל {v.occurrences.length.toLocaleString("he-IL")} המועדים פנויים.</p> : null}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -677,6 +843,16 @@ export function MoveForm({
   const [slotsTick, setSlotsTick] = useState(0);
   const touch = () => { if (!touched) setTouched(true); };
   useEffect(() => { onDirty(touched); }, [touched, onDirty]);
+  // G5: an occurrence of a series moves alone ("רק התור הזה") or with the ones after it ("התור הזה והבאים").
+  const seriesId = appt.seriesId ?? null;
+  const [scope, setScope] = useState<"one" | "following">("one");
+  const [seriesVersion, setSeriesVersion] = useState<number | null>(null);
+  useEffect(() => {
+    if (seriesId === null) return;
+    let cancelled = false;
+    getSeries(seriesId).then((r) => { if (!cancelled) setSeriesVersion(r.series.version); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [seriesId]);
 
   // The chosen day's free times for this length and lane. The appointment's own current time is busy in that answer,
   // so it is not offered — staying put needs no move.
@@ -701,6 +877,20 @@ export function MoveForm({
     const startsAt = override ?? instantAt(day, minute!).toISOString();
     setBusy(true);
     try {
+      if (seriesId !== null) {
+        if (seriesVersion === null) { setError(errorText("NETWORK")); return; }
+        const out = await changeSeries(intent.current, seriesId, {
+          action: "move", scope, appointmentId: appt.id, expectedVersion: seriesVersion,
+          startsAt, durationMinutes: duration, ...(staffId !== appt.staffMemberId ? { staffMemberId: staffId } : {}),
+        });
+        const words = skippedText(out.skipped, out.changed + out.skipped.length);
+        onDirty(false);
+        onDone({
+          appointment: out.appointment, warnings: out.warnings ?? [],
+          message: scope === "one" ? "המועד שונה" : `הוזזו ${out.changed.toLocaleString("he-IL")} תורים${words ? ` · לא הוזזו: ${words}` : ""}`,
+        });
+        return;
+      }
       const out = await moveAppointment(intent.current, appt.id, {
         startsAt, durationMinutes: duration, ...(staffId !== appt.staffMemberId ? { staffMemberId: staffId } : {}), expectedVersion: appt.version,
       });
@@ -731,6 +921,12 @@ export function MoveForm({
     <form className={`${s.sheet} ${s.form}`} onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
       <SheetHead title="שינוי מועד" onClose={onCancel} />
       <p className={s.note}>כרגע: {DATE_LONG.format(start)} · <bdi dir="ltr">{timeLabel(appt).replace(/[⁦⁩]/g, "")}</bdi></p>
+      {seriesId !== null ? (
+        <>
+          <Seg label="מה להזיז" value={scope} options={[["one", "רק התור הזה"], ["following", "התור הזה והבאים"]]} onChange={(v) => { setScope(v); touch(); }} />
+          {scope === "following" ? <p className={s.hint}>כל תור מהסדרה יזוז באותו מספר ימים ולשעה החדשה. תור שהזמן החדש שלו תפוס יישאר במקומו, ותקבל רשימה.</p> : null}
+        </>
+      ) : null}
       <div>
         <Line label="תאריך" icon={<IconCalendar />} htmlFor="move-day">
           <span className={s.dateLine}>{dayTitle(day)}<input id="move-day" type="date" value={day} onChange={(e) => { if (e.target.value) { setDay(e.target.value); touch(); } }} /></span>
