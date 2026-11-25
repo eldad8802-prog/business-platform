@@ -120,8 +120,7 @@ export async function issueBookingCode(businessId: number, input: { phone?: unkn
   const dayAgo = new Date(now.getTime() - 24 * 60 * MIN);
   const [hour, day] = [await platformCounts(phoneHash, ipHash, hourAgo), await platformCounts(phoneHash, ipHash, dayAgo)];
 
-  const code = hooks.generateCode ? hooks.generateCode() : newOtpCode();
-  if (!OTP_CODE.test(code)) throw new Error("otp code generator returned a malformed code");
+  let code = "";
 
   const issued = await tenantTx(businessId, async (tx) => {
     const counts: OtpCounts = {
@@ -136,6 +135,9 @@ export async function issueBookingCode(businessId: number, input: { phone?: unkn
     });
     const wait = cooldownLeftSeconds(latest?.createdAt ?? null, now);
     if (wait > 0) return { kind: "cooldown" as const, wait };
+    // Only now — every cap and the cooldown passed — is a code drawn (a refused request never makes one).
+    code = hooks.generateCode ? hooks.generateCode() : newOtpCode();
+    if (!OTP_CODE.test(code)) throw new Error("otp code generator returned a malformed code");
     // A new code invalidates the previous ones: the open one is superseded, a verified-but-unused one retired.
     await tx.bookingPhoneChallenge.updateMany({
       where: { businessId, phoneHash: { in: phoneHashes }, verifiedAt: null, supersededAt: null, erasedAt: null },

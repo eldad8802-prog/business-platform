@@ -90,7 +90,10 @@ async function main() {
   const B = await biz(`עסק G-ב ${stamp}`, ON);
   const C = await biz(`עסק G-ג ${stamp}`, ON);
   const D = await biz(`עסק G-ד ${stamp}`, ON);
-  const KILLED = await biz(`עסק G-ה ${stamp}`, ["appointments", "public_booking"]); // engine switch OFF
+  const KILLED = await biz(`עסק G-ה ${stamp}`, ["appointments", "public_booking"]);
+  // The engine switch is ON by default: switched OFF explicitly for this business (the operator's kill switch).
+  await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'notifications_engine', 'DISABLED', now())`, KILLED);
+  const userK = (await owner.user.create({ data: { email: `g-k-${stamp}@apc.lab`, password: "x", businessId: KILLED } })).id;
   const sA = await setup(A, false); // stored requireVerification = FALSE — verification must still be mandatory
   const sB = await setup(B, true);
   const sC = await setup(C, true);
@@ -111,8 +114,9 @@ async function main() {
   const ip = () => `10.77.${Math.floor(ipSeq / 250)}.${(ipSeq++ % 250) + 1}`;
   const issue = (publicId: string, phone: string, now?: Date, theIp = ip()) => settle(pb.requestPublicCode(publicId, { phone }, { ip: theIp, now }));
   const verify = (publicId: string, phone: string, code: string, now?: Date) => settle(pb.verifyPublicCode(publicId, { phone, code }, now));
-  let keySeq = 0;
-  const key = () => `g-key-${stamp}-${keySeq++}`;
+  const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
+  // The real Idempotency-Key the page sends (UUIDv7, fresh).
+  const key = () => uuidV7(new Date());
   const submit = (s: { publicId: string; serviceId: number }, phone: string, startsAt: string, token?: string, name = "דנה כהן") =>
     settle(pb.submitPublicRequest(s.publicId, { serviceId: s.serviceId, startsAt, name, phone, ...(token ? { verificationToken: token } : {}) }, key()));
   const verifiedToken = async (s: { publicId: string }, phone: string) => {
@@ -139,7 +143,7 @@ async function main() {
   r = await issue(sK.publicId, newPhone());
   ok("A3 the notifications_engine kill switch OFF: no code (OTP_UNAVAILABLE), no challenge written, no cap spent",
     !r.ok && r.code === "OTP_UNAVAILABLE" && (await owner.bookingPhoneChallenge.count({ where: { businessId: KILLED } })) === kBefore, r);
-  const killedReady = await settle(admin.getBookingSettings({ kind: "OWNER", businessId: KILLED, userId: 0 }));
+  const killedReady = await settle(admin.getBookingSettings({ kind: "OWNER", businessId: KILLED, userId: userK }));
   ok("A4 …and its readiness names it as not eligible", killedReady.ok && JSON.stringify(killedReady.v?.readiness?.missing ?? []).includes("eligible"), killedReady);
 
   /* ── B. a code ───────────────────────────────────────────────────────────────────────────────────── */
@@ -250,17 +254,25 @@ async function main() {
   const keys = hashes.otpKeysFromEnv();
   const ipHash = hashes.ipHashOf(keys.current, ipX);
   for (let i = 0; i < 10; i++) {
-    await owner.bookingPhoneChallenge.create({ data: { businessId: C, phoneHash: hashes.phoneHashOf(keys.current, `+97252${String(i).padStart(7, "0")}`), codeHash: "0".repeat(64), ipHash, createdAt: new Date(Date.now() - 20 * MIN), expiresAt: new Date(Date.now() - 15 * MIN), supersededAt: new Date(Date.now() - 15 * MIN) } });
+    await owner.bookingPhoneChallenge.create({ data: { businessId: C, phoneHash: hashes.phoneHashOf(keys.current, `+97258${String(i).padStart(7, "0")}`), codeHash: "0".repeat(64), ipHash, createdAt: new Date(Date.now() - 20 * MIN), expiresAt: new Date(Date.now() - 15 * MIN), supersededAt: new Date(Date.now() - 15 * MIN) } });
   }
   const hIp = await issue(sB.publicId, newPhone(), undefined, ipX);
   ok("H3 one IP: 10 codes in the last hour (at another business) → the 11th anywhere → OTP_LIMIT", !hIp.ok && hIp.code === "OTP_LIMIT", hIp);
   for (let i = 0; i < 30; i++) {
-    await owner.bookingPhoneChallenge.create({ data: { businessId: C, phoneHash: hashes.phoneHashOf(keys.current, `+97253${String(i).padStart(7, "0")}`), codeHash: "0".repeat(64), createdAt: new Date(Date.now() - 30 * MIN), expiresAt: new Date(Date.now() - 25 * MIN), supersededAt: new Date(Date.now() - 25 * MIN) } });
+    await owner.bookingPhoneChallenge.create({ data: { businessId: C, phoneHash: hashes.phoneHashOf(keys.current, `+97259${String(i).padStart(7, "0")}`), codeHash: "0".repeat(64), createdAt: new Date(Date.now() - 30 * MIN), expiresAt: new Date(Date.now() - 25 * MIN), supersededAt: new Date(Date.now() - 25 * MIN) } });
   }
   const hBiz = await issue(sC.publicId, newPhone());
   ok("H4 one business: 30+ codes in the last hour → OTP_LIMIT (a ceiling on what one link can cost)", !hBiz.ok && hBiz.code === "OTP_LIMIT", hBiz);
   const counts = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT * FROM public.booking_otp_send_counts($1, $2, (now() AT TIME ZONE 'UTC')::timestamp(3) - interval '1 hour')`, hashes.phoneHashOf(keys.current, `+972${p5.slice(1)}`), ipHash);
-  ok("H5 the platform-wide counts come from a definer that returns counts only (phoneSends, ipSends)", Object.keys(counts[0]).sort().join() === "ipSends,phoneSends" && Number(counts[0].ipSends) === 10 && Number(counts[0].phoneSends) === 5, counts);
+  const p5Hash = hashes.phoneHashOf(keys.current, `+972${p5.slice(1)}`);
+  const truth = await owner.$queryRawUnsafe<{ phone: number; ip: number }[]>(`SELECT
+      (SELECT coalesce(sum(sends), 0)::int FROM "BookingPhoneChallenge" WHERE "phoneHash" = $1 AND "createdAt" >= (now() AT TIME ZONE 'UTC')::timestamp(3) - interval '1 hour') AS phone,
+      (SELECT coalesce(sum(sends), 0)::int FROM "BookingPhoneChallenge" WHERE "ipHash" = $2 AND "createdAt" >= (now() AT TIME ZONE 'UTC')::timestamp(3) - interval '1 hour') AS ip`, p5Hash, ipHash);
+  const p5Rows = await owner.bookingPhoneChallenge.groupBy({ by: ["businessId"], where: { phoneHash: p5Hash }, _count: { _all: true } });
+  console.log("    (p5 codes per business:", JSON.stringify(p5Rows.map((x) => [x.businessId === A ? "A" : x.businessId === B ? "B" : x.businessId, x._count._all])), ")");
+  ok("H5 the platform-wide counts come from a definer that returns counts only (phoneSends, ipSends) — equal to the rows across ALL businesses",
+    Object.keys(counts[0]).sort().join() === "ipSends,phoneSends" && Number(counts[0].ipSends) === Number(truth[0].ip) && Number(counts[0].phoneSends) === Number(truth[0].phone) && Number(truth[0].phone) >= 5,
+    { counts, truth });
 
   /* ── I. isolation ────────────────────────────────────────────────────────────────────────────────── */
   console.log("I. isolation");
@@ -384,7 +396,8 @@ async function main() {
   const done = await tenantTx(B, (tx) => pb.expireDueRequests(tx, B, new Date()));
   const reqP2 = await owner.bookingRequest.findUniqueOrThrow({ where: { id: reqP.id } });
   const cancelledMsg = await owner.notificationDelivery.count({ where: { businessId: B, appointmentId: reqP.appointmentId, notification: { semanticCategory: "appointments.customer_cancelled" } } });
-  const listed = await admin.listBookingRequests({ kind: "OWNER", businessId: B, userId: 0 });
+  const userB = (await owner.user.create({ data: { email: `g-b-${stamp}@apc.lab`, password: "x", businessId: B } })).id;
+  const listed = await admin.listBookingRequests({ kind: "OWNER", businessId: B, userId: userB });
   ok("N1 a pending request past its hold → EXPIRED by the system, the time released", pend.ok && pend.v!.status === "PENDING" && done.includes(reqP.id) && reqP2.status === "EXPIRED");
   ok("N2 the owner's list shows it as expired (recent), and F's customer message is owed (category customer_cancelled)", listed.recent.some((x) => x.id === reqP.id && x.status === "EXPIRED") && cancelledMsg === 1, { cancelledMsg });
 
