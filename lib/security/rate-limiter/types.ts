@@ -40,7 +40,11 @@ export type BucketName =
   | "PUBLIC_BOOKING_READ"
   | "PUBLIC_BOOKING_MANAGE"
   | "GMAIL_SCAN"
-  | "FCM_AUTH_CHECK";
+  | "FCM_AUTH_CHECK"
+  | "GMAIL_IMPORT"
+  | "CONTENT_GENERATE"
+  | "LETTER_PREVIEW"
+  | "REPORTS_EXPORT_ZIP";
 
 export type BucketConfig = {
   failMode: FailMode;

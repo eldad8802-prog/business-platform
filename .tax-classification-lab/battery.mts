@@ -474,7 +474,7 @@ async function main() {
     check("T1.refresh", "OK", "API", "after refresh the document reads back as a DRAFT with no allocation state (nothing issued)",
       again.status === 200 && again.json?.document?.status === "DRAFT" && again.json?.document?.authorityState === null, { status: again.json?.document?.status, authorityState: again.json?.document?.authorityState }, tagsT);
     const routes = readdirSync("app/api/billing/documents/[id]");
-    check("T1.retry", "OBSERVED", "STATIC", "there is still no endpoint to resend a not-sent allocation request (no new invoice can reach that state through the gate)", !routes.some((r) => /retry|resubmit|allocation-request|authority-approval/.test(r)), routes, tagsT);
+    check("T1.retry", "OBSERVED", "STATIC", "the only endpoint that resends an allocation request is authority-resend, limited to a request that provably never left (READY / FAILED not-sent — billing-authority-resend.service.ts); no other retry route exists", routes.includes("authority-resend") && !routes.some((r) => /retry|resubmit|allocation-request|authority-approval/.test(r)), routes, tagsT);
 
     // T1L — an invoice that got stuck BEFORE the gate (issued READY, never sent): not changed by the fix.
     process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT = "SANDBOX";

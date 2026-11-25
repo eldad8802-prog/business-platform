@@ -18,6 +18,13 @@
  *   G8  approval opened for this business ("oauth,refresh,approval") → issues, Approval runs once
  *   G9  environment not configured → issues as before (out of this change's scope)
  *   G10 nothing sent from this process
+ *   N10 (Approval open, document list):
+ *   G11 another READY document of the same business → 409 N10 code, draft unnumbered, sequence untouched
+ *   G12 list unset → refused (fail closed)
+ *   G13 the id listed under another business → refused
+ *   G14 a document needing no allocation, not listed → issues as before
+ *   G15 through the real route: 409 + the N10 code + Hebrew explanation
+ *   G16 listed, but back to "oauth" → the unchanged SENDING_CLOSED code
  *
  * Synthetic data only. No secrets, no Neon, no network.
  * Run: npx tsx lib/services/billing/billing-issue-allocation-gate.rls.integration.test.ts
@@ -104,9 +111,12 @@ async function main() {
   const { signAuthToken } = await import("@/lib/auth-token");
   const { POST: issueRoute } = await import("@/app/api/billing/documents/[id]/issue/route");
   const { issueBillingDocument } = await import("@/lib/services/billing/billing-issue.service");
-  const { AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE, AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE } = await import(
-    "@/lib/services/billing/authority/billing-authority-issue-gate"
-  );
+  const {
+    AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE,
+    AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE,
+    AUTHORITY_ALLOCATION_DOCUMENT_NOT_AUTHORIZED_CODE,
+    AUTHORITY_ALLOCATION_DOCUMENT_NOT_AUTHORIZED_MESSAGE,
+  } = await import("@/lib/services/billing/authority/billing-authority-issue-gate");
   const { tenantTx } = await import("@/lib/tenant/tenant-tx");
 
   const [who] = (await prisma.$queryRawUnsafe(
@@ -239,9 +249,51 @@ async function main() {
   process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_BUSINESS_IDS = `9,${t.businessId}`;
   process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_OPERATIONS = "oauth,refresh,approval";
   const g8 = await draft(BillingDocumentType.TAX_INVOICE, t.dealerId, "6000");
+  // N10: with Approval open in PRODUCTION, only the document listed in advance may issue.
+  process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS = `PRODUCTION:${t.businessId}:${g8.id}`;
   const before8 = approvals.length;
   const r8 = await issueBillingDocument({ businessId: t.businessId, billingDocumentId: g8.id, actorUserId: t.userId }, stub);
-  ok("G8 Approval opened for this business → issued and the Approval runs exactly once", r8.document.status === "ISSUED" && approvals.length === before8 + 1, JSON.stringify(r8.authority));
+  ok("G8 Approval opened for this business, document authorized → issued and the Approval runs exactly once", r8.document.status === "ISSUED" && approvals.length === before8 + 1, JSON.stringify(r8.authority));
+
+  // ------------------------------------------------ N10 at issue (Approval open)
+  const g11 = await draft(BillingDocumentType.TAX_INVOICE, t.dealerId, "6000");
+  const seq11 = await seq(BillingDocumentType.TAX_INVOICE);
+  const r11 = await refusal(g11.id);
+  const s11 = await state(g11.id);
+  ok("G11 Approval open, ANOTHER READY document of the same business → refused with the N10 code; stays a draft, no number, no submission, sequence untouched",
+    r11.code === AUTHORITY_ALLOCATION_DOCUMENT_NOT_AUTHORIZED_CODE && r11.message === AUTHORITY_ALLOCATION_DOCUMENT_NOT_AUTHORIZED_MESSAGE &&
+    s11.status === "DRAFT" && s11.number === null && !s11.snapshot && s11.submission === null && s11.audits === 0 &&
+    (await seq(BillingDocumentType.TAX_INVOICE)) === seq11 && !approvals.includes(g11.id),
+    JSON.stringify({ r11, s11 }));
+
+  delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS;
+  const r12 = await refusal(g11.id);
+  ok("G12 Approval open, list unset → refused (fail closed), still a draft", r12.code === AUTHORITY_ALLOCATION_DOCUMENT_NOT_AUTHORIZED_CODE && (await state(g11.id)).status === "DRAFT", JSON.stringify(r12));
+
+  process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS = `PRODUCTION:9:${g11.id}`;
+  const r13 = await refusal(g11.id);
+  ok("G13 the document id listed under ANOTHER business → refused, still a draft", r13.code === AUTHORITY_ALLOCATION_DOCUMENT_NOT_AUTHORIZED_CODE && (await state(g11.id)).status === "DRAFT", JSON.stringify(r13));
+
+  const g14 = await draft(BillingDocumentType.TAX_INVOICE, t.privateId, "6000");
+  const r14 = await issueBillingDocument({ businessId: t.businessId, billingDocumentId: g14.id, actorUserId: t.userId }, stub);
+  ok("G14 a document that needs no allocation, not listed → issued as before", r14.document.status === "ISSUED" && r14.authority.status === "not_required", JSON.stringify(r14.authority));
+
+  const res15 = await issueRoute(
+    new NextRequest(`http://localhost/api/billing/documents/${g11.id}/issue`, { method: "POST", headers: { Authorization: `Bearer ${t.token}` } }),
+    { params: Promise.resolve({ id: String(g11.id) }) }
+  );
+  const body15 = (await res15.json()) as { error?: string; code?: string };
+  ok("G15 through the real route: 409 with the N10 code and the Hebrew explanation; still a draft",
+    res15.status === 409 && body15.code === AUTHORITY_ALLOCATION_DOCUMENT_NOT_AUTHORIZED_CODE && body15.error === AUTHORITY_ALLOCATION_DOCUMENT_NOT_AUTHORIZED_MESSAGE && (await state(g11.id)).status === "DRAFT",
+    JSON.stringify({ status: res15.status, body: body15 }));
+
+  process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS = `PRODUCTION:${t.businessId}:${g11.id}`;
+  process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_OPERATIONS = "oauth";
+  const r16 = await refusal(g11.id);
+  ok("G16 listed but back to \"oauth\" (today) → the unchanged SENDING_CLOSED code, still a draft",
+    r16.code === AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE && r16.message === AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE && (await state(g11.id)).status === "DRAFT", JSON.stringify(r16));
+  process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_OPERATIONS = "oauth,refresh,approval";
+  delete process.env.BILLING_AUTHORITY_PRODUCTION_PILOT_APPROVAL_DOCUMENTS;
 
   delete process.env.BILLING_AUTHORITY_RUNTIME_ENVIRONMENT;
   const g9 = await draft(BillingDocumentType.TAX_INVOICE, t.dealerId, "6000");

@@ -120,7 +120,10 @@ check("K6 the server keeps every check and knows nothing of scores", () => {
     assert.ok(route.includes(needle), needle);
   }
   assert.match(route, /needs_review/);
-  assert.equal(/\bbucket\b|\bscore\b|override|importAnyway/i.test(route), false, "no score/group/override in the import route");
+  // The one allowed "bucket" is the rate-limiter call (owner decision 26: GMAIL_IMPORT abuse ceiling) — not a score group.
+  const limiterCall = 'checkRateLimit({ bucket: "GMAIL_IMPORT", user: user.id, business: user.businessId })';
+  assert.equal(route.split(limiterCall).length - 1, 1, "the GMAIL_IMPORT limiter call");
+  assert.equal(/\bbucket\b|\bscore\b|override|importAnyway/i.test(route.split(limiterCall).join("")), false, "no score/group/override in the import route");
 });
 
 check("K7 unsupported types never reach the screen, so none can be offered for import", () => {

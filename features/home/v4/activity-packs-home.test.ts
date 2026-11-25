@@ -165,7 +165,7 @@ ok("P2 '+' orders: ליד, חשבונית, בקשת תשלום (no orders action
 
 const favs = (a: HomeAccess) => favoriteTools(availableTools(TOOLS, a), a.kind, null, a).map((x) => x.key);
 ok("P2 tools: the bar leavers first, then the pack's", eq(favs(access(DEFAULTS, sel("APPOINTMENTS"))).slice(0, 3), ["conversations", "documents", "calendar"]));
-ok("P2 tools service (desk ON) put שירות ואחריות first", favs(access(ALL, sel("SERVICE")))[2] === "service-desk");
+ok("P2 tools service (desk ON) put תיקונים ושירות first", favs(access(ALL, sel("SERVICE")))[2] === "service-desk");
 ok("P2 tools: the owner's own favourites still win", eq(favoriteTools(availableTools(TOOLS, access(DEFAULTS, sel("LEADS"))), "general", ["invoices"], access(DEFAULTS, sel("LEADS"))).map((x) => x.key), ["invoices"]));
 
 /* --------------------------------------- P3: packs never add capability -- */

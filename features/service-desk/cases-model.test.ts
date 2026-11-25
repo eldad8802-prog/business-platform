@@ -163,5 +163,13 @@ ok("TZ4 the spring change (27.3.2026, 02:00 → 03:00): before and after", forma
 ok("TZ5 the autumn change (25.10.2026, 02:00 → 01:00): 01:30 happens twice, both read 01:30 on the same day", formatShortDate("2026-10-24T22:30:00.000Z", at("2026-10-25T09:00:00.000Z")) === "01:30"
   && formatShortDate("2026-10-24T23:30:00.000Z", at("2026-10-25T09:00:00.000Z")) === "01:30");
 ok("TZ6 the date across the year end stays the Israel date", formatShortDate("2026-12-31T22:30:00.000Z", at("2027-01-02T10:00:00.000Z")) === "1.1");
+// ── a repair held for parts says so (owner 2026-11-24) — display only ──
+ok("HL1 IN_REPAIR held for parts → «ממתין לחלקים»; worked on → «בעבודה»; the tone stays «attention» (amber)",
+  statusLabel("IN_REPAIR", "PARTS") === "ממתין לחלקים" && statusLabel("IN_REPAIR") === "בעבודה" && statusLabel("IN_REPAIR", null) === "בעבודה"
+  && statusTone("IN_REPAIR", "PARTS") === "attention" && statusTone("IN_REPAIR") === "active");
+ok("HL2 the label changes nothing else: other statuses ignore the hold; «ממתינים לך» and the next step are unchanged",
+  statusLabel("READY", "PARTS") === statusLabel("READY") && statusLabel("IN_REPAIR", "CUSTOMER") === "בעבודה"
+  && nextActionLabel("IN_REPAIR", "IN_SHOP", "PARTS") === "כשהחלקים מגיעים — להחזיר לעבודה");
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

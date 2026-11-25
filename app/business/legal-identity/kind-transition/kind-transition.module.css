@@ -100,3 +100,15 @@
 .sheetText { margin: 0; font-size: 15px; line-height: 1.6; }
 
 .visuallyHidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* 4a T4: the interim documents list (bottom sheet) */
+.sheetTall { max-height: min(88dvh, 720px); }
+.sheetScroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; }
+.docList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.docRow { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--dz-border-subtle); min-width: 0; }
+.docRow:first-child { border-top: 0; padding-top: 0; }
+.docMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.docTitle { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.docSub { font-size: 13px; color: var(--dz-text-secondary); }
+.docCredit { color: var(--dz-warning); font-weight: 600; }
+.docAmount { flex: none; font-size: 15px; font-weight: 600; }

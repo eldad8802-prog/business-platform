@@ -226,6 +226,9 @@ async function main() {
       await clickAction(p, "לסיים את התיקון");
       await waitStatus(seed.c1, "READY");
       await statusPill(p, "מוכן למסירה").waitFor();
+      // the panels follow in the background: "being checked", then the real charge state — never a false "could not read"
+      await p.getByText("בודקים את מצב החיוב…").waitFor({ state: "detached", timeout: 30_000 });
+      if (await p.getByText(/לא הצלחנו לקרוא את מצב החיוב/).count()) throw new Error("the charge shows «could not read» after the panels loaded");
       await shot(p, "real-case-ready-phone");
     });
     await check("B1 without a charge decision the main action is «לקבוע חיוב» (no locked handover); its sheet offers amount / no charge; nothing is sent; still READY", async () => {
@@ -330,6 +333,7 @@ async function main() {
         await garage.waitFor({ timeout: 120_000 });
         if ((await garage.getAttribute("aria-checked")) !== "true") throw new Error("garage not pre-selected");
         await pc.getByText("מוצע לפי התחום").first().waitFor();
+        await pc.getByRole("button", { name: "המשך", exact: true }).click(); // the first activation is two short steps
         if (!(await pc.getByRole("checkbox", { name: /תיקון רכב/ }).isChecked())) throw new Error("T2 not pre-checked");
         await shot(pc, `real-setup-${tag}`);
         if (tag === "phone") return;
@@ -508,6 +512,25 @@ async function main() {
         if (kinds !== "task.linked,task.unlinked,case.work_details_recorded" || !rows.every((r) => Number(r.u) === seed.userA)) throw new Error(`journal ${JSON.stringify(rows)}`);
         await shot(pa, "real-case-history-records-desktop");
       });
+      await check("E1 the case changed in another tab: the action is not saved, a clear banner says why with a refresh, and no button stays on «שומר…»", async () => {
+        await openCase(pa, seed.c4);
+        const before = await versionOf(seed.c4);
+        const other = await ca.newPage();
+        await openCase(other, seed.c4);
+        const fields = other.locator("[data-panel=fields]");
+        await fields.locator("#sd-item-location").fill("מגירה 7");
+        await fields.getByRole("button", { name: "לשמור" }).click();
+        await until(async () => (await versionOf(seed.c4)) > before, "the other tab did not change the case");
+        await other.close();
+        const statusBefore = await statusOf(seed.c4);
+        await clickAction(pa, "להחזיר לעבודה");
+        await pa.getByRole("alert").filter({ hasText: "התיק עודכן ממקום אחר" }).waitFor({ timeout: 30_000 });
+        await until(async () => (await pa.locator("section[aria-label='מצב ופעולה הבאה']").getByText("שומר…").count()) === 0, "a button stays on «שומר…»");
+        if ((await statusOf(seed.c4)) !== statusBefore) throw new Error("the stale action changed the case");
+        await shot(pa, "real-case-conflict-desktop");
+        await pa.getByRole("button", { name: "לרענן שוב" }).click();
+        await pa.getByRole("alert").filter({ hasText: "התיק עודכן ממקום אחר" }).waitFor({ state: "detached", timeout: 15_000 });
+      });
       await ca.close();
     }
 
@@ -607,6 +630,100 @@ async function main() {
         if ((await statusOf(seed.c4)) !== before) throw new Error("the status changed");
       });
       await cn.close();
+    }
+
+    // ── a repair held for parts says «ממתין לחלקים» (owner 2026-11-24) — in the list and on the case; nothing else changes ──
+    {
+      const ch = await ctx(browser, seed.tokenA, PHONE);
+      const ph = await ch.newPage();
+      current = ph;
+      await check("HL1 c4 (held for parts): the list row and the case header say «ממתין לחלקים» in amber; the status stays IN_REPAIR; the next step is unchanged", async () => {
+        const st0 = await statusOf(seed.c4);
+        await ph.goto("/service-desk");
+        const row = ph.locator(`a[href="/service-desk/cases/${seed.c4}"]`).first();
+        await row.waitFor({ timeout: 120_000 });
+        const pill = row.getByText("ממתין לחלקים", { exact: true });
+        await pill.waitFor();
+        if ((await pill.getAttribute("data-tone")) !== "attention") throw new Error(`row tone ${await pill.getAttribute("data-tone")}`);
+        if (await row.getByText("בעבודה", { exact: true }).count()) throw new Error("the row still says «בעבודה»");
+        await shot(ph, "hold-parts-list-phone");
+        await openCase(ph, seed.c4);
+        await statusPill(ph, "ממתין לחלקים").waitFor();
+        await ph.locator("section[aria-label='מצב ופעולה הבאה']").getByText("כשהחלקים מגיעים — להחזיר לעבודה").waitFor();
+        await shot(ph, "hold-parts-case-phone");
+        if ((await statusOf(seed.c4)) !== st0 || st0 !== "IN_REPAIR") throw new Error(`status ${st0} → ${await statusOf(seed.c4)}`);
+      });
+      await ch.close();
+    }
+
+    // ── Israel time whatever the device's zone (owner 2026-11-24): a phone set to New York still reads Israel time ──
+    {
+      const cz = await browser.newContext({ baseURL: BASE, locale: "he-IL", timezoneId: "America/New_York", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+      await cz.addCookies([{ name: "dz_locale", value: "he", url: BASE }]);
+      await cz.addInitScript((t) => { try { localStorage.setItem("token", t); } catch { /* opaque */ } }, seed.tokenA);
+      const pz = await cz.newPage();
+      current = pz;
+      const il = (z: string, tz = "Asia/Jerusalem") => {
+        const d = new Date(z);
+        const day = (x: Date, zone: string) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(x);
+        return day(d, tz) === day(new Date(), tz)
+          ? new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: tz }).format(d)
+          : new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: tz }).format(d);
+      };
+      const iso = async (sql: string, id: number) => String((await own(seed.bizA, sql, id))[0].z);
+      await check("TZ1 a device set to New York: the list and the history show Israel time (Asia/Jerusalem), not the device's", async () => {
+        const upd = await iso(`SELECT to_char("updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') z FROM "ServiceCase" WHERE id = $1`, seed.c4);
+        const last = await iso(`SELECT to_char(max("occurredAt") AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') z FROM "ServiceCaseEvent" WHERE "caseId" = $1`, seed.c4);
+        if (!(await pz.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).includes("New_York")) throw new Error("the device zone is not New York");
+        await pz.goto("/service-desk");
+        const row = pz.locator(`a[href="/service-desk/cases/${seed.c4}"]`).first();
+        await row.waitFor({ timeout: 120_000 });
+        const rowText = await row.innerText();
+        if (!rowText.includes(il(upd))) throw new Error(`list row shows «${rowText.replace(/\s+/g, " ")}», Israel time is ${il(upd)}`);
+        if (il(upd) !== il(upd, "America/New_York") && rowText.includes(il(upd, "America/New_York"))) throw new Error("the list shows the device's time");
+        await shot(pz, "tz-newyork-list");
+        await openCase(pz, seed.c4);
+        const hist = pz.locator("section[aria-label='היסטוריה']");
+        await hist.waitFor({ timeout: 60_000 });
+        const histText = await hist.innerText();
+        if (!histText.includes(il(last))) throw new Error(`history shows «${histText.replace(/\s+/g, " ").slice(0, 200)}», the last event in Israel time is ${il(last)}`);
+        await shot(pz, "tz-newyork-case");
+      });
+      await cz.close();
+    }
+
+    // ── 360 / 390 / 1440: no sideways scroll, the main action reachable and not covered, fresh screenshots ──
+    for (const size of [{ width: 360, height: 780, phone: true }, PHONE, DESKTOP] as const) {
+      const cv = await ctx(browser, seed.tokenA, size);
+      const pv = await cv.newPage();
+      current = pv;
+      await check(`VP${size.width} list, opening form, settings and every seeded case at ${size.width} px: no sideways scroll; the main action is inside the screen and nothing covers it`, async () => {
+        const pages: [string, string][] = [["list", "/service-desk"], ["open", "/service-desk/new"], ["settings", "/service-desk/settings"],
+          ...([["c1", seed.c1], ["c2", seed.c2], ["c3", seed.c3], ["c4", seed.c4], ["c6", seed.c6]] as const).map(([k, id]) => [k, `/service-desk/cases/${id}`] as [string, string])];
+        for (const [k, url] of pages) {
+          await pv.goto(url);
+          await pv.locator("main h1").first().waitFor({ timeout: 120_000 });
+          await pv.waitForLoadState("networkidle").catch(() => undefined);
+          const over = await pv.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - document.documentElement.clientWidth);
+          if (over > 1) throw new Error(`${k} scrolls sideways by ${over}px`);
+          // the main action of a case (or the list's «new case»): inside the screen width, and nothing on top of it once scrolled to
+          const main = k.startsWith("c")
+            ? pv.locator("section[aria-label='מצב ופעולה הבאה']").locator("button, a").first()
+            : k === "list" ? pv.getByRole("link", { name: /תיק שירות חדש/ }).first() : null;
+          if (main && (await main.count())) {
+            const r = await main.evaluate((el) => {
+              el.scrollIntoView({ block: "center" });
+              const b = el.getBoundingClientRect();
+              const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+              return { left: b.left, right: b.right, w: document.documentElement.clientWidth, covered: !(hit && (hit === el || el.contains(hit))) };
+            });
+            if (r.left < -0.5 || r.right > r.w + 0.5) throw new Error(`${k}: the main action is cut (${Math.round(r.left)}–${Math.round(r.right)} of ${r.w})`);
+            if (r.covered) throw new Error(`${k}: the main action is covered`);
+          }
+          if (size.width !== 360 || k === "settings") await shot(pv, `vp${size.width}-${k}`);
+        }
+      });
+      await cv.close();
     }
 
     // ── business B: the module is off ──

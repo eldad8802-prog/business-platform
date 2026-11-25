@@ -32,16 +32,13 @@ import {
   mapExecutionResultToAuthorityOutcome,
   type AuthorityIssueOutcome,
 } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
-import {
-  AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE,
-  AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE,
-  resolveIssueAllocationGate,
-} from "@/lib/services/billing/authority/billing-authority-issue-gate";
+import { resolveIssueAllocationGate } from "@/lib/services/billing/authority/billing-authority-issue-gate";
 import {
   assertCanReferenceSourceInvoice,
   assertCreditAmountWithinRemaining,
 } from "@/lib/services/billing/billing-credit-reversal.service";
 import { assertIssuableShape } from "@/lib/services/billing/billing-issuable-shape.rules";
+import { assertDraftVatReviewedTx } from "@/lib/services/billing/kind-transition/draft-vat-review";
 import {
   assertReceiptAllocationIntegrityTx,
   lockBillingDocumentRowsTx,
@@ -569,6 +566,12 @@ export async function issueBillingDocumentTx(
   const auditSource =
     core.actor.kind === "USER" ? ("USER" as const) : ("PAYMENT_SETTLEMENT" as const);
 
+  // 4a T4 — "מעבר לעוסק מורשה" takes this key EXCLUSIVELY (business_kind_transition_to_authorized). Issuances share it,
+  // so they never wait for each other; an issuance and a transition of the same business serialize. A document is
+  // therefore issued either wholly before the transition (exempt profile) or wholly after it, and the interim-documents
+  // count taken inside the transition's transaction is exact. Taken first, before any row lock (one lock order).
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${"legal_identity:"} || ${input.businessId}::int, 0))::text AS locked`;
+
   // C2.5 — hold the document being issued before reading it. Everything that
   // can still change a draft receipt's money (its payment lines, its
   // allocations) takes this same lock, so what is validated below is what
@@ -756,6 +759,10 @@ export async function issueBillingDocumentTx(
     documentType: doc.documentType,
     profile: business.profile,
   });
+  // 4a T3: a draft created before "מעבר לעוסק מורשה" with a 0% VAT line issues only after the owner's explicit VAT
+  // review of exactly this content (draft-vat-review.ts). Read from the document as locked and loaded above, so the
+  // content checked is the content frozen below. Refused before numbering. No transition → one empty read, no change.
+  await assertDraftVatReviewedTx(tx, doc);
 
   let customerData:
     | {
@@ -790,12 +797,15 @@ export async function issueBillingDocumentTx(
   }
 
   // An invoice that needs an allocation number is not issued while sending that
-  // request is known to be closed: refused here, before the number sequence, so
-  // the draft keeps no number and no undeliverable invoice is created. Only a
-  // person's issuance can need one — a system issuance is a pure receipt.
+  // request is known to be closed — nor, in the PRODUCTION pilot, when it is not
+  // the document authorized in advance (N10): refused here, before the number
+  // sequence, so the draft keeps no number and no undeliverable invoice is
+  // created. Only a person's issuance can need one — a system issuance is a pure
+  // receipt.
   if (core.actor.kind === "USER") {
     const gate = resolveIssueAllocationGate({
       businessId: input.businessId,
+      billingDocumentId: doc.id,
       documentType: doc.documentType,
       invoiceDate: issuedAt,
       vatAmount: issuedTotals.vatAmount,
@@ -805,10 +815,7 @@ export async function issueBillingDocumentTx(
       customerTaxId: customerData?.taxId ?? null,
     });
     if (gate.blocked) {
-      throw new ConflictError(
-        AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE,
-        AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE
-      );
+      throw new ConflictError(gate.code, gate.message);
     }
   }
 

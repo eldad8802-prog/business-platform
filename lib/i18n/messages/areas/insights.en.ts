@@ -452,7 +452,7 @@ export const insightsEn: Widen<typeof insightsHe> = {
       secretary: { label: "My secretary", description: "Managing the business's tasks and commitments" },
       payables: { label: "Commitments", description: "What the business owes, when, and how much is already paid" },
       calendar: { label: "Calendar", description: "Appointments, meetings, staff and working hours" },
-      serviceDesk: { label: "Service & warranty", description: "Repairs, service cases, work and warranty settings" },
+      serviceDesk: { label: "Repairs & service", description: "Repairs, service cases, work and warranty settings" },
       inventory: { label: "Inventory", description: "Products and quantities in stock" },
       suppliers: { label: "Suppliers", description: "Suppliers, orders and contact details" },
     },

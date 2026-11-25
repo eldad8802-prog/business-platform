@@ -64,7 +64,12 @@ const HOLD_LABEL: Readonly<Record<string, string>> = {
   CUSTOMER: "ממתין ללקוח",
 };
 
-export function statusLabel(status: CaseStatus): string {
+/**
+ * The status in words. A repair held for parts says so (owner 2026-11-24): «ממתין לחלקים», not the same «בעבודה» as a
+ * repair being worked on. Display only — the stored status, the hold, the actions and «ממתינים לך» are unchanged.
+ */
+export function statusLabel(status: CaseStatus, holdReason: string | null = null): string {
+  if (status === "IN_REPAIR" && holdReason === "PARTS") return "ממתין לחלקים";
   return STATUS_LABEL[status] ?? "בטיפול";
 }
 

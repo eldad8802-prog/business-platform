@@ -71,7 +71,7 @@ function Row({ row, reason, now, href }: { row: CaseRowData; reason?: string; no
           {reason ? <span className={s.rowReason}>{reason}</span> : hint ? <span className={s.rowHint}>{hint}</span> : null}
         </span>
         <span className={s.rowSide}>
-          <span className={s.pill} data-tone={tone}>{statusLabel(row.status)}</span>
+          <span className={s.pill} data-tone={tone}>{statusLabel(row.status, row.holdReason)}</span>
           <span className={s.rowDate}>{formatShortDate(row.updatedAt, now)}</span>
         </span>
       </a>

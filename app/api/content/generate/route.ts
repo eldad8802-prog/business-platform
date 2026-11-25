@@ -5,6 +5,8 @@ import { guardFeature } from "@/lib/services/feature-access/feature-guard";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { generateAIContent } from "@/lib/services/ai-content.service";
 import { getCurrentUser } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
+import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 
 export async function POST(req: NextRequest) {
   const featureDenied = await guardFeature(req, PLATFORM_FEATURE_KEYS.CONTENT);
@@ -13,6 +15,10 @@ export async function POST(req: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Owner decision 26: abuse ceiling after auth, before any model call.
+  const rateDecision = await checkRateLimit({ bucket: "CONTENT_GENERATE", user: user.id, business: user.businessId });
+  if (!rateDecision.allowed) return buildRateLimitResponse(rateDecision);
 
   let aiUnit: string | null = null;
   try {

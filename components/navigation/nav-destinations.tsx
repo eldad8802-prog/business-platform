@@ -101,7 +101,7 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   // In the bottom bar / rail it is the fixed "יומן" tab (HOME v4); in the sidebar it stays gated by appointments.
   { key: "calendar", label: "יומן ותורים", labelKey: "nav.calendar", barLabelKey: "nav.bar.calendar", href: "/calendar", icon: IconCalendarSimple, group: "business", feature: "appointments", primary: true },
   // Service Desk UI 1.3a (decision ה4: entry via ניהול העסק): only while service_desk is ON for the business — off by default.
-  { key: "service-desk", label: "שירות ואחריות", labelKey: "nav.serviceDesk", barLabelKey: "nav.bar.serviceDesk", href: "/service-desk", icon: IconWrench, group: "business", feature: "service_desk" },
+  { key: "service-desk", label: "תיקונים ושירות", labelKey: "nav.serviceDesk", barLabelKey: "nav.bar.serviceDesk", href: "/service-desk", icon: IconWrench, group: "business", feature: "service_desk" },
   { key: "secretary", label: "המזכירה שלי", labelKey: "nav.secretary", href: "/secretary", icon: IconSecretary, group: "business" },
   { key: "payables", label: "התחייבויות", labelKey: "nav.payables", href: "/payables", icon: IconCalendar, group: "business" },
   { key: "inventory", label: "מלאי", labelKey: "nav.inventory", barLabelKey: "nav.bar.inventory", href: "/inventory", icon: IconBox, group: "business" },

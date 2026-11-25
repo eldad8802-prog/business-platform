@@ -9,6 +9,9 @@
 #   2. browser, flag ON (.bkt/ui-e2e.mts): next dev on the lab; Chromium desktop/phone + WebKit iPhone-sized viewport
 #      (emulation, not a physical phone); Google's page is intercepted (no real Google in CI)
 #   3. browser + API, flag OFF (.bkt/ui-off.mts): no entry, page "not available", every route 404
+# 4a T4 (interim documents): T1–T8 in the app battery (real confirm + 4a's real route + the real issuance race), V1–V9
+# in the browser (count, date change, list, 409 on a document issued while confirming, success, zero, route failure,
+# paging); phone screenshots are kept as an artifact.
 # The wired run (A18/A19) needs migration 20261225090000 in the tree: after the migration PR merges, rebase and re-run.
 # Synthetic only. ZERO secrets. ZERO network beyond localhost (and the npm / Playwright downloads). ZERO Production.
 
@@ -25,6 +28,8 @@ on:
       - "lib/services/legal-identity/**"
       - "lib/auth/sensitive-reauth.ts"
       - "lib/auth/google-reauth.ts"
+      - "lib/services/billing/kind-transition/**"
+      - "app/api/billing/kind-transition/**"
       - "prisma/migrations/20261221090000_business_kind_transition/**"
       - "prisma/migrations/20261225090000_kind_transition_issuer_declaration_wiring/**"
       - ".bkt/**"
@@ -142,6 +147,14 @@ jobs:
           curl -s -o /dev/null --max-time 300 http://localhost:3797/business/legal-identity/kind-transition
           curl -s -o /dev/null --max-time 300 http://localhost:3797/business
           npx tsx .bkt/ui-off.mts
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kind-transition-e2e-screenshots
+          path: /tmp/bkt-e2e/*.png
+          retention-days: 14
+          if-no-files-found: warn
       - name: Server logs and screenshots (on failure)
         if: failure()
         run: |

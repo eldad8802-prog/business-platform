@@ -114,6 +114,20 @@ const TODAY = israelToday();
 const EARLY = addDays(TODAY, -20);
 const noSideScroll = (p: Page) => p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
+// ── 4a T4: interim documents (seeded as issuance freezes them) ──
+const docNo: Record<string, number> = {};
+async function seedDoc(b: Biz, type: string, ymd: string | null, opts: { total?: string; kind?: string } = {}) {
+  const key = `${b.businessId}:${type}`;
+  const n = (docNo[key] = (docNo[key] ?? 0) + 1);
+  const at = ymd === null ? "now() AT TIME ZONE 'UTC'" : `(('${ymd} 12:00'::timestamp AT TIME ZONE 'Asia/Jerusalem') AT TIME ZONE 'UTC')`;
+  await owner.$executeRawUnsafe(
+    `INSERT INTO "BillingDocument" ("businessId","documentType","status","issuedAt","documentNumber","documentNumberFormatted","subtotalAmount","totalAmount","currency","issuedSnapshot","updatedAt")
+     VALUES ($1, $2::"BillingDocumentType", 'ISSUED', ${at}, $3, $4, $5::numeric, $5::numeric, 'ILS', $6::jsonb, now())`,
+    b.businessId, type, n, String(n).padStart(6, "0"), opts.total ?? "1180.00",
+    JSON.stringify({ issuer: { legalName: "דנה כהן", taxId: b.taxId }, extensions: { billingBusinessKind: opts.kind ?? "EXEMPT_DEALER" } }));
+}
+const interimCount = async (p: Page) => Number(await p.getByTestId("kt-interim").getAttribute("data-count"));
+
 async function toStep3(p: Page, b: Biz) {
   await p.goto(`${BASE}/business/legal-identity/kind-transition`);
   await p.getByTestId("kt-date").fill(EARLY);
@@ -299,6 +313,147 @@ async function main() {
     return true;
   });
   await ctxK.close();
+
+  // ── V1–V9: 4a T4, the interim documents, phone (390×844) ──
+  const PHONE_SHOTS = (n: string) => join(OUT, `t4-${n}.png`);
+  const v = await business();
+  const D1 = addDays(TODAY, -20); // = EARLY
+  const D2 = addDays(TODAY, -8);
+  await seedDoc(v, "RECEIPT", D1);
+  await seedDoc(v, "TAX_INVOICE", addDays(TODAY, -15));
+  await seedDoc(v, "TAX_INVOICE_RECEIPT", addDays(TODAY, -5), { total: "354.00" });
+  await seedDoc(v, "CREDIT_NOTE", addDays(TODAY, -3), { total: "118.00" });
+  await seedDoc(v, "RECEIPT", addDays(TODAY, -40)); // before both dates
+  const ctxV = await ctxFor(browser, v, PHONE);
+  const pv = await ctxV.newPage(); current = pv;
+  const asked: string[] = [];
+  pv.on("request", (r) => { if (r.url().includes("/api/billing/kind-transition/interim-documents")) asked.push(new URL(r.url()).search); });
+  await check("V1 step 1: the date → the owner-approved sentence with the count (4), a request with that date", async () => {
+    await pv.goto(`${BASE}/business/legal-identity/kind-transition`);
+    await pv.getByTestId("kt-date").fill(D1);
+    await pv.getByTestId("kt-interim").waitFor({ timeout: 60_000 });
+    const text = await pv.getByTestId("kt-interim").innerText();
+    const [y, m, d] = D1.split("-");
+    await pv.screenshot({ path: PHONE_SHOTS("1-step1-count"), fullPage: true });
+    return (await interimCount(pv)) === 4 && text === `מאז ${d}.${m}.${y} הופקו 4 מסמכים כעוסק פטור. המסמכים יישארו ללא שינוי. מומלץ לבדוק אותם עם רואה החשבון שלך.`
+      && asked.some((q) => q === `?from=${D1}`);
+  });
+  await check("V2 the date changes → asked again automatically → 2", async () => {
+    await pv.getByTestId("kt-date").fill(D2);
+    await pv.waitForFunction(() => document.querySelector('[data-testid="kt-interim"]')?.getAttribute("data-count") === "2", null, { timeout: 30_000 });
+    return asked.some((q) => q === `?from=${D2}`);
+  });
+  await check("V3 the list: a sheet with the 2 documents (type, number, amount, credit), Escape closes, focus back on the opener", async () => {
+    await pv.getByTestId("kt-interim-list-open").click();
+    await pv.getByTestId("kt-interim-sheet").waitFor();
+    await pv.getByTestId("kt-interim-item").nth(1).waitFor({ timeout: 30_000 });
+    const rows = await pv.getByTestId("kt-interim-item").allInnerTexts();
+    await pv.screenshot({ path: PHONE_SHOTS("2-list-sheet"), fullPage: false });
+    const sideOk = await noSideScroll(pv);
+    await pv.keyboard.press("Escape");
+    await pv.getByTestId("kt-interim-sheet").waitFor({ state: "detached" });
+    const focusBack = await pv.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid === "kt-interim-list-open");
+    return rows.length === 2 && rows.some((r) => r.includes("חשבונית מס-קבלה")) && rows.some((r) => r.includes("חשבונית זיכוי")) && sideOk && focusBack;
+  });
+  await check("V4 step 3 shows the same number; confirm waits for it", async () => {
+    await pv.getByTestId("kt-step1-next").click();
+    await pv.getByTestId("kt-tax").fill(v.taxId);
+    await pv.getByTestId("kt-password").fill(PASSWORD);
+    await pv.getByTestId("kt-step2-next").click();
+    await pv.getByRole("heading", { name: "בדיקה ואישור" }).waitFor({ timeout: 30_000 });
+    await pv.getByTestId("kt-interim").waitFor({ timeout: 30_000 });
+    await tickAll(pv);
+    await pv.screenshot({ path: PHONE_SHOTS("3-step3"), fullPage: true });
+    return (await interimCount(pv)) === 2;
+  });
+  await check("V5 a document issued while confirming → 409: 'nothing changed' + the new number (3), nothing written; confirm again → success", async () => {
+    let confirmBody: Record<string, unknown> | null = null;
+    let once = true;
+    await pv.route(/\/api\/business\/legal-identity\/kind-transition$/, async (route) => {
+      if (route.request().method() === "POST") {
+        confirmBody = JSON.parse(route.request().postData() ?? "{}");
+        if (once) { once = false; await seedDoc(v, "RECEIPT", null); } // issued between "seen" and "confirmed"
+      }
+      await route.continue();
+    });
+    await pv.getByTestId("kt-confirm").click();
+    await pv.getByTestId("kt-confirm-error").waitFor({ timeout: 30_000 });
+    const msg = await pv.getByTestId("kt-confirm-error").innerText();
+    const sentFirst = (confirmBody as Record<string, unknown> | null)?.interimDocumentCount;
+    await pv.waitForFunction(() => document.querySelector('[data-testid="kt-interim"]')?.getAttribute("data-count") === "3", null, { timeout: 30_000 });
+    await pv.screenshot({ path: PHONE_SHOTS("4-changed-409"), fullPage: true });
+    const nothing = (await history(v.businessId)).length === 0 && (await kind(v.businessId)) === "EXEMPT_DEALER";
+    await pv.getByTestId("kt-confirm").click();
+    await pv.getByTestId("kt-success").waitFor({ timeout: 30_000 });
+    const sentSecond = (confirmBody as Record<string, unknown> | null)?.interimDocumentCount;
+    return sentFirst === 2 && msg.includes("הופקו 3 מסמכים") && msg.includes("שום דבר לא השתנה") && nothing && sentSecond === 3
+      && (await kind(v.businessId)) === "AUTHORIZED_DEALER";
+  });
+  await check("V6 success: the number from the history row (asked without a date), the list from the record", async () => {
+    await pv.getByTestId("kt-interim").waitFor({ timeout: 30_000 });
+    const n = await interimCount(pv);
+    await pv.screenshot({ path: PHONE_SHOTS("5-success"), fullPage: true });
+    await pv.getByTestId("kt-interim-list-open").click();
+    await pv.getByTestId("kt-interim-item").nth(2).waitFor({ timeout: 30_000 });
+    const rows = await pv.getByTestId("kt-interim-item").count();
+    await pv.getByTestId("kt-interim-close").click();
+    return n === 3 && rows === 3 && asked.some((q) => q === "") && asked.some((q) => q === "?list=1");
+  });
+  await check("V7 the success screen at 320 wide: no side scroll", async () => { await pv.setViewportSize({ width: 320, height: 700 }); const r = await noSideScroll(pv); await pv.setViewportSize(PHONE); return r; });
+  await ctxV.close();
+
+  const z = await business();
+  const ctxZ = await ctxFor(browser, z, PHONE);
+  const pz = await ctxZ.newPage(); current = pz;
+  await check("V8 zero documents: 'לא הופקו מסמכים' on step 1 (early date); today → nothing shown; the route failing → an error with a retry, confirm stays off", async () => {
+    await pz.goto(`${BASE}/business/legal-identity/kind-transition`);
+    await pz.getByTestId("kt-date").fill(EARLY);
+    await pz.getByTestId("kt-interim").waitFor({ timeout: 60_000 });
+    const none = (await pz.getByTestId("kt-interim").innerText()).includes("לא הופקו מסמכים") && (await interimCount(pz)) === 0;
+    await pz.screenshot({ path: PHONE_SHOTS("6-zero"), fullPage: true });
+    await pz.getByTestId("kt-date").fill(TODAY);
+    await pz.waitForTimeout(1500);
+    const todayHidden = (await pz.getByTestId("kt-interim").count()) === 0;
+    let fail = true;
+    await pz.route(/interim-documents/, (route) => (fail ? route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"INTERIM_DOCUMENTS_FAILED"}' }) : route.continue()));
+    await pz.getByTestId("kt-date").fill(EARLY);
+    await pz.getByTestId("kt-interim-error").waitFor({ timeout: 30_000 });
+    await pz.getByTestId("kt-step1-next").click();
+    await pz.getByTestId("kt-tax").fill(z.taxId);
+    await pz.getByTestId("kt-password").fill(PASSWORD);
+    await pz.getByTestId("kt-step2-next").click();
+    await pz.getByRole("heading", { name: "בדיקה ואישור" }).waitFor({ timeout: 30_000 });
+    await tickAll(pz);
+    await pz.getByTestId("kt-interim-error").waitFor({ timeout: 30_000 });
+    const off = await pz.getByTestId("kt-confirm").isDisabled();
+    await pz.screenshot({ path: PHONE_SHOTS("7-route-error"), fullPage: true });
+    fail = false;
+    await pz.getByTestId("kt-interim-retry").click();
+    await pz.getByTestId("kt-interim").waitFor({ timeout: 30_000 });
+    const on = await pz.getByTestId("kt-confirm").isEnabled();
+    return none && todayHidden && off && on;
+  });
+  await ctxZ.close();
+
+  const many = await business();
+  for (let i = 0; i < 60; i++) await seedDoc(many, i % 3 ? "RECEIPT" : "TAX_INVOICE", addDays(TODAY, -1 - (i % 15)), { total: String(100 + i) + ".00" });
+  const ctxN = await ctxFor(browser, many, PHONE);
+  const pn = await ctxN.newPage(); current = pn;
+  await check("V9 60 documents: the list shows 50, 'more' loads the other 10, each once", async () => {
+    await pn.goto(`${BASE}/business/legal-identity/kind-transition`);
+    await pn.getByTestId("kt-date").fill(EARLY);
+    await pn.getByTestId("kt-interim").waitFor({ timeout: 60_000 });
+    await pn.getByTestId("kt-interim-list-open").click();
+    await pn.getByTestId("kt-interim-item").nth(49).waitFor({ timeout: 30_000 });
+    const first = await pn.getByTestId("kt-interim-item").count();
+    await pn.getByTestId("kt-interim-more").click();
+    await pn.getByTestId("kt-interim-item").nth(59).waitFor({ timeout: 30_000 });
+    const all = await pn.getByTestId("kt-interim-item").count();
+    const moreGone = (await pn.getByTestId("kt-interim-more").count()) === 0;
+    await pn.screenshot({ path: PHONE_SHOTS("8-list-60"), fullPage: false });
+    return (await interimCount(pn)) === 60 && first === 50 && all === 60 && moreGone;
+  });
+  await ctxN.close();
   await browser.close();
 
   // ── U14: WebKit, iPhone-sized viewport ──

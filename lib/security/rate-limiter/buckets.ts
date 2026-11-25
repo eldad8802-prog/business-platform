@@ -229,4 +229,54 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "global", limit: 20, windowSeconds: 24 * 60 * 60 },
     ],
   },
+
+  // ---- Owner decision 26 (2026-11-24): GENEROUS abuse ceilings on the four paths that had none. ----------------------
+  // Infrastructure abuse protection, NOT subscription quota enforcement: the same numbers for every account, testers
+  // included. Each is set well above what a real owner does in the product's own flows.
+
+  // Gmail import (POST /api/integrations/gmail/import): one admitted request = one attachment = one Gmail download,
+  // one Google Vision OCR and one object-storage write. Checked AFTER the duplicate fast path, so re-tapping files that
+  // were already imported never counts. Same business ceilings as UPLOAD_ACCEPT (the day's document ceiling) so email
+  // cannot become a way around it. Fail-CLOSED like UPLOAD_ACCEPT: a refused request stores nothing and the attachment
+  // simply stays in Gmail to be imported again later — nothing already received is lost.
+  GMAIL_IMPORT: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 60, windowSeconds: 60 },
+      { scope: "user", limit: 600, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 120, windowSeconds: 60 },
+      { scope: "business", limit: 2000, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
+  // AI content generation (POST /api/content/generate): up to 3 model calls per admitted request. Fail-CLOSED: a
+  // limiter outage must never become "unbounded model spend" (same posture as LANDING_COMPOSE).
+  CONTENT_GENERATE: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 10, windowSeconds: 60 },
+      { scope: "user", limit: 60, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 200, windowSeconds: 24 * 60 * 60 },
+      { scope: "global", limit: 2000, windowSeconds: 60 * 60 },
+    ],
+  },
+  // Letter PDF (POST /api/business-documents/letters/pdf): headless Chromium per request; stateless, nothing stored.
+  // Fail-OPEN: a letter must not fail to render because the limiter's backend is down.
+  LETTER_PREVIEW: {
+    failMode: "open",
+    rules: [
+      { scope: "user", limit: 30, windowSeconds: 60 },
+      { scope: "user", limit: 300, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 1000, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
+  // Legacy accountant ZIP (POST /api/reports/export-zip): builds the whole package in memory per request. Exporting
+  // the business's own data is a rights-floor action: fail-OPEN, a limiter outage must never block it.
+  REPORTS_EXPORT_ZIP: {
+    failMode: "open",
+    rules: [
+      { scope: "user", limit: 10, windowSeconds: 60 },
+      { scope: "user", limit: 60, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 200, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
 };

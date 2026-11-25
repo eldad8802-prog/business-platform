@@ -93,9 +93,13 @@ jobs:
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx lib/services/billing/billing-issue-allocation-gate.rls.integration.test.ts
 
-      # The gate's refusal is removed from issuance (exactly the defect) and the suite must
-      # go red on G1 — the READY invoice issuing with a number under a closed pilot gate.
-      - name: Negative proof — issuance without the gate is caught
+      # Each refusal is removed in turn (exactly the defect) and the suite must go red on
+      # that refusal's own case:
+      #   - the gate's refusal removed from issuance → G1 (a READY invoice issues with a
+      #     number under a closed pilot gate);
+      #   - N10's document step removed from the gate → G11 (an unlisted READY invoice
+      #     issues while Approval is open).
+      - name: Negative proof — each refusal removed is caught
         env:
           DATABASE_URL: ${{ env.RUNTIME_URL }}
           DIRECT_URL: ${{ env.RUNTIME_URL }}
@@ -104,20 +108,23 @@ jobs:
         run: |
           set -uo pipefail
           prove() {
-            local file=lib/services/billing/billing-issue.service.ts
+            local file="$1" pattern="$2" expect="$3"
             cp "$file" "$file.bak"
-            perl -0pi -e 's/    if \(gate\.blocked\) \{\n      throw new ConflictError\(\n        AUTHORITY_ALLOCATION_SENDING_CLOSED_CODE,\n        AUTHORITY_ALLOCATION_SENDING_CLOSED_MESSAGE\n      \);\n    \}\n/    void gate;\n/' "$file"
+            perl -0pi -e "$pattern" "$file"
             if cmp -s "$file" "$file.bak"; then
-              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply"; return 1
+              mv "$file.bak" "$file"; echo "::error::negative-proof setup did not apply to $file"; return 1
             fi
             npx tsx lib/services/billing/billing-issue-allocation-gate.rls.integration.test.ts > np.log 2>&1; local status=$?
             mv "$file.bak" "$file"
             if [ "$status" -eq 0 ]; then
-              echo "::error::NEGATIVE-PROOF FAIL: issuance without the gate and the suite stayed green"; return 1
+              echo "::error::NEGATIVE-PROOF FAIL: $file without its refusal and the suite stayed green"; return 1
             fi
-            if ! grep -q "\[FAIL\] G1" np.log; then
-              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on G1"; tail -30 np.log; return 1
+            if ! grep -q "\[FAIL\] $expect " np.log; then
+              echo "::error::NEGATIVE-PROOF FAIL: the suite failed, but not on $expect"; tail -30 np.log; return 1
             fi
-            echo "negative proof OK — issuance without the gate fails G1"
+            echo "negative proof OK — $file without its refusal fails $expect"
           }
-          prove || exit 1
+          prove lib/services/billing/billing-issue.service.ts \
+            's/    if \(gate\.blocked\) \{\n      throw new ConflictError\(gate\.code, gate\.message\);\n    \}\n/    void gate;\n/' "G1" || exit 1
+          prove lib/services/billing/authority/billing-authority-issue-gate.ts \
+            's/const documentRefusal = deps\.resolveDocumentRefusal\(businessId, billingDocumentId, environment\);/const documentRefusal = null as AuthorityProductionPilotRefusalCode | null;/' "G11" || exit 1

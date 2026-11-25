@@ -1,0 +1,10 @@
+{
+  "note": "Owner decision 26 (subscriptions stage C, 2026-11-24): generous abuse rate limits on Gmail import, AI content generate, letter PDF and the legacy export ZIP — the same ceilings for every account, testers included.",
+  "tests": {
+    "lib/security/rate-limiter/abuse-four-paths.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure + static: the four bucket values and fail modes (Gmail import and AI generate fail closed, letter PDF and export ZIP fail open as rights-floor paths); per-user, per-business and global ceilings hold across users; a limiter outage refuses only the fail-closed paths; a refusal is the shared 429 with Retry-After; each route checks the limit after auth and before the expensive work"
+    }
+  }
+}

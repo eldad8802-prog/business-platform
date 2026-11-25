@@ -1,7 +1,8 @@
 # "מעבר לעוסק מורשה" — handover package for the billing / issuer-declaration track (4a)
 
 **For:** a new 4a session (billing, issuer declaration, numbering, uniform export), with no chat history.
-**From:** the legal identity track (session f3), 2026-11-23 (updated after #1210, #1204 and #1213 were all merged).
+**From:** the legal identity track (session f3), 2026-11-23; updated 2026-11-24 after the T1 wiring (#1266, #1272, #1267) was
+merged and applied, and again on 2026-11-25 after T4 closed (#1269 + #1279). The activation conditions are in §8.
 **Status:** handover only. **This file approves nothing.** Each 4a task needs the owner's focused approval as usual.
 Billing (A0) code is changed only by 4a, never by the legal identity track.
 
@@ -37,6 +38,9 @@ Owner decisions of 2026-11-20 / 21:
 | #1204 | API `/api/business/legal-identity/kind-transition` (GET, preview, reauth/password, reauth/google, confirm), re-auth proof `lib/auth/sensitive-reauth.ts` + `lib/auth/google-reauth.ts`, Prisma model, tests | **MERGED 272125bb (2026-11-22)**, live; every route answers 404 while the flag is off |
 | #1213 | UI: entry in the legal identity card on `/business` + `/business/legal-identity/kind-transition` (3 steps + success) | **MERGED 8955bbce (2026-11-22)**, live; flag off → no entry, no API request, the page says not available |
 | #1214 | CI proof only (#1210 + #1204 + #1213 joined) | **Closed without merge** (owner-approved); evidence kept |
+| #1266 | Migration `20261225090000_kind_transition_issuer_declaration_wiring`: the transition calls the 4a T1 writer (contract `.billing-4a/T1-WIRING-CONTRACT.md` §2; code = `.billing-4a/t1-wiring.proposed.sql`); evidence files, `.bkt` wiring lab + batteries, rollback | **MERGED 29447009 and APPLIED in Production 2026-11-24** (record #1272 → b834ecb0, preflight 45317499245 12/12, release-migrate 45320505488, post-apply proof 45323806725 9/9) |
+| #1267 | Application: a live declaration no longer blocks; the writer's answers mapped to 409 with owner-approved Hebrew texts | **MERGED 947c6ab3 (2026-11-24)**, live (Production deployment 2026-11-24T05:00:36Z); every route still 404 while the flag is off |
+| #1279 | T4 integration: the interim-documents count and list on steps 1 and 3, the success screen and the "already moved" screen; confirm carries `interimDocumentCount` and recounts inside the transition's transaction (409 `INTERIM_DOCUMENTS_CHANGED`, atomic rollback) | **MERGED ed3e8300 (2026-11-24)**, live (Production deployment 2026-11-24T20:13:58Z); every route still 404 while the flag is off |
 
 The flag is read in one place, `lib/legal-identity/kind-transition-flag.ts` (`=== "true"`, server-only). The API
 enforces it per request; `app/business/layout.tsx` passes it to the screens. Turning it on or off = env change + redeploy.
@@ -52,9 +56,21 @@ What it never touches:
 - any `Billing*` table;
 - the issuer declaration.
 
-**While the latest issuer declaration is live (not anonymised), the function refuses with `ISSUER_DECLARATION_ACTIVE`.**
-The definer bypasses the profile lock DZD35 as table owner, so without this refusal the profile would drift from the
-declaration. T1 removes this limit.
+**Since 2026-11-24 (20261225090000), a live issuer declaration is no longer refused.** After the `STATEMENT_STALE`
+check and before the history row and the profile update, the transition calls `issuer_declaration_status_change` with
+its own server-computed digest, re-auth method and instant:
+
+- `DECLARED` → declaration v2 `STATUS_CHANGE` is filed **in the same transaction**, so the profile keeps following the
+  declaration (DZD35).
+- Any other answer → `ISSUER_DECLARATION_<status>`, with nothing written. The application maps
+  `NOT_AUTHORIZED_USER`, `IDENTITY_MISMATCH`, `DECLARATION_NOT_EXEMPT` and `DECLARATION_NOT_YET_EFFECTIVE` to 409 with
+  owner-approved texts; any other status is unreachable and maps to 500.
+- A business without a live declaration (none, or anonymised) never reaches the writer and transitions exactly as
+  before.
+
+The transition still never writes the declaration table directly; only the 4a writer does. Right after the apply
+Production held 0 STATUS_CHANGE rows, 0 transition rows, and 0 businesses with a live exempt declaration and an exempt
+profile.
 
 ## 3. Files and models 4a will work in (A0 unless stated)
 
@@ -110,6 +126,15 @@ declaration. T1 removes this limit.
   - a non-authorized user, or an identity mismatch, is refused.
 - **Legal identity follow-up (not 4a):** a small migration that replaces the `ISSUER_DECLARATION_ACTIVE` refusal with
   a call to T1, under its own approval.
+- **Status 2026-11-24: DONE.** 4a's writer is applied (20261223100000, release-migrate 45292801317). The legal identity
+  follow-up is applied too (20261225090000, release-migrate 45320505488, proof 45323806725 9/9), and its application side
+  is merged (#1267, 947c6ab3).
+- Lab on the real migration:
+  - integrated battery 57/57;
+  - K1–K11 wired 56/56;
+  - 4a T1 battery 75/75 (W 26/26);
+  - app battery wired 43/43 (A18/A19) and unwired 34/34 (A20);
+  - atomicity holds; the rollback restores the old body byte for byte.
 
 ### T1a — Google re-authentication for the declaration (Gate for Google-only declared businesses)
 
@@ -120,6 +145,8 @@ declaration. T1 removes this limit.
 - **Never** accept a client-side claim.
 - **Acceptance:** a Google-only declared owner transitions with a fresh Google re-auth; a stale or foreign Google
   account is refused.
+- **Status 2026-11-24: DONE** (option a, 20261223090000 applied). Through the wired transition, GOOGLE is recorded on
+  both v2 and the history row (lab W3). A real Google account is still part of R1–R14.
 
 ### T2 — Uniform export for historical periods (Gate)
 
@@ -146,10 +173,15 @@ declaration. T1 removes this limit.
   - T2-4: businesses that did not transition are byte-identical, and the 9 existing uniform tests pass.
   - T2-5: three simulator packages (`docs/compliance/tax-authority/t2-kind-transition/`).
 - **No change to the export code.**
-- **External verification is still open.** Until it is done, the accounting requirement is not stated as verified:
-  - the owner runs the three packages in the ITA simulator;
-  - the accountant confirms the two questions in that README (the id number in the "מספר עוסק מורשה" fields for an
-    exempt dealer; one file across the transition).
+- **Closure (owner, final, 2026-11-24).** The authority for the uniform structure is the Tax Authority; an
+  accountant's confirmation is not a condition. The id number stays the same; one file for a range across the
+  transition; each document keeps its own VAT; numbering stays continuous in every series. T2 closes when:
+  1. the three v2 packages (≥ 2,000 records each, `t2-simulator-packages-v2.zip`) pass the official ITA simulator;
+  2. no contradiction with the original spec 1.31 is found. The README holds the field-by-field check against the
+     original: identity fields, 1015, 1011/1023, 1024/1025, the path, the document codes 305/320/330/400 and the
+     1306 payment codes. The spec has no instruction to split files on a change from exempt to authorized.
+  A Tax Authority inquiry is drafted (`ITA-INQUIRY-DRAFT.md`) only for the point the spec does not address in words:
+  the "מספר עוסק מורשה" fields for an exempt dealer.
 
 ### T3 — 0%-VAT drafts must be reviewed before issuing (Gate; owner 11-21)
 
@@ -170,6 +202,41 @@ declaration. T1 removes this limit.
   - counts match a seeded lab;
   - no write path;
   - the legal identity screens show the real count (they currently show the generic warning).
+- **Status 2026-11-24: DONE.**
+  - 4a side: #1269, e5acaa2d. Contract: `.billing-4a/T4-INTERIM-DOCUMENTS-CONTRACT.md`.
+  - Legal identity side: #1279, ed3e8300. Covers steps 1 and 3, the success screen, the list sheet, and the in-transaction
+    recount on confirm.
+  - Texts: the owner-approved sentence, plus four more the owner approved on 2026-11-24 (singular, none, load error,
+    changed while confirming).
+- **Lab (CI e2e 45472029498):**
+  - app battery 54/54 unwired and 65/65 wired;
+  - T4 cases T1–T8 + T7b, including the real issuance racing the real confirm in both orders;
+  - browsers 34/34 (V1–V9);
+  - flag OFF 4/4.
+
+### T3 status (2026-11-25)
+
+**DONE 2026-11-25.** #1273 was squash-merged as `a111cf83` (locked to the owner-approved HEAD 80a9d9b5; A0 record
+comment 7144891279). The Production deploy succeeded at 21:28Z.
+- **The pre-merge condition (owner):** a read-only Production check of historical quotes. It ran as
+  prod-readonly-evidence 45490270774, with the SQL file from #1280.
+  - There are 2 quotes, and both have a `BILLING_QUOTE_PDF_RENDERED` event.
+  - None was never produced.
+  - The gap (produced, but no event) is **0**.
+  - There are 0 `BusinessKindTransition` rows.
+- **What it contains:**
+  - the issuance gate for pre-transition 0% drafts (`BILLING_DRAFT_VAT_REVIEW_CONFIRMED` + fingerprint);
+  - the review panel on `/billing/[id]` (7 owner-approved strings);
+  - `POST/GET /api/billing/documents/[id]/vat-review`;
+  - the old-quote fix: a quote first rendered before `confirmedAt` re-renders with the issuer as sent
+    (`quote-issuer-as-sent.ts`); with no event it does not guess.
+- **Live checks:**
+  - `/api/health` 200;
+  - the new vat-review route answers 401 unauthenticated, so the code is live;
+  - `/api/billing/kind-transition/interim-documents` answers 404, so the flag is OFF;
+  - no 5xx on the routes probed;
+  - main CI on `a111cf83`: 6/6 success.
+- **Lab (verify run 45454422882):** T3 40/40 (V11), T4 35/35, T5 53/53, golden 86/86, page e2e 9/9.
 
 ### T5 — Numbering continuity (Gate)
 
@@ -191,6 +258,9 @@ declaration. T1 removes this limit.
 - Retire the `LEGAL_IDENTITY_CORRECTION_ENABLED` link.
 - **Acceptance:** no screen mentions a correction request; en/he messages updated; i18n proofs green.
 
+**T5 and T6 status (4a, 2026-11-25): closed.** Both were delivered with T1 and covered by batteries 53/53. Nothing is
+missing from main.
+
 ### T7 / T8 (not gates)
 
 - **T7:** a new business file with the same id number restarts numbering at 1 for the same taxpayer. Offer a
@@ -203,15 +273,33 @@ declaration. T1 removes this limit.
 2. T5 (lab proof only).
 3. T1 + T1a (migration + code, each with its approval record).
 4. T3, T2, T4.
-5. Legal identity follow-up migration (call T1).
+5. ~~Legal identity follow-up migration (call T1).~~ Done 2026-11-24 (#1266 applied, #1267 merged).
 6. Owner enables the flag after an isolated Preview with a real Google account and a physical phone.
+
+## 8. Activation conditions (2026-11-25)
+
+The flag `BUSINESS_KIND_TRANSITION_ENABLED=true` in Production is an env change plus a redeploy. It needs the owner's
+approval and happens only after every condition below holds.
+
+| # | Condition | State |
+|---|---|---|
+| C1 | T1 + T1a: the writer, Google re-auth, and the 20261225090000 wiring applied in Production | ✅ applied (release-migrate 45292801317 and 45320505488; proof 45323806725 9/9) |
+| C2 | T2: the three v2 packages pass the official ITA simulator; no contradiction with spec 1.31 | ⏳ the owner runs the simulator (`docs/compliance/tax-authority/t2-kind-transition/t2-simulator-packages-v2.zip`) |
+| C3 | T3: #1273 merged and live | ✅ `a111cf83`, live 2026-11-25 (quote check 45490270774: gap 0) |
+| C4 | T4 | ✅ #1269 + #1279 live |
+| C5 | T5, T6 | ✅ closed (4a) |
+| C6 | R1–R14 on a physical phone with a real Google account, on the isolated Preview | ⏳ owner actions O1–O6 in `docs/legal-identity-kind-transition-real-device-runbook.md` |
+| C7 | After C2, C3 and C6: an isolated CI run of the full lab on main | ⏳ f3 re-runs it on main (C3 done) |
+| C8 | The owner's activation decision: set the env var in Production and redeploy; then a read-only check (routes 200 for a signed-in exempt owner, no 5xx) | ⏳ owner |
 
 ## 7. How to verify against the legal identity code
 
-- Lab: `.bkt/lab.sh <db> --with-bkt` (needs #1210 in the tree).
+- Lab: `.bkt/lab.sh <db> --with-bkt` (20261221090000 only); `--t1-base` (Production before the wiring);
+  `--with-wiring` (Production now: + 4a T1/T1a + 20261225090000); `--broken-wiring` (atomicity).
 - Batteries:
-  - `.bkt/battery.ts` — database, 52 checks;
-  - `.bkt/app-battery.ts` — API, 33 checks;
+  - `.bkt/battery.ts` — database, 52 checks unwired / 56 wired;
+  - `.bkt/wiring-battery.mts` — the wiring on the real migration (I1–I5), 57 checks;
+  - `.bkt/app-battery.ts` — API, 34 checks unwired / 43 wired;
   - `.bkt/ui-e2e.mts` / `.bkt/ui-off.mts` — browsers, flag ON / OFF.
-- CI: `business-kind-transition-lab.yml`, `business-kind-transition-e2e.yml`.
+- CI: `business-kind-transition-lab.yml`, `kind-transition-wiring-lab.yml`, `business-kind-transition-e2e.yml` (wired lab).
 - Any 4a change that the transition calls must keep these green.
