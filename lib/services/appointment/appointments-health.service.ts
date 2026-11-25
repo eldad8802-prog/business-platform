@@ -2,19 +2,20 @@
  * Appointments health — the READ-ONLY collection (G4). SERVER-ONLY. Runs without a session (the GitHub watchdog,
  * CRON_SECRET); never takes a business from the caller.
  *
- * Cross-business reads use ONLY the existing identifiers-only SECURITY DEFINER doors, exactly as the sweepers do:
- *   booking_pending_due(now − grace, limit)      — the booking sweep's own door (20261106090000): what it returns with
- *                                                  expiresAt ≤ now − grace is a request the sweep should have expired;
- *   notification_live_businesses(after, limit)   — the digest's keyset walk over live businesses (20261210090000).
- * Everything else runs inside each business's tenant transaction (tenantTx: app.current_business_id, FORCE RLS), one
- * bounded statement per business, on existing indexes. Nothing is written. Only counts and ages leave this module.
+ * Cross-business reads reuse the two EXISTING identifiers-only doors — no new raw access on the bare client:
+ *   duePendingRequests(now − grace)   — the booking sweep's own lookup (booking_pending_due, 20261106090000): what it
+ *                                       returns with expiresAt ≤ now − grace is a request the sweep should have expired;
+ *   walkLiveBusinesses(visit)         — the digest's keyset walk (notification_live_businesses, 20261210090000).
+ * Everything else — including the catalog check that the no-overlap guard exists — runs inside each business's tenant
+ * transaction (tenantTx: app.current_business_id, FORCE RLS), one bounded statement per business, on existing indexes.
+ * Nothing is written. Only counts and ages leave this module.
  */
-import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
+import { walkLiveBusinesses } from "@/lib/notifications/engine/digest";
+import { duePendingRequests } from "@/lib/services/booking/booking-sweep.service";
 
 import { HEALTH_GRACE_MINUTES, type AppointmentsHealthSnapshot } from "./appointments-health";
 
-const PAGE = 500;
 const MAX_BUSINESSES = 5000;
 export const SCAN_BUDGET_MS = 40_000;
 
@@ -23,6 +24,7 @@ const fromUtc = (v: Date | string) => (v instanceof Date ? v : new Date(`${Strin
 const minutesSince = (now: Date, at: Date) => Math.max(0, Math.floor((now.getTime() - at.getTime()) / 60_000));
 
 type BusinessRow = {
+  guard: boolean;
   overlaps: number;
   stale_holds: number;
   owed_due_since: Date | string | null;
@@ -36,6 +38,9 @@ export async function businessHealth(businessId: number, now: Date): Promise<Bus
   const at = toUtc(now);
   const rows = await tenantTx(businessId, (tx) => tx.$queryRaw<BusinessRow[]>`
     SELECT
+      EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
+               WHERE conname = 'Appointment_no_overlap' AND contype = 'x' AND convalidated
+                 AND conrelid = 'public."Appointment"'::regclass) AS guard,
       (SELECT count(*)::int
          FROM "Appointment" a
          JOIN "Appointment" b
@@ -72,39 +77,23 @@ export async function businessHealth(businessId: number, now: Date): Promise<Bus
   return rows[0];
 }
 
-/** The database's own no-overlap guard is present and valid (catalog read; no tenant data). */
-export async function overlapGuardPresent(): Promise<boolean> {
-  const rows = await prisma.$queryRaw<{ present: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1 FROM pg_catalog.pg_constraint
-       WHERE conname = 'Appointment_no_overlap' AND contype = 'x' AND convalidated
-         AND conrelid = 'public."Appointment"'::regclass) AS present`;
-  return rows[0]?.present === true;
-}
-
-/** PENDING requests the sweep's own door still shows, lapsed for longer than the grace. */
+/** PENDING requests the sweep's own lookup still returns, lapsed for longer than the grace. */
 export async function staleBookingRequests(now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - HEALTH_GRACE_MINUTES * 60_000);
-  const rows = await prisma.$queryRaw<{ expiresAt: Date | string }[]>`
-    SELECT "expiresAt" FROM public.booking_pending_due(${toUtc(cutoff)}::timestamp(3), 500::int)`;
-  return rows.filter((r) => fromUtc(r.expiresAt).getTime() <= cutoff.getTime()).length;
-}
-
-async function liveBusinesses(after: number): Promise<number[]> {
-  const rows = await prisma.$queryRaw<{ businessId: number }[]>`
-    SELECT "businessId" FROM public.notification_live_businesses(${after}::int, ${PAGE}::int)`;
-  return rows.map((r) => Number(r.businessId));
+  const rows = await duePendingRequests(cutoff, 500);
+  return rows.filter((r) => r.expiresAt.getTime() <= cutoff.getTime()).length;
 }
 
 export type CollectDeps = {
-  overlapGuardPresent: () => Promise<boolean>;
   staleBookingRequests: (now: Date) => Promise<number>;
-  liveBusinesses: (after: number) => Promise<number[]>;
+  walkBusinesses: (visit: (businessId: number) => Promise<void>) => Promise<void>;
   businessHealth: (businessId: number, now: Date) => Promise<BusinessRow>;
   clock: () => number;
 };
 
-const realDeps: CollectDeps = { overlapGuardPresent, staleBookingRequests, liveBusinesses, businessHealth, clock: () => Date.now() };
+const realDeps: CollectDeps = { staleBookingRequests, walkBusinesses: walkLiveBusinesses, businessHealth, clock: () => Date.now() };
+
+class StopWalk extends Error {}
 
 export async function collectAppointmentsHealth(now: Date = new Date(), deps: CollectDeps = realDeps, budgetMs = SCAN_BUDGET_MS): Promise<AppointmentsHealthSnapshot> {
   const started = deps.clock();
@@ -112,7 +101,8 @@ export async function collectAppointmentsHealth(now: Date = new Date(), deps: Co
     businessesScanned: 0,
     businessesFailed: 0,
     budgetExhausted: false,
-    overlapGuardPresent: await deps.overlapGuardPresent(),
+    // Checked inside every visited business's transaction; with no live business there is nothing to overlap.
+    overlapGuardPresent: true,
     laneOverlaps: 0,
     staleBookingRequests: await deps.staleBookingRequests(now),
     staleHolds: 0,
@@ -123,19 +113,16 @@ export async function collectAppointmentsHealth(now: Date = new Date(), deps: Co
   };
   let oldestOwed: Date | null = null;
   let lastExpired: Date | null = null;
-  let after = 0;
-  walk: for (;;) {
-    const page = await deps.liveBusinesses(after);
-    if (page.length === 0) break;
-    for (const businessId of page) {
+  try {
+    await deps.walkBusinesses(async (businessId) => {
       if (snap.businessesScanned + snap.businessesFailed >= MAX_BUSINESSES || deps.clock() - started > budgetMs) {
         snap.budgetExhausted = true;
-        break walk;
+        throw new StopWalk();
       }
-      after = businessId;
       try {
         const r = await deps.businessHealth(businessId, now);
         snap.businessesScanned += 1;
+        if (r.guard !== true) snap.overlapGuardPresent = false;
         snap.laneOverlaps += Number(r.overlaps);
         snap.staleHolds += Number(r.stale_holds);
         snap.failedDeliveries24h += Number(r.failed_24h);
@@ -151,8 +138,9 @@ export async function collectAppointmentsHealth(now: Date = new Date(), deps: Co
       } catch {
         snap.businessesFailed += 1; // one business never hides the others; the run is not called healthy
       }
-    }
-    if (page.length < PAGE) break;
+    });
+  } catch (e) {
+    if (!(e instanceof StopWalk)) throw e;
   }
   snap.oldestOwedDeliveryMinutes = oldestOwed ? minutesSince(now, oldestOwed) : null;
   snap.lastSweepEvidenceMinutes = lastExpired ? minutesSince(now, lastExpired) : null;

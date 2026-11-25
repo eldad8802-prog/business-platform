@@ -6,7 +6,7 @@
  *      malformed counts fail closed;
  *   B. the route answer: 503 / 401 before anything is read; 200 / 500 with check names; a throwing collector → fixed
  *      code, never its message; the body carries counts and check names only;
- *   C. the collector's walk (fake doors): pages, sums, oldest owed / latest evidence, a failing business, the budget;
+ *   C. the collector's walk (fake doors): every business, sums, oldest owed / latest evidence, a failing business, the budget;
  *   D. static: the route authenticates only through decideCronAuth, writes nothing, reads no CRON_SECRET itself; the
  *      watchdog workflow follows the protected `cron` environment pattern and is gated off by default.
  */
@@ -78,32 +78,36 @@ async function main() {
 
   // C. the walk
   const now = new Date("2026-11-24T12:00:00.000Z");
-  const pages: Record<number, number[]> = { 0: Array.from({ length: 500 }, (_, i) => i + 1), 500: [501, 502] };
+  const ids = Array.from({ length: 502 }, (_, i) => i + 1);
+  const walkAll = (list: number[]) => async (visit: (id: number) => Promise<void>) => { for (const id of list) await visit(id); };
   const visited: number[] = [];
   const deps = (o: Partial<CollectDeps> = {}): CollectDeps => ({
-    overlapGuardPresent: async () => true,
     staleBookingRequests: async () => 0,
-    liveBusinesses: async (after) => pages[after] ?? [],
+    walkBusinesses: walkAll(ids),
     businessHealth: async (id) => {
       visited.push(id);
-      if (id === 7) return { overlaps: 1, stale_holds: 2, owed_due_since: new Date("2026-11-24T11:00:00.000Z"), failed_24h: 1, sent_24h: 0, last_expired: "2026-11-24 10:00:00" };
-      if (id === 9) return { overlaps: 0, stale_holds: 0, owed_due_since: "2026-11-24 11:30:00", failed_24h: 0, sent_24h: 3, last_expired: new Date("2026-11-24T11:50:00.000Z") };
-      return { overlaps: 0, stale_holds: 0, owed_due_since: null, failed_24h: 0, sent_24h: 0, last_expired: null };
+      if (id === 7) return { guard: true, overlaps: 1, stale_holds: 2, owed_due_since: new Date("2026-11-24T11:00:00.000Z"), failed_24h: 1, sent_24h: 0, last_expired: "2026-11-24 10:00:00" };
+      if (id === 9) return { guard: true, overlaps: 0, stale_holds: 0, owed_due_since: "2026-11-24 11:30:00", failed_24h: 0, sent_24h: 3, last_expired: new Date("2026-11-24T11:50:00.000Z") };
+      return { guard: true, overlaps: 0, stale_holds: 0, owed_due_since: null, failed_24h: 0, sent_24h: 0, last_expired: null };
     },
     clock: () => 0,
     ...o,
   });
   const s1 = await collectAppointmentsHealth(now, deps());
-  ok("C1 walks every page (keyset) and every business", s1.businessesScanned === 502 && visited.length === 502 && !s1.budgetExhausted);
+  ok("C1 visits every business the walk yields", s1.businessesScanned === 502 && visited.length === 502 && !s1.budgetExhausted);
   ok("C2 sums counts", s1.laneOverlaps === 1 && s1.staleHolds === 2 && s1.failedDeliveries24h === 1 && s1.sentDeliveries24h === 3);
   ok("C3 oldest owed (60 min) and latest evidence (10 min), Date or text", s1.oldestOwedDeliveryMinutes === 60 && s1.lastSweepEvidenceMinutes === 10, JSON.stringify(s1));
-  const s2 = await collectAppointmentsHealth(now, deps({ businessHealth: async (id) => { if (id === 3) throw new Error("x"); return { overlaps: 0, stale_holds: 0, owed_due_since: null, failed_24h: 0, sent_24h: 0, last_expired: null }; } }));
+  const s2 = await collectAppointmentsHealth(now, deps({ businessHealth: async (id) => { if (id === 3) throw new Error("x"); return { guard: true, overlaps: 0, stale_holds: 0, owed_due_since: null, failed_24h: 0, sent_24h: 0, last_expired: null }; } }));
   ok("C4 a failing business is counted, the others still visited", s2.businessesFailed === 1 && s2.businessesScanned === 501 && failing(s2) === "scan_incomplete");
   let t = 0;
   const s3 = await collectAppointmentsHealth(now, deps({ clock: () => (t += 1000) }), 10_000);
   ok("C5 the time budget stops the walk and marks it incomplete", s3.budgetExhausted && s3.businessesScanned < 20 && failing(s3).split(",").includes("scan_incomplete"), JSON.stringify(s3));
-  const s4 = await collectAppointmentsHealth(now, deps({ liveBusinesses: async () => [] }));
+  const s4 = await collectAppointmentsHealth(now, deps({ walkBusinesses: walkAll([]) }));
   ok("C6 no live business → healthy, nothing owed", s4.businessesScanned === 0 && failing(s4) === "" && s4.oldestOwedDeliveryMinutes === null);
+  const s5 = await collectAppointmentsHealth(now, deps({ businessHealth: async (id) => ({ guard: id !== 2, overlaps: 0, stale_holds: 0, owed_due_since: null, failed_24h: 0, sent_24h: 0, last_expired: null }) }));
+  ok("C7 the guard missing as seen from any business → overlap_guard", failing(s5) === "overlap_guard", failing(s5));
+  const s6 = await collectAppointmentsHealth(now, deps({ walkBusinesses: async () => { throw new Error("door down"); } })).then(() => "ok", () => "threw");
+  ok("C8 a failing walk is not swallowed (the route answers 500 health_failed)", s6 === "threw");
 
   // D. static
   const root = process.cwd();
@@ -113,8 +117,8 @@ async function main() {
   const svc = strip("lib/services/appointment/appointments-health.service.ts");
   ok("D2 collector writes nothing (no INSERT/UPDATE/DELETE, no create/update/delete calls)",
     !/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/.test(svc) && !/\.(create|update|upsert|delete)(Many)?\(/.test(svc) && !/\$executeRaw/.test(svc));
-  ok("D3 collector uses only the existing definer doors for cross-business reads",
-    (svc.match(/public\.[a-z_]+\(/g) ?? []).sort().join(",") === "public.booking_pending_due(,public.notification_live_businesses(");
+  ok("D3 no raw access on the bare client: cross-business reads only through the existing doors, the rest inside tenantTx",
+    !/from "@\/lib\/prisma"/.test(svc) && !/\bprisma\./.test(svc) && /walkLiveBusinesses/.test(svc) && /duePendingRequests\(/.test(svc) && /tenantTx\(/.test(svc));
   const wf = fs.readFileSync(path.join(root, ".github/workflows/appointments-health.yml"), "utf8");
   ok("D4 watchdog: protected cron environment, main only, gated by a repository variable, red on non-200",
     /environment: cron/.test(wf) && /github\.ref == 'refs\/heads\/main'/.test(wf) && /vars\.APPOINTMENTS_HEALTH_WATCHDOG == 'true'/.test(wf) &&
