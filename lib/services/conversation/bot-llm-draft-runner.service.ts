@@ -14,6 +14,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { measuredInternalAi } from "@/lib/services/subscriptions/usage/internal-ai-usage";
 
 // D2/P7-W4B: each DB dep runs on a short tenant transaction when a tenant
 // context is established (webhook/api-message paths always are). The OpenAI
@@ -374,7 +375,9 @@ export async function maybeCreateBotLlmDraft(
         },
         handoffRules: botRow.handoffRules,
       },
-      { complete: deps.complete }
+      // Subscriptions stage C (owner point 2): internal AI is measured (ai_internal_calls, never refused); the protection
+      // stays the flag + sample rate + the fail-closed daily cap above.
+      measuredInternalAi({ complete: deps.complete }, input.businessId, "bot_llm_draft")
     );
 
     // Count actual model usage toward the daily cap. A pre-guardrail handoff

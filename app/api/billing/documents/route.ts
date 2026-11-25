@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { reserveBusinessDocument } from "@/lib/services/subscriptions/usage/business-document-usage";
 import { guardFeature } from "@/lib/services/feature-access/feature-guard";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import {
@@ -132,7 +133,19 @@ export async function POST(req: NextRequest) {
       input.initialLines = body.initialLines;
     }
 
-    const document = await createBillingDraft(input);
+    // Subscriptions stage C — a NEW business document (decision 19): one unit reserved atomically BEFORE the draft is
+    // created, kept when it exists, released when creation failed. Receipts are counted but never refused (point 3).
+    // Credit notes have their own route and are never counted (legal correction).
+    const unit = await reserveBusinessDocument(user.businessId, { kind: "billing", source: "billing.draft.create", documentType: documentTypeRaw });
+    if (unit.denied) return unit.denied;
+    let document: Awaited<ReturnType<typeof createBillingDraft>>;
+    try {
+      document = await createBillingDraft(input);
+    } catch (error) {
+      await unit.release();
+      throw error;
+    }
+    await unit.commit();
 
     return NextResponse.json({ document }, { status: 201 });
   } catch (error) {

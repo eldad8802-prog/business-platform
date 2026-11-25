@@ -14,6 +14,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { resolveFeatureAccess } from "@/lib/services/feature-access/resolve-feature-access";
 import { runWithTenantContext } from "@/lib/tenant/context";
+import { planRefusalFor } from "@/lib/services/subscriptions/plan-gate-http";
 
 import type { AppointmentPrincipal } from "./appointment-authorization";
 import { AppointmentServiceError } from "./appointment-errors";
@@ -38,6 +39,9 @@ export async function appointmentsRoute(
     const user = await getCurrentUser(req);
     if (!user || !user.businessId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!(await appointmentsEnabled(user.businessId))) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // Plan layer (stage C, plan-gate.ts): shadow logs only; enforce refuses a CUSTOMER whose plan lacks the action.
+    const planDenied = await planRefusalFor(req, user.businessId, PLATFORM_FEATURE_KEYS.APPOINTMENTS);
+    if (planDenied) return planDenied;
     const principal: AppointmentPrincipal = { kind: "OWNER", businessId: user.businessId, userId: user.id };
     return await runWithTenantContext({ businessId: user.businessId }, () => handler({ principal }));
   } catch (e) {

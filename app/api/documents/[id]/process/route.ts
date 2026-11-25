@@ -72,7 +72,8 @@ export async function POST(
 
     // Only in-flight/failed documents are retryable. A document that already
     // reached review/approval is returned as-is (idempotent no-op).
-    if (document.status !== "processing" && document.status !== "failed") {
+    // Subscriptions stage C: a document waiting for the OCR quota is retried the same way once the quota renews.
+    if (document.status !== "processing" && document.status !== "failed" && document.status !== "awaiting_quota") {
       return NextResponse.json({ success: true, status: document.status });
     }
 

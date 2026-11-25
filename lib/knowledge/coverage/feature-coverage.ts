@@ -496,6 +496,8 @@ export const INFRASTRUCTURE = {
     "BusinessActivityProfile",
     // Subscriptions stage B: Dubiz's commercial record of the business and its change log, not business evidence.
     "PlatformSubscription", "PlatformSubscriptionEvent",
+    // Subscriptions stage C: trial claims, plan/quota requests, quota adjustments and the usage meter (counters + unit ledger) — Dubiz commercial metering, not business evidence.
+    "PlatformTrialClaim", "PlatformSubscriptionRequest", "BusinessQuotaAdjustment", "BusinessUsageCounter", "BusinessUsageEvent",
     "PlatformAuditEvent", "PlatformFeatureDefinition", "PlatformFeaturePolicy", "OAuthToken", "ExtractedData", "ExtractionEvidence", "MessageAnalysis",
     "BusinessBotProfile", "BotGoalSelection", "BusinessBotSetupDraft", "BusinessBotKnowledge", "BusinessBotRecommendation", "BusinessBotMemoryPolicy",
     "BusinessBotLearningSuggestion",
@@ -507,6 +509,8 @@ export const INFRASTRUCTURE = {
     "UserIdentity", "OAuthSignupTicket"],
   routes: ["api/account", "api/audit", "api/auth", "api/dev", "api/health", "api/platform-admin", "api/security", "api/settings",
     "api/transactional-email",
+    // Subscriptions stage C: the daily trial-expiry recorder (cron, inert unless trials are on).
+    "api/subscriptions",
     // Interface-language preference (dz_locale cookie): presentation configuration, not business evidence.
     "api/preferences",
     "page/settings", "page/login", "page/register", "page/forgot-password", "page/reset-password", "page/verify-email",

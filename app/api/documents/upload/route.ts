@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { QuotaExhaustedError, quotaExhaustedBody } from "@/lib/services/subscriptions/usage/usage-meter";
 import { guardFeature } from "@/lib/services/feature-access/feature-guard";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getServerI18n } from "@/lib/i18n/server";
@@ -255,6 +256,10 @@ export async function POST(req: Request) {
       status: "processing",
     });
   } catch (e) {
+    // Subscriptions stage C: the upload quota refused (ENFORCE, a customer over its quota) — nothing was stored.
+    if (e instanceof QuotaExhaustedError) {
+      return NextResponse.json(quotaExhaustedBody(e.decision), { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
     console.error(e);
     const user = await getCurrentUser(req).catch(() => null);
     if (user) {

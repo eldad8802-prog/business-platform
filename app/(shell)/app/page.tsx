@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { SubscriptionAttentionBanner } from "@/components/settings/subscription/subscription-attention-banner";
 import { IconInfo } from "@/components/navigation/nav-icons";
 import { HomeV4 } from "@/features/home/v4/home-v4";
 import { useHomeV4Data } from "@/features/home/v4/use-home-v4-data";
@@ -277,7 +278,13 @@ function HomePage() {
   } else {
     const ownerName = data.businessSnapshot.ownerName?.trim() || "";
     const businessName = data.businessSnapshot.businessName?.trim() || ownerName;
-    body = <HomeV4 data={homeData} retry={retryHome} businessName={businessName} />;
+    // Subscriptions stage C: a message only when the subscription needs attention (renders nothing otherwise).
+    body = (
+      <>
+        <SubscriptionAttentionBanner />
+        <HomeV4 data={homeData} retry={retryHome} businessName={businessName} />
+      </>
+    );
   }
 
   return body;

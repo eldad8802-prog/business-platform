@@ -1,0 +1,10 @@
+{
+  "note": "Subscriptions stage C (owner-approved 2026-11-24, decisions 1–29): trial at signup with duplicate-trial claims, the central usage-quota meter (atomic, idempotent, in-transaction safe), the plan gate (off / shadow / enforce; testers and the rights floor never refused), the admin console for quotas, modes, adjustments and requests. Shadow by default; enforcement needs a separate owner decision. The database side is proven by subscriptions-stage-c-migration-lab.yml (SQL lab + 40-way concurrency) and subscriptions-stage-c-code-lab.yml (.subscriptions-stage-c/code-lab.ts, the four real roles).",
+  "tests": {
+    "lib/services/subscriptions/usage/subscriptions-stage-c.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure + static: the code's opening matrix equals the migration seed and the release evidence cell for cell (FREE_LIMITED zeros, video 0, AI Premium only); metric contract; the effective mode is the lower of the server ceiling and the stored mode, a measured metric is never enforced; the plan gate never refuses testers, businesses without a record, reads, the rights floor or legal actions, and shadow never refuses; trial identities are normalised and keyed (no identity value stored); wiring read from the source: every Vision call goes through the metered wrapper, every intake source counts uploads with one shared unit, storage is metered at the factory, receipts are counted but never refused, credit notes / issuing / settlement receipts are never metered, internal AI is measured and rate-limited, the legacy video counter is gone, the meter never opens a second transaction inside an open one, admin writes go through definer functions behind admin → fresh second factor → kill switch"
+    }
+  }
+}

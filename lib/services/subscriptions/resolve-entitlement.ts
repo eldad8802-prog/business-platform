@@ -21,7 +21,7 @@ import type { FeatureAccessResult } from "@/lib/services/feature-access/feature-
 import type { PlatformFeatureKey } from "@/lib/services/feature-access/platform-feature-catalog";
 
 import { planCatalogRow, planIncludes, type SubscriptionPlan } from "./plan-catalog";
-import type { SubscriptionSnapshot } from "./subscription.types";
+import { effectiveSubscriptionStatus, type SubscriptionSnapshot } from "./subscription.types";
 
 export type PlanAccess = "full" | "limited" | "none";
 
@@ -70,14 +70,15 @@ export function resolvePlanEntitlement(
   if (subscription.accountType === "TESTER") return out("full", "ACCOUNT_TESTER");
   if (subscription.accountType === "INTERNAL") return out("full", "ACCOUNT_INTERNAL");
 
-  // 3. FREE_LIMITED — only what the matrix allows for the module.
-  if (subscription.status === "FREE_LIMITED") return out(row.freeLimited, "FREE_LIMITED");
+  // 3. FREE_LIMITED — only what the matrix allows for the module. A trial whose end passed already counts (stage C).
+  const status = effectiveSubscriptionStatus(subscription);
+  if (status === "FREE_LIMITED") return out(row.freeLimited, "FREE_LIMITED");
 
   // 4. An admin ENABLED override is a deliberate grant (pilot, gift) and opens the module at full depth.
   if (flag.reasonCode === "BUSINESS_ENABLED") return out("full", "ADMIN_ENABLED");
 
   // 6. Trial: Premium depth. The flags already closed every capability that is not released.
-  if (subscription.status === "TRIALING") return out("full", "TRIAL");
+  if (status === "TRIALING") return out("full", "TRIAL");
 
   // ACTIVE / PAST_DUE (inside grace) — and EXEMPT on a CUSTOMER, which the database forbids: treat by plan.
   const plan = subscription.plan;

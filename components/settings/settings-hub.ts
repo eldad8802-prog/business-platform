@@ -12,6 +12,8 @@
  *   subscription    owner decision — the area is kept for the coming plans, as a
  *                   static "בקרוב" row with no destination. It must never link
  *                   anywhere until a real subscription exists.
+ *                   Stage C: the hub SCREEN links it to /settings/subscription only when
+ *                   the business has a real customer subscription (testers keep "בקרוב").
  *   support         the real support channel: the support mailbox.
  *
  * Not here, because Dubiz has no such capability: business management /

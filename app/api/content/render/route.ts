@@ -1,9 +1,8 @@
-import { checkUsage, incrementUsage } from "@/lib/services/usage.service";
+import { randomUUID } from "node:crypto";
+import { QuotaExhaustedError, quotaExhaustedBody, requireUsage, settleUsage } from "@/lib/services/subscriptions/usage/usage-meter";
 import { guardFeature } from "@/lib/services/feature-access/feature-guard";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getServerI18n } from "@/lib/i18n/server";
-import { runWithTenantContext } from "@/lib/tenant/context";
-import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { createCreatomateRender } from "@/lib/services/creatomate.service";
 import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
 import { getCurrentUser } from "@/lib/auth";
@@ -60,14 +59,13 @@ export async function POST(req: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  let renderUnit: string | null = null;
   try {
     const businessId = user.businessId;
-    const plan = "FREE" as const;
-
-    const usage = await runWithTenantContext({ businessId }, () =>
-      withTenantTransaction((tx) => checkUsage(businessId, plan, { tx }))
-    );
-    console.log("RENDER USAGE CHECK:", usage);
+    // Subscriptions stage C (decision 29): the central quota replaces the legacy weekly counter (Usage table, kept
+    // as it is — its rows are not touched). video_renders is 0 on every plan until the cost is verified (decision 23):
+    // in ENFORCE a customer is refused here, before Creatomate is called.
+    // (reserved right before the provider call below, after every validation)
 
     const body = (await req.json()) as {
       flow?: ContentFlow;
@@ -157,6 +155,8 @@ export async function POST(req: Request) {
       );
     }
 
+    renderUnit = `render:${randomUUID()}`;
+    await requireUsage({ businessId, metric: "video_renders", unitKey: renderUnit, source: "content.render", reserve: true });
     const render = await createCreatomateRender({
       assets: assetUrls,
       shots,
@@ -169,9 +169,7 @@ export async function POST(req: Request) {
 
     console.log("CREATE RENDER RESULT:", render);
 
-    await runWithTenantContext({ businessId }, () =>
-      withTenantTransaction((tx) => incrementUsage(businessId, { tx }))
-    );
+    await settleUsage({ businessId, metric: "video_renders", unitKey: renderUnit, state: "COUNTED" });
 
     return Response.json({
       success: true,
@@ -181,6 +179,11 @@ export async function POST(req: Request) {
       snapshotUrl: render.snapshot_url ?? null,
     });
   } catch (err) {
+    if (err instanceof QuotaExhaustedError) {
+      return Response.json(quotaExhaustedBody(err.decision), { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+    // The render did not start: the reserved unit is UNKNOWN (the provider may have accepted it) — kept, reconciled.
+    if (renderUnit) await settleUsage({ businessId: user.businessId, metric: "video_renders", unitKey: renderUnit, state: "UNKNOWN" });
     console.error("FAILED TO START RENDER:", err);
 
     return Response.json(

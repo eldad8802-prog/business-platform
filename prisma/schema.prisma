@@ -263,6 +263,11 @@ model Business {
   activityProfile               BusinessActivityProfile?
   platformSubscription          PlatformSubscription?
   platformSubscriptionEvents    PlatformSubscriptionEvent[]
+  platformTrialClaims           PlatformTrialClaim[]
+  platformSubscriptionRequests  PlatformSubscriptionRequest[]
+  quotaAdjustments              BusinessQuotaAdjustment[]
+  usageCounters                 BusinessUsageCounter[]
+  usageEvents                   BusinessUsageEvent[]
   notifications                 Notification[]
   pushSubscriptions             PushSubscription[]
   notificationDeliveries        NotificationDelivery[]
@@ -648,6 +653,136 @@ model PlatformSubscriptionEvent {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId, createdAt])
+}
+
+/// Subscriptions stage C (migration 20261228090000_subscriptions_stage_c): keyed HMAC digests of the identities a trial
+/// was opened for (kind TAX_ID | EMAIL | GOOGLE_SUB | PHONE). Written ONLY by the definer functions
+/// subscription_signup_open (auth plane) and trial_claim_admin_record (admin). The runtime sees zero rows. A claim
+/// outlives its business (SET NULL) so a deleted business cannot reopen a trial. Identity columns are append-only.
+model PlatformTrialClaim {
+  id         BigInt   @id @default(autoincrement())
+  kind       String
+  digest     String
+  keyVersion Int
+  businessId Int?
+  outcome    String
+  createdAt  DateTime @default(now())
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@index([kind, digest])
+  @@index([businessId])
+}
+
+/// Subscriptions stage C: "I'm interested" plan requests (kind PLAN + requestedPlan) and quota-increase requests (kind
+/// QUOTA + metric). The runtime files them for its own business (status OPEN only); the admin resolves them through
+/// subscription_request_resolve. One OPEN request per business and subject (partial unique index in the migration).
+model PlatformSubscriptionRequest {
+  id              BigInt    @id @default(autoincrement())
+  businessId      Int
+  kind            String
+  requestedPlan   String?
+  metric          String?
+  note            String?
+  status          String    @default("OPEN")
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  handledAt       DateTime?
+  handledByUserId Int?
+  handledNote     String?
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+}
+
+/// Subscriptions stage C: the quota per usage metric and tier (TRIAL | BASIC | ADVANCED | PREMIUM | FREE_LIMITED).
+/// Global (no business). Seeded with the owner's opening matrix; changed only by quota_policy_set (admin), each change
+/// logged in PlatformQuotaPolicyEvent and PlatformAuditEvent. A metric without a row is measured, never limited.
+model PlatformQuotaPolicy {
+  metric          String
+  tier            String
+  quota           BigInt
+  version         Int      @default(1)
+  updatedByUserId Int?
+  updatedAt       DateTime @default(now())
+
+  @@id([metric, tier])
+}
+
+/// Subscriptions stage C: append-only history of quota policy changes (a trigger refuses UPDATE).
+model PlatformQuotaPolicyEvent {
+  id          BigInt   @id @default(autoincrement())
+  metric      String
+  tier        String
+  fromQuota   BigInt?
+  toQuota     BigInt
+  actorUserId Int?
+  reason      String
+  createdAt   DateTime @default(now())
+
+  @@index([metric, tier, createdAt])
+}
+
+/// Subscriptions stage C: per-business quota adjustments — ADD (on top of the plan) or OVERRIDE (replaces it), with a
+/// window, a reason and a revocation. Source ADMIN today, PURCHASE later (stage D). Written by the admin functions only.
+model BusinessQuotaAdjustment {
+  id              BigInt    @id @default(autoincrement())
+  businessId      Int
+  metric          String
+  kind            String
+  amount          BigInt
+  startsAt        DateTime  @default(now())
+  endsAt          DateTime?
+  source          String
+  reason          String
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+  revokedByUserId Int?
+  revokeReason    String?
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, metric])
+}
+
+/// Subscriptions stage C: the used amount per business, metric and period (periodKey ALL for *_bytes metrics,
+/// t:<trial start>, p:<paid period start>, or m:<YYYY-MM> Israel month). Written ONLY by usage_consume / usage_settle.
+model BusinessUsageCounter {
+  businessId  Int
+  metric      String
+  periodKey   String
+  periodStart DateTime?
+  periodEnd   DateTime?
+  used        BigInt    @default(0)
+  alertedPct  Int       @default(0)
+  updatedAt   DateTime  @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@id([businessId, metric, periodKey])
+}
+
+/// Subscriptions stage C: one row per counted unit — unique per business, metric and unit key, so a retry of the same
+/// unit is never counted twice. state COUNTED | RESERVED | RELEASED | UNKNOWN; verdict WITHIN | OVER_SHADOW | UNLIMITED.
+model BusinessUsageEvent {
+  id         BigInt    @id @default(autoincrement())
+  businessId Int
+  metric     String
+  periodKey  String
+  unitKey    String
+  amount     BigInt
+  state      String
+  verdict    String
+  source     String
+  createdAt  DateTime  @default(now())
+  settledAt  DateTime?
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, metric, unitKey])
+  @@index([businessId, metric, createdAt])
 }
 
 /// Sparse per-business overrides only (no row = inherit global/catalog).

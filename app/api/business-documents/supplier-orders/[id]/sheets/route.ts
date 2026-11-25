@@ -8,6 +8,7 @@
  * was saved, never that anything was sent. Session + flag (404 when off).
  */
 import { NextResponse, type NextRequest } from "next/server";
+import { reserveBusinessDocument } from "@/lib/services/subscriptions/usage/business-document-usage";
 
 import { isLocale } from "@/lib/i18n/config";
 import { businessDocumentsRoute, readJsonBody, routeId } from "@/lib/services/business-documents/business-documents-http";
@@ -34,6 +35,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!isLocale(body.locale)) {
       return NextResponse.json({ error: "VALIDATION", problems: [{ field: "locale", message: "שפה לא מוכרת" }] }, { status: 400 });
     }
+    // Subscriptions stage C — a NEW business document (decision 19), counted atomically BEFORE it is saved, one unit per
+    // idempotency key (a replay is never counted twice).
+    const unit = await reserveBusinessDocument(businessId, { kind: "po_sheet", source: "business_documents.po_sheet", idempotencyKey: String(body.idempotencyKey ?? "") });
+    if (unit.denied) return unit.denied;
     try {
       const saved = await savePurchaseOrderSheet({ businessId, userId, supplierOrderId: orderId, locale: body.locale, idempotencyKey: String(body.idempotencyKey ?? "") });
       return NextResponse.json(saved, { status: saved.replay ? 200 : 201, headers: { "Cache-Control": "no-store" } });

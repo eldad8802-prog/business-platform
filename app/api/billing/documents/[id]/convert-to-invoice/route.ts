@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { reserveBusinessDocument } from "@/lib/services/subscriptions/usage/business-document-usage";
 import { guardFeature } from "@/lib/services/feature-access/feature-guard";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getCurrentUser } from "@/lib/auth";
@@ -34,11 +35,22 @@ export async function POST(
     const { id } = await context.params;
     const quoteBillingDocumentId = parseBillingDocumentId(id);
 
-    const invoice = await convertQuoteToInvoice({
-      businessId: user.businessId,
-      actorUserId: user.id,
-      quoteBillingDocumentId,
-    });
+    // Subscriptions stage C — the invoice is a NEW business document (a new draft): reserved atomically before, kept
+    // when it exists, released when the conversion failed.
+    const unit = await reserveBusinessDocument(user.businessId, { kind: "billing", source: "billing.quote.convert", documentType: "TAX_INVOICE" });
+    if (unit.denied) return unit.denied;
+    let invoice: Awaited<ReturnType<typeof convertQuoteToInvoice>>;
+    try {
+      invoice = await convertQuoteToInvoice({
+        businessId: user.businessId,
+        actorUserId: user.id,
+        quoteBillingDocumentId,
+      });
+    } catch (error) {
+      await unit.release();
+      throw error;
+    }
+    await unit.commit();
 
     return NextResponse.json({ document: invoice }, { status: 201 });
   } catch (error) {

@@ -25,6 +25,7 @@ type NavEntry = { href: string; label: string; icon: ConsoleIconName };
 const NAV: NavEntry[] = [
   { href: "/admin", label: "סקירה", icon: "home" },
   { href: "/admin/businesses", label: "עסקים", icon: "businesses" },
+  { href: "/admin/subscriptions", label: "מנויים ומכסות", icon: "businesses" },
   { href: "/admin/audit", label: "יומן פעולות", icon: "audit" },
   { href: "/admin/security", label: "אבטחה", icon: "shield" },
 ];

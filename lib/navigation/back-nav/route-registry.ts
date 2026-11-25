@@ -81,6 +81,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/admin", root: true },
   { pattern: "/admin/audit", root: true },
   { pattern: "/admin/businesses", root: true },
+  { pattern: "/admin/subscriptions", root: true },
   { pattern: "/admin/security", root: true },
   { pattern: "/admin/diagnostics", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
   { pattern: "/admin/accountant-ops", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
@@ -88,6 +89,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/admin/authority-pilot-gate", parent: "/admin/security", parentLabelKey: "toSecurityTools" },
   { pattern: "/admin/businesses/[id]", parent: "/admin/businesses", parentLabelKey: "toBusinessList" },
   { pattern: "/admin/businesses/[id]/features", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
+  { pattern: "/admin/businesses/[id]/usage", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
   { pattern: "/admin/businesses/[id]/issuer-declaration", parent: "/admin/businesses/[id]", parentLabelKey: "toBusinessDetails" },
 
   // ---- screens reached from Home (not in the main navigation) ------------
@@ -222,6 +224,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/settings/connections", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/inbound-email", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/security", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/subscription", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/team", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/workspace", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/notifications", parent: "/settings", parentLabelKey: "toSettings" },

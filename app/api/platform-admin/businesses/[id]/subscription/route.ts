@@ -42,7 +42,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     const result = await updateBusinessSubscription({
       actorUserId: auth.id,
       businessId,
-      request: { accountType: record.accountType, plan: record.plan ?? null, reason: record.reason },
+      request: { accountType: record.accountType, plan: record.plan ?? null, reason: record.reason, status: record.status, trialDays: record.trialDays },
       req,
     });
     return NextResponse.json(result, { status: 200, headers: { "Cache-Control": "no-store" } });

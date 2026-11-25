@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { measuredInternalAi } from "@/lib/services/subscriptions/usage/internal-ai-usage";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
   try {
     const saved = await saveLandingVersion(
       { businessId: user.businessId, userId: user.id, strategyId },
-      { model: composerEnabled() ? openAiComposerProvider() : null },
+      { model: composerEnabled() ? measuredInternalAi(openAiComposerProvider(), user.businessId, "landing.compose") : null },
     );
     return NextResponse.json(saved, { status: saved.deduplicated ? 200 : 201, headers: LANDING_NO_STORE });
   } catch (error) {

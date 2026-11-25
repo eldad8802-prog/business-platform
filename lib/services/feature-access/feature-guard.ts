@@ -19,10 +19,12 @@
  * override still reaches it through other surfaces today; enforcing blindly could change what it can do. Shadow
  * removes the guesswork without changing anything.
  *
- * SUBSCRIPTION PLAN LAYER (stage A, shadow only): when the flags allow a request, the guard also asks what the
- * business's plan would say (lib/services/subscriptions) and logs `subscription_would_deny` when the plan alone would
- * refuse or limit it. That verdict NEVER changes the answer, in any mode — the return value is decided by the flags
- * exactly as before. It has its own switch (SUBSCRIPTION_ENFORCEMENT: off | shadow) and no enforce mode at all.
+ * SUBSCRIPTION PLAN LAYER (stage C): when the flags allow a request, the guard asks the plan gate
+ * (lib/services/subscriptions/plan-gate.ts) about the KIND of action (read / rights floor / legal / existing / write).
+ * Its own switch is SUBSCRIPTION_ENFORCEMENT: off | shadow (default: logs `subscription_would_deny`, refuses nothing)
+ * | enforce (refuses a CUSTOMER whose plan does not include the action — 403 PLAN_REQUIRED / SUBSCRIPTION_INACTIVE).
+ * Testers, internal accounts and businesses without a record are never refused by the plan. The flag answer always
+ * comes first and is never widened.
  *
  * Never throws. An unauthenticated request passes through untouched — the route's own auth answers 401 as before.
  * Errors resolving access: shadow lets the request through (and logs); enforce fails closed, like every other gate
@@ -35,8 +37,8 @@ import { runWithTenantContext } from "@/lib/tenant/context";
 
 import { PLATFORM_FEATURE_KEYS, type PlatformFeatureKey } from "./platform-feature-catalog";
 import { resolveBusinessCapabilities } from "./resolve-feature-access";
-import type { FeatureAccessResult } from "./feature-access.types";
-import { resolvePlanEntitlement } from "@/lib/services/subscriptions/resolve-entitlement";
+import type { FeatureAccessReasonCode, FeatureAccessResult } from "./feature-access.types";
+import { planGate, planActionForRequest, planRefusalBody } from "@/lib/services/subscriptions/plan-gate";
 import { loadSubscriptionSnapshot, subscriptionMode } from "@/lib/services/subscriptions/subscription-shadow";
 import type { SubscriptionSnapshot } from "@/lib/services/subscriptions/subscription.types";
 
@@ -117,7 +119,7 @@ export function __setFeatureGuardSessionForTests(next: SessionBusiness | null): 
   sessionBusiness = next ?? defaultSessionBusiness;
 }
 
-type Answer = { allowed: boolean | null; reasonCode: string };
+type Answer = { allowed: boolean | null; reasonCode: string; subscription?: SubscriptionSnapshot | null };
 
 async function featureAllowed(businessId: number, key: GuardedFeatureKey, site: string): Promise<Answer> {
   let answer: Answer;
@@ -134,47 +136,11 @@ async function featureAllowed(businessId: number, key: GuardedFeatureKey, site: 
       cache.set(businessId, hit);
     }
     const r = hit.value[key];
-    answer = { allowed: r?.allowed === true, reasonCode: r?.reasonCode ?? "UNKNOWN" };
+    answer = { allowed: r?.allowed === true, reasonCode: r?.reasonCode ?? "UNKNOWN", subscription: hit.subscription };
   } catch {
     return { allowed: null, reasonCode: "RESOLVE_FAILED" };
   }
-  shadowPlan(businessId, key, site, hit, answer);
   return answer;
-}
-
-/**
- * Plan layer, shadow only: log what the plan alone would refuse or limit. Reads nothing new (the record is cached with
- * the flags), returns nothing, never throws — the caller's answer is already decided.
- */
-function shadowPlan(
-  businessId: number,
-  key: GuardedFeatureKey,
-  site: string,
-  hit: { value: Resolved; subscription: SubscriptionSnapshot | null },
-  answer: Answer,
-): void {
-  try {
-    if (answer.allowed !== true || subscriptionMode() === "off") return;
-    const flag = hit.value[key];
-    const plan = resolvePlanEntitlement(key, { allowed: true, reasonCode: flag.reasonCode }, hit.subscription);
-    if (plan.access === "full") return;
-    console.warn(
-      JSON.stringify({
-        event: "subscription_would_deny",
-        featureKey: key,
-        site,
-        businessId,
-        access: plan.access,
-        planReason: plan.reasonCode,
-        requiredPlan: plan.requiredPlan,
-        accountType: hit.subscription?.accountType ?? null,
-        status: hit.subscription?.status ?? null,
-        plan: hit.subscription?.plan ?? null,
-      }),
-    );
-  } catch {
-    /* shadow logging must never affect the request */
-  }
 }
 
 function logWouldDeny(key: GuardedFeatureKey, site: string, businessId: number, reasonCode: string, mode: FeatureEnforcementMode): void {
@@ -198,10 +164,19 @@ function logWouldDeny(key: GuardedFeatureKey, site: string, businessId: number, 
 export async function featureAllowedForBusiness(businessId: number, key: GuardedFeatureKey, site: string): Promise<boolean> {
   const mode = featureEnforcementMode();
   if (mode === "off") return true;
-  const { allowed, reasonCode } = await featureAllowed(businessId, key, site);
+  const { allowed, reasonCode, subscription } = await featureAllowed(businessId, key, site);
   const decision = decideGuard(mode, allowed);
   if (decision !== "allow") logWouldDeny(key, site, businessId, reasonCode, mode);
-  return decision !== "deny";
+  if (decision === "deny") return false;
+  if (allowed !== true) return true;
+  // Plan layer (stage C): background work stops only when the plan gives the module no access at all — inbound
+  // messages and documents keep arriving for a limited business (decision: received data is never lost).
+  try {
+    const plan = await planGate(businessId, key, "existing", site, { subscription: subscription ?? null, flagReasonCode: reasonCode as FeatureAccessReasonCode });
+    return plan.allowed;
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -228,13 +203,27 @@ export async function guardFeature(req: Request, key: GuardedFeatureKey): Promis
   } catch {
     /* keep "route" */
   }
-  const { allowed, reasonCode } = await featureAllowed(businessId, key, site);
+  const { allowed, reasonCode, subscription } = await featureAllowed(businessId, key, site);
   const decision = decideGuard(mode, allowed);
-  if (decision === "allow") return null;
-  logWouldDeny(key, site, businessId, reasonCode, mode);
-  if (decision === "log") return null;
-  return NextResponse.json(
-    { error: FEATURE_NOT_AVAILABLE, feature: key },
-    { status: 403, headers: { "Cache-Control": "no-store" } },
-  );
+  if (decision !== "allow") {
+    logWouldDeny(key, site, businessId, reasonCode, mode);
+    if (decision === "log") return null;
+    return NextResponse.json(
+      { error: FEATURE_NOT_AVAILABLE, feature: key },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  // Plan layer (stage C): only after the flags allowed. Shadow logs; enforce refuses a CUSTOMER only.
+  try {
+    const plan = await planGate(businessId, key, planActionForRequest(req.method, site), site, {
+      subscription: subscription ?? null,
+      flagReasonCode: reasonCode as FeatureAccessReasonCode,
+    });
+    if (!plan.allowed) {
+      return NextResponse.json(planRefusalBody(key, plan), { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+  } catch {
+    /* the plan layer never breaks a request the flags allowed */
+  }
+  return null;
 }

@@ -1,0 +1,128 @@
+# Subscriptions stage C — the CODE on PostgreSQL 17 with BOTH subscription migrations applied, connected as LOGIN members
+# of the four real roles (app_runtime, app_ctlplane, app_auth, app_admin) — so FORCE RLS, the grants and the definer
+# functions are what the code meets in Production. ENFORCE is switched on for the lab only (env below) to prove what it
+# does; nothing here is a Production setting.
+#
+#   unit / static — subscriptions-stage-c.test.ts: matrix = migration = evidence, modes, plan gate matrix, trial
+#                   identities, and the wiring read from the source (no Vision call outside the meter, one upload unit
+#                   for every intake source, storage metered at the factory, receipts counted never refused, credit
+#                   notes / settlement receipts never metered, internal AI measured AND rate-limited, legacy video
+#                   counter gone, trial only in the auth-plane signup).
+#   code lab      — testers never harmed; full lifecycle (signup trial, duplicate tax id / gmail alias / Google subject,
+#                   phone hint, admin fixes a false positive, trial quota, the 51st invoice refused, receipts counted
+#                   not refused, trial end ⇒ limited at once with the rights floor open, FREE_LIMITED zeros, the daily
+#                   recorder, manual plan, renewal on a new period, plan change, Premium closed); admin policy / mode /
+#                   adjustment / preview / audit / non-admin refused / ceiling; atomicity (25 parallel requests for 5,
+#                   10 parallel retries of one unit, enforcement INSIDE an open transaction, rollback undoes the count);
+#                   OCR retries, provider units, unknown outcomes; no bypass across sources and storage; isolation;
+#                   the owner's usage view; alerts once.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon.
+
+name: subscriptions stage C — code lab (ephemeral PG17, real roles)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/subscriptions/**"
+      - "lib/services/platform-admin/subscriptions-admin*.ts"
+      - "lib/services/platform-admin/update-business-subscription.service.ts"
+      - "lib/storage/**"
+      - "lib/tenant/transaction.ts"
+      - "lib/auth/signup.ts"
+      - "prisma/migrations/20261228090000_subscriptions_stage_c/**"
+      - ".subscriptions-stage-c/**"
+      - ".github/workflows/subscriptions-stage-c-code-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: stage C unit + static wiring
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - run: npx tsx lib/services/subscriptions/usage/subscriptions-stage-c.test.ts
+      - run: npx tsx lib/services/subscriptions/subscriptions-entitlement.test.ts
+      - run: npx tsx lib/services/subscriptions/subscriptions-record-admin.test.ts
+      - run: npx tsx lib/services/feature-access/feature-guard.test.ts
+      - run: npx tsx lib/notifications/catalog.test.ts
+
+  lab:
+    name: stage C code lab (PG17, four real roles)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_owner
+          POSTGRES_PASSWORD: scc_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_scc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_owner -d dubiz_scc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: lab_owner
+      PGDATABASE: dubiz_scc
+      PGPASSWORD: scc_ci_synthetic_owner_pw
+      OWNER_URL: postgresql://lab_owner:scc_ci_synthetic_owner_pw@localhost:5432/dubiz_scc
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. schema, the four roles and their login members, grants, the tester and the users
+        run: |
+          DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma db push --skip-generate
+          psql -v ON_ERROR_STOP=1 -f .subscriptions-stage-c/code-lab-setup.sql
+
+      - name: 2. both migrations (stage B backfills the tester), then the businesses that sign up after
+        run: |
+          psql -1 -v ON_ERROR_STOP=1 -f prisma/migrations/20261224090000_platform_subscriptions/migration.sql
+          psql -1 -v ON_ERROR_STOP=1 -f prisma/migrations/20261228090000_subscriptions_stage_c/migration.sql
+          psql -v ON_ERROR_STOP=1 -f .subscriptions-stage-c/code-lab-after.sql
+
+      - name: 3. code lab
+        env:
+          DATABASE_URL: postgresql://sc_rt_login:sc_rt_pw@localhost:5432/dubiz_scc
+          DIRECT_URL: postgresql://sc_rt_login:sc_rt_pw@localhost:5432/dubiz_scc
+          CONTROL_PLANE_DATABASE_URL: postgresql://sc_ctl_login:sc_ctl_pw@localhost:5432/dubiz_scc
+          AUTH_DATABASE_URL: postgresql://sc_auth_login:sc_auth_pw@localhost:5432/dubiz_scc
+          ADMIN_DATABASE_URL: postgresql://sc_adm_login:sc_adm_pw@localhost:5432/dubiz_scc
+          LAB_OWNER_URL: postgresql://lab_owner:scc_ci_synthetic_owner_pw@localhost:5432/dubiz_scc
+          AUTH_PLANE_ENABLED: "true"
+          USAGE_QUOTA_MODE: enforce
+          SUBSCRIPTION_ENFORCEMENT: enforce
+          SUBSCRIPTION_TRIALS_ENABLED: "true"
+          TRIAL_CLAIM_HMAC_KEY: ci-lab-only-hmac-key-not-a-secret-0123456789
+          SUBSCRIPTION_ADMIN_CHANGES_ENABLED: "true"
+        run: npx tsx .subscriptions-stage-c/code-lab.ts | grep -v '^{"event"' | tee code-lab.out && grep -q "^CODE_LAB_OK$" code-lab.out

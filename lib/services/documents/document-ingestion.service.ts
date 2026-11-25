@@ -44,6 +44,8 @@
  */
 
 import { after } from "next/server";
+import { randomUUID } from "node:crypto";
+import { requireUsage } from "@/lib/services/subscriptions/usage/usage-meter";
 import { runTenantJob } from "@/lib/tenant/job";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
@@ -214,6 +216,17 @@ export async function ingestDocument(
     );
     if (early) return { ok: false, reason: "DUPLICATE", duplicate: early };
   }
+
+  // Subscriptions stage C — the upload quota (document_uploads), BEFORE anything is stored, for EVERY source that
+  // reaches this lifecycle (upload, camera, bulk import). Same file = same unit: a retry is never counted twice; a
+  // deliberate second copy is its own unit. Refused only in ENFORCE for a customer over its quota
+  // (QuotaExhaustedError, nothing stored); the meter failing never blocks an upload.
+  await requireUsage({
+    businessId: input.businessId,
+    metric: "document_uploads",
+    unitKey: input.allowDuplicate ? `doc:${contentHashSha256}:copy:${randomUUID()}` : `doc:${contentHashSha256}`,
+    source: `documents.ingest.${input.source}`.toLowerCase().replace(/[^a-z0-9_.:-]/g, "_").slice(0, 64),
+  });
 
   // Storage FIRST, unconditionally. A real storage failure stays fatal: no
   // stored file means no valid Document, and the caller's error path is the

@@ -13,6 +13,7 @@
  */
 
 import { getStorageService } from "@/lib/storage";
+import { consumeUsage, settleUsage } from "@/lib/services/subscriptions/usage/usage-meter";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { buildAccountantPackage, type BuiltAccountantPackage } from "@/lib/reports/accountant-export-zip";
 import { getFiscalBillingPdfForDelivery } from "@/lib/services/billing/signed-pdf-delivery.wiring";
@@ -45,6 +46,9 @@ export type PrepareTrigger = "SCHEDULE" | "CHANGE" | "OWNER";
 
 export type PrepareOutcome =
   | { outcome: "not_closed" | "invalid_period" | "busy" }
+  /** Subscriptions stage C: a NEW version would exceed the accountant_packages quota (ENFORCE, a customer). The
+   *  versions already prepared stay available for download; nothing was built. */
+  | { outcome: "quota_exhausted"; renewsAt: string | null }
   | {
       outcome: "evaluated" | "built" | "build_failed";
       periodId: number;
@@ -176,6 +180,19 @@ export async function preparePeriod(
     let failureCode: string | null = null;
 
     if (!current) {
+      // Subscriptions stage C — preparing a NEW version (the content changed) is one unit of accountant_packages; the
+      // same content never makes a second version, so it is never counted twice. Downloading a prepared package and
+      // the uniform-structure export are never counted.
+      const pkgDecision = await consumeUsage({
+        businessId,
+        metric: "accountant_packages",
+        unitKey: `pkg:${period.id}:${fingerprint.slice(0, 48)}`,
+        source: `accountant.prepare.${trigger.toLowerCase()}`,
+      });
+      if (!pkgDecision.allowed) {
+        await releaseLease(businessId, period.id, deps.now());
+        return { outcome: "quota_exhausted", renewsAt: pkgDecision.periodEnd ? pkgDecision.periodEnd.toISOString() : null };
+      }
       const slot = await createBuildingPackage(businessId, period.id, fingerprint, now, BUILD_LEASE_MS,
         actor.type === "OWNER_USER" ? actor.userId : null);
       if (!slot) {
@@ -237,6 +254,9 @@ export async function preparePeriod(
         buildFailed = true;
         failureCode = "build_failed";
         console.error("[accountant] package build failed", { businessId, periodKey, packageId: slot.id, error: e instanceof Error ? e.name : "unknown" });
+        // Subscriptions stage C: a version that failed to build gives its unit back; a retry of the same content is the
+        // same unit (pkg:<period>:<fingerprint>) and is not counted again.
+        await settleUsage({ businessId, metric: "accountant_packages", unitKey: `pkg:${period.id}:${fingerprint.slice(0, 48)}`, state: "RELEASED" });
         await tenantTx(businessId, async (tx) => {
           await tx.accountantPackage.updateMany({
             where: { id: slot.id, businessId, status: "BUILDING" },
