@@ -122,7 +122,9 @@ async function main() {
 
   /* ── A. the door ─────────────────────────────────────────────────────────────────────────────────── */
   console.log("A. the door (G3)");
-  let r = await settle(pb.getPublicProfile(sA.publicId));
+  // One variable for every step answer (each a different shape): read loosely, checked field by field.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let r: { ok: boolean; v: any; code: string; details?: unknown } = await settle(pb.getPublicProfile(sA.publicId));
   const r0 = await issue(sA.publicId, newPhone());
   ok("A1 no WhatsApp path that can deliver a code (simulate, the default): profile and code answer 404 — the link is unavailable", !r.ok && r.code === "NOT_FOUND" && !r0.ok && r0.code === "NOT_FOUND", { r, r0 });
   pv.__setOtpTestHooks({ deliveryAvailable: () => true, generateCode: () => { const c = nextCode || String(100000 + Math.floor(Math.random() * 899999)); nextCode = ""; codes.push(c); return c; }, send });
@@ -320,7 +322,8 @@ async function main() {
   const appt1 = await owner.appointment.findFirstOrThrow({ where: { id: req1!.appointmentId } });
   const tok1 = await owner.appointmentManageToken.findFirstOrThrow({ where: { appointmentId: appt1.id, revokedAt: null } });
   ok("M1 the manage link expires 7 days after the appointment ENDS", tok1.expiresAt.getTime() === appt1.endsAt!.getTime() + 7 * DAY, { tok1, appt1 });
-  let view = await settle(pb.viewByToken(manageToken));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let view: { ok: boolean; v: any; code: string; details?: unknown } = await settle(pb.viewByToken(manageToken));
   ok("M2 confirmed, 10 days ahead, window 24 h → may reschedule", view.ok && view.v!.canReschedule === true && view.v!.selfRescheduleEnabled === true);
   const sl = await settle(pb.rescheduleSlotsByToken(manageToken, { fromDay: day, toDay: day }));
   const starts = sl.ok ? sl.v!.slots.map((x) => x.startsAt) : [];
