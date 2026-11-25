@@ -178,6 +178,8 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/calendar/services", parent: "/calendar/manage", parentLabelKey: "toCalendarManage" },
   { pattern: "/calendar/services/[id]", parent: "/calendar/services", parentLabelKey: "toCalendarServices" },
   { pattern: "/calendar/booking", parent: "/calendar/manage", parentLabelKey: "toCalendarManage" },
+  // G9: the first-time setup wizard (owner-approved new screen) opens from the empty calendar and returns to it.
+  { pattern: "/calendar/setup", parent: "/calendar", parentLabelKey: "toCalendar" },
   { pattern: "/collection/new", parent: "/collection", parentLabelKey: "toCollection", identityParams: ["step"] },
   { pattern: "/collection/c/[customerId]", parent: "/collection", parentLabelKey: "toCollection" },
 
