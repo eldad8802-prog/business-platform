@@ -22,6 +22,8 @@ import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-fil
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { createDocumentFromOcrText } from "@/lib/services/documents/create-document-from-ocr.service";
 import { recordSensor } from "@/lib/sensors/record-sensor";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
+import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import {
   DOCUMENT_MAX_UPLOAD_BYTES,
   isAllowedDocumentMime,
@@ -184,6 +186,12 @@ async function handleAuthedImport(
         reason: preDedup.reason,
       });
     }
+
+    // Owner decision 26: abuse ceiling, checked after auth and the duplicate fast path (a file already imported
+    // costs nothing and never counts) and BEFORE Gmail, OCR and storage. A refusal stores nothing: the attachment
+    // simply stays in Gmail and can be imported again later.
+    const rateDecision = await checkRateLimit({ bucket: "GMAIL_IMPORT", user: user.id, business: user.businessId });
+    if (!rateDecision.allowed) return buildRateLimitResponse(rateDecision);
 
     const { connectionId, accessToken } = await getGmailAccessTokenForBusiness({
       businessId: user.businessId,

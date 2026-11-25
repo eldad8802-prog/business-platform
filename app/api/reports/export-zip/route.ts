@@ -1,4 +1,6 @@
 import { getCurrentUser } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
+import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import {
@@ -18,6 +20,11 @@ export async function POST(req: Request) {
   if (!user) {
     return new Response("Unauthorized", { status: 401 });
   }
+
+  // Owner decision 26: abuse ceiling after auth, before the package is built. Fail-OPEN bucket: exporting the
+  // business's own data is a rights-floor action, so a limiter outage never blocks it.
+  const rateDecision = await checkRateLimit({ bucket: "REPORTS_EXPORT_ZIP", user: user.id, business: user.businessId });
+  if (!rateDecision.allowed) return buildRateLimitResponse(rateDecision);
 
   try {
     const body = (await req.json()) as AccountantPackBody;
