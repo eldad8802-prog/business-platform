@@ -28,6 +28,7 @@ import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { toE164 } from "@/lib/notifications/customer/appointment-messages";
 import { sendBookingVerificationCode, type VerificationSendResult } from "@/lib/notifications/customer/verification";
+import { customerMessagesEntitlement } from "@/lib/notifications/customer/customer-entitlement";
 import type { TransportDeps } from "@/lib/notifications/customer/platform-transport";
 
 import { AppointmentServiceError, invalid } from "@/lib/services/appointment/appointment-errors";
@@ -106,6 +107,10 @@ export async function issueBookingCode(businessId: number, input: { phone?: unkn
   const now = ctx.now ?? new Date();
   const { digits, e164 } = e164Of(input.phone);
   if (!otpDeliveryAvailable()) throw new AppointmentServiceError("OTP_UNAVAILABLE");
+  // The business may message customers at all (appointments AND public_booking AND the notifications_engine kill
+  // switch — workstream F's gate): refused BEFORE a challenge is written, so a switched-off business burns no cap.
+  const entitled = hooks.send?.entitled ? await hooks.send.entitled(businessId) : (await customerMessagesEntitlement(businessId)).allowed;
+  if (!entitled) throw new AppointmentServiceError("OTP_UNAVAILABLE");
   const keys = otpKeysFromEnv();
   const phoneHash = phoneHashOf(keys.current, e164);
   const phoneHashes = phoneHashesOf(keys, e164);

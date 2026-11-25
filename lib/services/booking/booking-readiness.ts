@@ -4,7 +4,8 @@
  *
  * The owner turns the link on by themself ("self-activation") once EVERYTHING below holds — checked server-side when
  * the switch is turned on (booking-admin.service updateBookingSettings), and shown on the settings screen as a list:
- *   eligible   the business may offer the link: `appointments` AND `public_booking` available to it through the
+ *   eligible   the business may offer the link: `appointments` AND `public_booking` — AND the notification engine's
+ *              kill switch `notifications_engine` (workstream F's gate: without it no code can be sent) — available through the
  *              existing feature-access resolver (flags, admin overrides, emergency switch — the same answer guardFeature
  *              / featureAllowedForBusiness give), with the plan layer (resolvePlanEntitlement: plan ADVANCED, trial =
  *              full) computed in SHADOW and logged (`subscription_would_deny`), never enforced here — the owner's

@@ -84,13 +84,17 @@ async function main() {
     await owner.serviceBookingPolicy.create({ data: { businessId: b, businessServiceId: svc.id, publicBookable: true, approvalMode: "AUTO", slotStepMinutes: 30, maxAdvanceDays: 60 } });
     return { publicId, serviceId: svc.id };
   };
-  const A = await biz(`סטודיו G ${stamp}`, ["appointments", "public_booking"]);
-  const B = await biz(`עסק G-ב ${stamp}`, ["appointments", "public_booking"]);
-  const C = await biz(`עסק G-ג ${stamp}`, ["appointments", "public_booking"]);
-  const D = await biz(`עסק G-ד ${stamp}`, ["appointments", "public_booking"]);
+  // Workstream F's gate: customer WhatsApp (and so the code) needs the notifications_engine kill switch ON as well.
+  const ON = ["appointments", "public_booking", "notifications_engine"];
+  const A = await biz(`סטודיו G ${stamp}`, ON);
+  const B = await biz(`עסק G-ב ${stamp}`, ON);
+  const C = await biz(`עסק G-ג ${stamp}`, ON);
+  const D = await biz(`עסק G-ד ${stamp}`, ON);
+  const KILLED = await biz(`עסק G-ה ${stamp}`, ["appointments", "public_booking"]); // engine switch OFF
   const sA = await setup(A, false); // stored requireVerification = FALSE — verification must still be mandatory
   const sB = await setup(B, true);
   const sC = await setup(C, true);
+  const sK = await setup(KILLED, true);
   const userD = (await owner.user.create({ data: { email: `g-d-${stamp}@apc.lab`, password: "x", businessId: D } })).id;
 
   const day = addCalendarDays(jerusalemDayKey(new Date()), 10);
@@ -130,6 +134,13 @@ async function main() {
   pv.__setOtpTestHooks({ deliveryAvailable: () => true, generateCode: () => { const c = nextCode || String(100000 + Math.floor(Math.random() * 899999)); nextCode = ""; codes.push(c); return c; }, send });
   r = await settle(pb.getPublicProfile(sA.publicId));
   ok("A2 with a delivery path: the profile opens and says verification is required (always)", r.ok && (r.v as { verification?: { required: boolean } }).verification?.required === true);
+
+  const kBefore = await owner.bookingPhoneChallenge.count({ where: { businessId: KILLED } });
+  r = await issue(sK.publicId, newPhone());
+  ok("A3 the notifications_engine kill switch OFF: no code (OTP_UNAVAILABLE), no challenge written, no cap spent",
+    !r.ok && r.code === "OTP_UNAVAILABLE" && (await owner.bookingPhoneChallenge.count({ where: { businessId: KILLED } })) === kBefore, r);
+  const killedReady = await settle(admin.getBookingSettings({ kind: "OWNER", businessId: KILLED, userId: 0 }));
+  ok("A4 …and its readiness names it as not eligible", killedReady.ok && JSON.stringify(killedReady.v?.readiness?.missing ?? []).includes("eligible"), killedReady);
 
   /* ── B. a code ───────────────────────────────────────────────────────────────────────────────────── */
   console.log("B. a code");
