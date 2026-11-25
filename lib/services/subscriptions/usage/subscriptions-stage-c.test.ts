@@ -180,7 +180,7 @@ ok("6 the admin service writes only through definer functions", !/INSERT INTO|UP
   ok("7 the refusal body carries no counters", !/used: d\.used|quota: d\.quota/.test(meter.slice(meter.indexOf("export function quotaExhaustedBody"))));
   ok("7 the owner-facing API has no counters route any more", !existsSync("app/api/business/usage/route.ts"));
   for (const p of ["components/settings/subscription/subscription-screen.tsx", "components/settings/subscription/subscription-attention-banner.tsx"]) {
-    const ui = read(p);
+    const ui = read(p).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ""); // code only, not the comments that state the rule
     ok(`7 ${p}: no counter, bar or percentage on the owner's screen`, !/\.used\b|remaining|percent|<progress|role="progressbar"|%\s*\}/.test(ui));
   }
   ok("7 the Home banner renders nothing unless there is an attention item", /if \(!item\) return null;/.test(read("components/settings/subscription/subscription-attention-banner.tsx")));
