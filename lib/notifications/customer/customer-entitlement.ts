@@ -8,6 +8,9 @@
  * (`subscription_would_deny`), exactly like every other module in subscriptions stage A/B: it never changes the
  * answer — enforcing the plan is the owner's stage C decision (no enforce mode exists, by design).
  *
+ * Kill switch: the notification engine's operator switch (`notifications_engine`, per business or by its emergency
+ * switch) is ANDed in — OFF stops every customer send path (customerMessagesFlagsAllow).
+ *
  * Fail closed: an error resolving the flags reads as "not allowed" (nothing owed, nothing sent).
  *
  * Two entry points:
@@ -39,9 +42,18 @@ export function __setCustomerMessagesGateForTests(fn: ((businessId: number) => P
   gateOverride = fn;
 }
 
-function flagsAllow(caps: Caps): boolean {
-  return caps[PLATFORM_FEATURE_KEYS.APPOINTMENTS]?.allowed === true && caps[PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING]?.allowed === true;
+/**
+ * Pure: the flag answer. `appointments` AND `public_booking` (the entitlement) AND `notifications_engine` — the
+ * operator's existing kill switch: OFF for a business (or by its emergency switch) stops EVERY customer send path —
+ * the producers owe nothing (and close what is owed), the lane suppresses 'not_entitled', the verification API
+ * refuses — without having to turn public booking off.
+ */
+export function customerMessagesFlagsAllow(caps: Caps): boolean {
+  return caps[PLATFORM_FEATURE_KEYS.APPOINTMENTS]?.allowed === true
+    && caps[PLATFORM_FEATURE_KEYS.PUBLIC_BOOKING]?.allowed === true
+    && caps[PLATFORM_FEATURE_KEYS.NOTIFICATIONS_ENGINE]?.allowed === true;
 }
+const flagsAllow = customerMessagesFlagsAllow;
 
 export async function customerMessagesAllowedInTx(tx: Tx, businessId: number): Promise<boolean> {
   if (gateOverride) return gateOverride(businessId);

@@ -16,6 +16,7 @@
 import { getCategory, getCustomerCategory, NOTIFICATION_CATEGORIES, CUSTOMER_MESSAGE_CATEGORIES } from "../catalog";
 import { buildPushMessage } from "../push/push-content";
 import { planFor, reminderKey, noticeKey, reminderOffsets, startOfKey, toE164 } from "./appointment-messages";
+import { customerMessagesFlagsAllow } from "./customer-entitlement";
 import { platformConfig, platformPhoneNumberId, sendPlatformTemplate } from "./platform-transport";
 import { statusInstant } from "./whatsapp-status";
 import { stillFits } from "./whatsapp-worker";
@@ -171,6 +172,25 @@ async function main() {
   const m = meteringMonth(new Date("2026-11-30T22:30:00Z")); // 00:30 on 1 Dec in Jerusalem
   ok("metering month is Jerusalem's calendar month", m.period === "2026-12" && m.from.toISOString() === "2026-11-30T22:00:00.000Z" && m.to.toISOString() === "2026-12-31T22:00:00.000Z", m);
   ok("quota hook: null (no number invented) and null allows", (await customerMessageQuota(1)) === null && withinQuota(1_000_000, null) && !withinQuota(5, 5));
+
+  console.log("6. the operator kill switch (notifications_engine) stops every customer send path");
+  const cap = (allowed: boolean) => ({ allowed } as never);
+  const caps = (a: boolean, p: boolean, e: boolean) => ({ appointments: cap(a), public_booking: cap(p), notifications_engine: cap(e) });
+  ok("all three ON ⇒ allowed", customerMessagesFlagsAllow(caps(true, true, true)));
+  ok("notifications_engine OFF ⇒ refused (public booking still on)", !customerMessagesFlagsAllow(caps(true, true, false)));
+  ok("notifications_engine missing from the answer ⇒ refused (fail closed)", !customerMessagesFlagsAllow({ appointments: cap(true), public_booking: cap(true) }));
+  ok("public_booking OFF ⇒ refused", !customerMessagesFlagsAllow(caps(true, false, true)));
+  ok("appointments OFF ⇒ refused", !customerMessagesFlagsAllow(caps(false, true, true)));
+  ok("nothing ⇒ refused", !customerMessagesFlagsAllow({}));
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const src = (f: string) => readFileSync(join(process.cwd(), "lib/notifications/customer", f), "utf8");
+  ok("every send path asks the same gate: the producer (in its tx), the lane (per business per pass), the verification API",
+    /await customerMessagesAllowedInTx\(tx, f\.businessId\)/.test(src("appointment-messages.ts"))
+      && /\(await customerMessagesEntitlement\(businessId\)\)\.allowed/.test(src("whatsapp-worker.ts"))
+      && /\(await customerMessagesEntitlement\(input\.businessId\)\)\.allowed/.test(src("verification.ts")));
+  ok("both gate entry points use the one flag rule", (src("customer-entitlement.ts").match(/return flagsAllow\(|const allowed = flagsAllow\(/g) ?? []).length === 2);
+  ok("the lane closes a row of a gated-off business as not_entitled (never sent later)", /if \(!entitled\) return finish\("SUPPRESSED", "not_entitled"\)/.test(src("whatsapp-worker.ts")));
 
   globalThis.fetch = realFetch;
   console.log(`\n[customer-messages] PASS=${passed} FAIL=${failed}`);

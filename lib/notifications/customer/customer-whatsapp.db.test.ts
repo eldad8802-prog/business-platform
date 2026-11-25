@@ -85,8 +85,13 @@ async function main() {
     }
     return b.id;
   };
-  const A = await biz(`מספרת הלאב ${stamp}`, ["appointments", "public_booking"]);
-  const B = await biz(`עסק ב ${stamp}`, ["appointments", "public_booking"]);
+  const A = await biz(`מספרת הלאב ${stamp}`, ["appointments", "public_booking", "notifications_engine"]);
+  const B = await biz(`עסק ב ${stamp}`, ["appointments", "public_booking", "notifications_engine"]);
+  // The operator kill switch: entitled (appointments + public_booking) but notifications_engine OFF.
+  const KILL = await biz(`עסק מושבת ${stamp}`, ["appointments", "public_booking"]);
+  await owner.$executeRawUnsafe(`INSERT INTO "BusinessFeatureAccess" ("businessId", "featureKey", "state", "updatedAt") VALUES ($1, 'notifications_engine', 'DISABLED', now())`, KILL);
+  const userKill = (await owner.user.create({ data: { email: `wa-kill-${stamp}@apc.lab`, password: "x", businessId: KILL } })).id;
+  const custKill = (await owner.customer.create({ data: { businessId: KILL, name: "לקוח", phone: "972501112299" } })).id;
   const OFF = await biz(`עסק בסיסי ${stamp}`, ["appointments"]); // no public_booking ⇒ no customer WhatsApp
   const userA = (await owner.user.create({ data: { email: `wa-a-${stamp}@apc.lab`, password: "x", businessId: A } })).id;
   const userOff = (await owner.user.create({ data: { email: `wa-off-${stamp}@apc.lab`, password: "x", businessId: OFF } })).id;
@@ -169,6 +174,12 @@ async function main() {
   const c4 = await svc.create({ businessId: OFF, actor: actor(userOff), links: { customerId: custOff }, details: { startsAt: dayIn(8), durationMinutes: 30 } });
   if (c4.ok) await svc.confirm({ appointmentId: c4.appointment.id, businessId: OFF, actor: actor(userOff) });
   ok("A13 public_booking OFF (Basic) ⇒ no customer WhatsApp at all", c4.ok && (await deliveries(OFF, c4.appointment.id)).length === 0);
+
+  const c4k = await svc.create({ businessId: KILL, actor: actor(userKill), links: { customerId: custKill }, details: { startsAt: dayIn(8), durationMinutes: 30 } });
+  if (c4k.ok) await svc.confirm({ appointmentId: c4k.appointment.id, businessId: KILL, actor: actor(userKill) });
+  ok("A14 kill switch: notifications_engine OFF (public booking ON) ⇒ nothing owed", c4k.ok && (await deliveries(KILL, c4k.appointment.id)).length === 0);
+  const vk = await sendBookingVerificationCode({ businessId: KILL, challengeId: 9100, sendIndex: 1, phone: "0501112299", code: "123456" });
+  ok("A15 kill switch: the verification API refuses (not_entitled)", !vk.ok && vk.reason === "not_entitled");
 
   /* ── B. the lane ────────────────────────────────────────────────────────────────────────────────────── */
   console.log("B. the WhatsApp lane");
@@ -283,6 +294,17 @@ async function main() {
   ok("B16 live: a public booking's message carries a FRESH manage link; only its hash is stored",
     /^https:\/\/app\.dubiz\.example\/book\/manage#[A-Za-z0-9_-]{43}$/.test(link) && (await owner.appointmentManageToken.count({ where: { businessId: A, appointmentId: pub2.id } })) === 1
       && !(await owner.appointmentManageToken.findFirst({ where: { appointmentId: pub2.id } }))!.tokenHash.includes(link.split("#")[1]), link);
+
+  const c11 = await svc.create({ businessId: A, actor: actor(userA), links: { customerId: custA }, details: { startsAt: dayIn(17), durationMinutes: 30 } });
+  const a11 = c11.ok ? c11.appointment.id : 0;
+  await svc.confirm({ appointmentId: a11, businessId: A, actor: actor(userA) });
+  const conf11 = ofCat(await deliveries(A, a11), "confirmed")[0];
+  await owner.$executeRawUnsafe(`UPDATE "BusinessFeatureAccess" SET "state" = 'DISABLED', "updatedAt" = now() WHERE "businessId" = $1 AND "featureKey" = 'notifications_engine'`, A);
+  const sendsBeforeKill = liveSends.length;
+  await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [conf11.id], transport: live, ...q });
+  const k11 = await owner.notificationDelivery.findUnique({ where: { id: conf11.id } });
+  await owner.$executeRawUnsafe(`UPDATE "BusinessFeatureAccess" SET "state" = 'ENABLED', "updatedAt" = now() WHERE "businessId" = $1 AND "featureKey" = 'notifications_engine'`, A);
+  ok("B17 kill switch flipped OFF after a message was owed: the lane sends nothing and closes it not_entitled", k11?.status === "SUPPRESSED" && k11.error === "not_entitled" && liveSends.length === sendsBeforeKill, k11);
 
   /* ── C. statuses ────────────────────────────────────────────────────────────────────────────────────── */
   console.log("C. statuses (G14)");
