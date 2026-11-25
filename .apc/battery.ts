@@ -50,6 +50,8 @@ const x = (client: PrismaClient, guc: number | null, sql: string, ...args: unkno
 const rows = (r: unknown): Rows => (Array.isArray(r) ? (r as Rows) : []);
 const num = (r: unknown, key = "n") => Number(rows(r)[0]?.[key] ?? NaN);
 const refused = (r: unknown, re: RegExp) => typeof r === "string" && re.test(r);
+// An affected-row count, or NaN when the statement was refused (x() returns the error text) — every comparison is false.
+const affected = (r: number | string): number => (typeof r === "number" ? r : NaN);
 const DENIED = /permission denied/i;
 const RLS = /row-level security/i;
 const CHECK = /check constraint|23514/i;
@@ -461,14 +463,14 @@ async function main() {
   const od = await phoneOf(oldD);
   ok("12.4 the phone sweep nulls the phone of a 31-day-old sent message; the row, status and provider id stay", pp >= 1 && od?.p === null && od?.m === "sim:old-1" && od?.s === "SENT", JSON.stringify(od));
   ok("12.5 …keeps a still-owed message's phone and a recent one", (await phoneOf(oldOwed))?.p !== null && (await phoneOf(newD))?.p !== null);
-  ok("12.6 account erasure: a series' title and customer are cleared in place", (await x(runtime, bizA, `UPDATE "AppointmentSeries" SET "title" = NULL, "customerId" = NULL, "erasedAt" = now() WHERE "businessId" = $1`, bizA)) >= 1);
+  ok("12.6 account erasure: a series' title and customer are cleared in place", affected(await x(runtime, bizA, `UPDATE "AppointmentSeries" SET "title" = NULL, "customerId" = NULL, "erasedAt" = now() WHERE "businessId" = $1`, bizA)) >= 1);
   ok("12.7 account erasure: every challenge's hashes are cleared in place (the guard allows exactly this)",
-    (await x(runtime, bizA, `UPDATE "BookingPhoneChallenge" SET "phoneHash" = NULL, "codeHash" = NULL, "ipHash" = NULL, "erasedAt" = now() WHERE "businessId" = $1 AND "erasedAt" IS NULL`, bizA)) >= 5
+    affected(await x(runtime, bizA, `UPDATE "BookingPhoneChallenge" SET "phoneHash" = NULL, "codeHash" = NULL, "ipHash" = NULL, "erasedAt" = now() WHERE "businessId" = $1 AND "erasedAt" IS NULL`, bizA)) >= 5
     && num(await q(owner, null, `SELECT count(*)::int AS n FROM "BookingPhoneChallenge" WHERE "businessId" = $1 AND "phoneHash" IS NOT NULL`, bizA)) === 0);
   ok("12.8 …but never half-way (one hash cleared without erasedAt refused)",
     refused(await x(owner, null, `UPDATE "BookingPhoneChallenge" SET "phoneHash" = NULL WHERE "businessId" = $1 AND "erasedAt" IS NULL`, bizB), CH_GUARD));
   ok("12.9 account erasure: every customer phone of the business is cleared in place (sent ones included)",
-    (await x(runtime, bizA, `UPDATE "NotificationDelivery" SET "recipientPhone" = NULL WHERE "businessId" = $1 AND "recipientPhone" IS NOT NULL`, bizA)) >= 1
+    affected(await x(runtime, bizA, `UPDATE "NotificationDelivery" SET "recipientPhone" = NULL WHERE "businessId" = $1 AND "recipientPhone" IS NOT NULL`, bizA)) >= 1
     && num(await q(owner, null, `SELECT count(*)::int AS n FROM "NotificationDelivery" WHERE "businessId" = $1 AND "recipientPhone" IS NOT NULL`, bizA)) === 0);
   ok("12.10 B's rows are untouched by A's erasure",
     num(await q(owner, null, `SELECT count(*)::int AS n FROM "NotificationDelivery" WHERE id = $1 AND "recipientPhone" IS NOT NULL`, dB)) === 1
