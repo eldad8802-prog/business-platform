@@ -1,0 +1,55 @@
+# Appointments health — the scheduled WATCHDOG (G4). Read-only.
+#
+# Calls POST (same handler as GET) /api/appointments/health on Production (app/api/appointments/health/route.ts) every 30
+# minutes. The route reads counts only — overlapping live appointments in one lane, booking requests the sweep should
+# have expired (> 15 min late), PROPOSED holds past their hold, the oldest owed appointments push, an appointments
+# delivery outage in the last 24 h, the database's no-overlap guard — and answers 500 with the failing check names.
+# This job goes RED — and GitHub notifies the repository owner — when the endpoint is unreachable or answers
+# anything but 200. That red run IS the alert (the same channel as accountant-monitor.yml); no email is sent from here.
+#
+# GitHub's scheduled runs are irregular on this repository (gaps of hours were observed, see
+# transactional-email-sweep.yml): NO detection time is promised. GitHub also disables schedules of idle repositories.
+#
+# INERT until the owner's gate: the schedule calls nothing unless vars.APPOINTMENTS_HEALTH_WATCHDOG == 'true'.
+# The only secret is CRON_SECRET, read ONLY from the protected `cron` environment (main-only). The endpoint answers
+# counts and check names only; they go to the step summary.
+
+name: appointments health (watchdog)
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: appointments-health
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    if: github.ref == 'refs/heads/main' && vars.APPOINTMENTS_HEALTH_WATCHDOG == 'true'
+    environment: cron
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call the appointments health check on Production
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          HEALTH_URL: https://promaxgroup.co.il/api/appointments/health
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is not configured for this repository."; exit 1
+          fi
+          code=$(curl -sS -o health.json -w "%{http_code}" -m 90 -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$HEALTH_URL" || echo "000")
+          echo "HTTP $code"
+          [ -f health.json ] || echo '{}' > health.json
+          cat health.json; echo
+          {
+            echo "### Appointments health — HTTP $code"
+            echo '```json'; cat health.json; echo; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$code" = "200" ] || { echo "::error::appointments health answered $code — unreachable, or failing checks (see the summary)"; exit 1; }

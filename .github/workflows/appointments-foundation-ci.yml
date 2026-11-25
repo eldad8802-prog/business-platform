@@ -37,6 +37,7 @@ on:
       - "prisma/migrations/20261210090000_notification_engine_foundation/**"
       - ".nte/**"
       - ".github/workflows/appointments-foundation-ci.yml"
+      - ".github/workflows/appointments-health.yml"
   workflow_dispatch:
 
 permissions:
@@ -60,6 +61,7 @@ jobs:
           npx tsx lib/services/appointment/availability-core.test.ts
           npx tsx lib/services/appointment/appointment-core.test.ts
           npx tsx lib/services/booking/booking-core.test.ts
+          npx tsx lib/services/appointment/appointments-health.test.ts
       - name: Static guards
         run: |
           set -euo pipefail
@@ -129,3 +131,14 @@ jobs:
           DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bkg_app?$TZQ&connection_limit=20" \
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/bkg_app?$TZQ" \
             npx tsx .bkg/app-battery.ts
+
+      - name: Appointments health (G4) — the read-only collector and route AS the runtime — lapsed request + hold, overlap with the guard removed, owed push lag, delivery outage, counts only
+        run: |
+          set -euo pipefail
+          bash .bkg/lab.sh health_app --with-bkg
+          NTE_ONTO=1 bash .nte/lab.sh health_app --with-nte
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/health_app?$TZQ" \
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/health_app?$TZQ&connection_limit=20" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/health_app?$TZQ" \
+            npx tsx lib/services/appointment/appointments-health.db.test.ts

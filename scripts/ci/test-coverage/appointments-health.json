@@ -1,0 +1,13 @@
+{
+  "note": "Appointments G4 — the read-only health check (app/api/appointments/health) and its GitHub watchdog (.github/workflows/appointments-health.yml).",
+  "tests": {
+    "lib/services/appointment/appointments-health.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): each health check fails alone and at its edge, malformed counts fail closed, the route answer (503/401 before any read, 200/500 with check names, a throwing collector → fixed code), the collector's keyset walk / sums / budget over fake doors, and statics (decideCronAuth only, no writes, only the two existing definer doors, the watchdog's protected cron environment + repository-variable gate, not in vercel.json); run on pull_request by appointments-foundation-ci.yml (unit job)"
+    },
+    "lib/services/appointment/appointments-health.db.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "the collector and the route AS app_runtime_prod on the Production-shaped lab (.bkg/lab.sh --with-bkg + NTE_ONTO .nte/lab.sh --with-nte): a lapsed request + hold detected and cleared by the real booking sweep, an overlap detected with the no-overlap guard removed (owner fault), owed-push lag vs a later reminder, a delivery outage, the route's 401/500/200, counts only, read-only; run on pull_request by appointments-foundation-ci.yml (app job)"
+    }
+  }
+}
