@@ -754,9 +754,13 @@ async function main() {
   ok("P17 a declined request and an owner-approved booking are not counted; two AUTO, then 429",
     pzDecline.status === 200 && pzApprove.status === 200 && z1.status === 201 && z2.status === 201 && z3.status === 429, `${pzDecline.status} ${pzApprove.status} ${z1.status} ${z2.status} ${z3.status}`);
   const pv = phone();
-  const burstAuto = await Promise.all(["11:00", "12:00", "13:00", "14:00", "15:00", "16:00"].map((t) => autoAt(t, 2, pv)));
-  ok("P18 six AUTO bookings from one phone at once (six free times) → exactly two 201, four 429 REQUEST_LIMIT", burstAuto.filter((x) => x.status === 201).length === 2
-    && burstAuto.filter((x) => x.status === 429).length === 4
+  // G2: every request needs its own verification, and through the API one phone holds at most ONE verified, unused
+  // challenge per business at a time (a new code retires the earlier one). To stress the per-phone cap under the lock,
+  // this burst is given one verification per request, written as the owner — five, the most the submit's lookup takes
+  // for one phone (consumeVerifiedPhone reads the newest five; a sixth is a state the API can never produce).
+  const burstAuto = await Promise.all(["11:00", "12:00", "13:00", "14:00", "15:00"].map((t) => autoAt(t, 2, pv)));
+  ok("P18 five AUTO bookings from one phone at once (five free times, each verified) → exactly two 201, three 429 REQUEST_LIMIT", burstAuto.filter((x) => x.status === 201).length === 2
+    && burstAuto.filter((x) => x.status === 429).length === 3
     && (await n(`SELECT count(*)::int AS n FROM "BookingRequest" WHERE "businessId" = ${bizC} AND "contactPhone" = '972${pv.slice(1)}'`)) === 2, burstAuto.map((x) => x.status).join(","));
   // Isolation: px is at its cap in C; in business A (straight through the service, past the route's per-business
   // ceiling that the sections above used up) the same phone books freely.
