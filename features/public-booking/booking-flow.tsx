@@ -12,17 +12,24 @@
  * A time taken while the customer was filling in is replaced by the three nearest free ones. One idempotency key per
  * attempt: a double tap or a retry returns the same booking, never a second one. While public booking is not open for
  * the business, every door answers 404 and the page says the link is unavailable — nothing else.
+ *
+ * G2 (design c, approved): between "הפרטים שלך" and the answer, the phone is verified by a 6-digit code sent from
+ * Dubiz's central WhatsApp number — always, for every business (owner requirement 8). The chosen time is not held
+ * until then; the code lives 5 minutes; a new one can be asked after the countdown. A verification is kept for the
+ * rest of the visit (a time taken meanwhile does not ask for a second code) and dropped when the phone changes.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { addCalendarDays, jerusalemDayKey, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
-import { getProfile, getSlots, manage, submitRequest, type Answer } from "./public-booking-client";
+import { getProfile, getSlots, manage, sendCode, submitRequest, verifyCode, type Answer } from "./public-booking-client";
 import {
   checkContact,
   classify,
   clock,
+  codeDigits,
   CONTACT,
+  countdown,
   durationLabel,
   errorText,
   fieldOf,
@@ -33,7 +40,9 @@ import {
   manageUrl,
   nearestAlternatives,
   newRequestKey,
+  phoneShown,
   priceLabel,
+  retryAfterOf,
   serviceBookable,
   slotsByDay,
   stepsForProfile,
@@ -51,7 +60,7 @@ import {
 } from "./public-booking-model";
 import s from "./public-booking.module.css";
 
-const STEP_TITLE: Record<Step, string> = { service: "איזה שירות?", staff: "אצל מי?", time: "מתי?", details: "הפרטים שלך" };
+const STEP_TITLE: Record<Step, string> = { service: "איזה שירות?", staff: "אצל מי?", time: "מתי?", details: "הפרטים שלך", verify: "שלחנו קוד ב-WhatsApp" };
 const ANY = "any" as const;
 
 type Load<T> = { state: "loading" } | { state: "ready"; data: T } | { state: "error"; kind: "unavailable" | "busy" | "generic"; message: string };
@@ -82,6 +91,12 @@ export function BookingFlow({ publicId }: { publicId: string }) {
   const [formError, setFormError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SubmitWire | null>(null);
+  // G2: the code step.
+  const [code, setCode] = useState("");
+  const [codeErr, setCodeErr] = useState<string | null>(null);
+  const [vToken, setVToken] = useState<{ phone: string; token: string } | null>(null);
+  const [resendAt, setResendAt] = useState<number | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const keyRef = useRef<string | null>(null);
   // A synchronous guard: two taps in the same tick must not both send (the state flag updates a render later).
   const inFlight = useRef(false);
@@ -124,6 +139,13 @@ export function BookingFlow({ publicId }: { publicId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicId, slotKey, step]);
 
+  // ── the resend countdown (once a second, only on the code step) ──
+  useEffect(() => {
+    if (step !== "verify") return;
+    const h = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(h);
+  }, [step]);
+
   // ── focus follows the step (screen readers hear the new question) ──
   useEffect(() => { headingRef.current?.focus(); }, [step, result]);
 
@@ -143,11 +165,12 @@ export function BookingFlow({ publicId }: { publicId: string }) {
   const pickTime = (iso: string) => { setStartsAt(iso); setTaken(null); freshKey(); };
   const moveWeek = (delta: number) => { setWeekStart((w) => addCalendarDays(w, delta * 7)); setDay(null); setStartsAt(null); };
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (tokenIn?: string) => {
     if (!service || !startsAt || inFlight.current) return;
     const errs = checkContact(name, phone, note);
     setErrors(errs);
-    if (Object.keys(errs).length) { setFormError("כדאי לתקן את השדות המסומנים."); return; }
+    if (Object.keys(errs).length) { setFormError("כדאי לתקן את השדות המסומנים."); go("details"); return; }
+    const token = tokenIn ?? (vToken && vToken.phone === phone.trim() ? vToken.token : undefined);
     inFlight.current = true;
     setSending(true);
     setFormError(null);
@@ -161,6 +184,7 @@ export function BookingFlow({ publicId }: { publicId: string }) {
       phone: phone.trim(),
       ...(note.trim() ? { note: note.trim() } : {}),
       website: trap,
+      ...(token ? { verificationToken: token } : {}),
     });
     inFlight.current = false;
     setSending(false);
@@ -189,9 +213,61 @@ export function BookingFlow({ publicId }: { publicId: string }) {
       return;
     }
     if (kind === "unavailable") { setProfile({ state: "error", kind: "unavailable", message: errorText("unavailable") }); return; }
+    if (kind === "verify") {
+      // The verification lapsed or was used: a new code.
+      setVToken(null);
+      setCode("");
+      setCodeErr(errorText("verify", a.message));
+      go("verify");
+      return;
+    }
     // limit / busy / network / anything else: the same key is kept, so trying again cannot book twice.
     setFormError(a.status === 0 ? "אין חיבור כרגע. אפשר לנסות שוב — הבקשה לא תישלח פעמיים." : errorText(kind, a.message));
-  }, [name, note, phone, publicId, service, staffId, startsAt, trap, weekStart]);
+  }, [name, note, phone, publicId, service, staffId, startsAt, trap, weekStart, vToken]);
+
+  /** G2: send (or send again) the WhatsApp code, then the code step. */
+  const requestCode = useCallback(async () => {
+    if (inFlight.current) return;
+    const errs = checkContact(name, phone, note);
+    setErrors(errs);
+    if (Object.keys(errs).length) { setFormError("כדאי לתקן את השדות המסומנים."); return; }
+    inFlight.current = true;
+    setSending(true);
+    setFormError(null);
+    setCodeErr(null);
+    const a = await sendCode(publicId, phone.trim());
+    inFlight.current = false;
+    setSending(false);
+    if (a.ok) { setCode(""); setResendAt(Date.now() + a.data.resendInSeconds * 1000); setNowTick(Date.now()); go("verify"); return; }
+    const kind = classify(a.status, a.code);
+    if (kind === "cooldown") { setResendAt(Date.now() + (retryAfterOf(a.details) ?? 60) * 1000); setNowTick(Date.now()); go("verify"); return; }
+    if (kind === "unavailable") { setProfile({ state: "error", kind: "unavailable", message: errorText("unavailable") }); return; }
+    if (kind === "field") { setErrors({ phone: "מספר הטלפון לא נראה תקין." }); setFormError(errorText("field", a.message)); go("details"); return; }
+    const message = a.status === 0 ? "אין חיבור כרגע. אפשר לנסות שוב." : errorText(kind, a.message);
+    if (step === "verify") setCodeErr(message); else setFormError(message);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, note, phone, publicId, step]);
+
+  /** G2: check the code, then send the request with the verification token. */
+  const confirmCode = useCallback(async () => {
+    if (inFlight.current) return;
+    if (code.length !== 6) { setCodeErr("צריך להקליד את 6 הספרות שקיבלת."); return; }
+    inFlight.current = true;
+    setSending(true);
+    setCodeErr(null);
+    const a = await verifyCode(publicId, phone.trim(), code);
+    inFlight.current = false;
+    setSending(false);
+    if (!a.ok) {
+      const kind = classify(a.status, a.code);
+      if (kind === "unavailable") { setProfile({ state: "error", kind: "unavailable", message: errorText("unavailable") }); return; }
+      setCode("");
+      setCodeErr(a.status === 0 ? "אין חיבור כרגע. אפשר לנסות שוב." : errorText(kind === "field" ? "code" : kind, a.message));
+      return;
+    }
+    setVToken({ phone: phone.trim(), token: a.data.verificationToken });
+    await submit(a.data.verificationToken);
+  }, [code, phone, publicId, submit]);
 
   // ── whole-page states ──
   if (profile.state === "loading") {
@@ -238,6 +314,8 @@ export function BookingFlow({ publicId }: { publicId: string }) {
         : step === "time" ? !!startsAt
           : true;
   const chosenStaff = staffId !== null ? service?.staff?.find((x) => x.id === staffId)?.name ?? null : null;
+  // G2: a code is needed unless this visit already verified this very phone.
+  const needsCode = steps.includes("verify") && !(vToken && vToken.phone === phone.trim());
   // The service's own horizon: no paging into weeks it is never offered in.
   const lastDay = lastBookableDay(today, service);
 
@@ -357,7 +435,7 @@ export function BookingFlow({ publicId }: { publicId: string }) {
         ) : null}
 
         {step === "details" && service && startsAt ? (
-          <form className={s.list} noValidate onSubmit={(e) => { e.preventDefault(); void submit(); }} id="bk-form">
+          <form className={s.list} noValidate onSubmit={(e) => { e.preventDefault(); void (needsCode ? requestCode() : submit()); }} id="bk-form">
             <p className={s.summary}>{service.name} · {whenLong(startsAt)}{chosenStaff ? ` · ${chosenStaff}` : ""}</p>
             <div className={s.field}>
               <label className={s.label} htmlFor="bk-name">שם מלא</label>
@@ -367,9 +445,9 @@ export function BookingFlow({ publicId }: { publicId: string }) {
             </div>
             <div className={s.field}>
               <label className={s.label} htmlFor="bk-phone">טלפון</label>
-              <input id="bk-phone" className={`${s.input} ${s.ltr} ${errors.phone ? s.inputBad : ""}`} value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="tel" dir="ltr" maxLength={CONTACT.phoneMax}
+              <input id="bk-phone" className={`${s.input} ${s.ltr} ${errors.phone ? s.inputBad : ""}`} value={phone} onChange={(e) => { setPhone(e.target.value); setVToken(null); }} type="tel" inputMode="tel" autoComplete="tel" dir="ltr" maxLength={CONTACT.phoneMax}
                 aria-invalid={!!errors.phone} aria-describedby={errors.phone ? "bk-phone-err" : "bk-phone-hint"} required />
-              {errors.phone ? <span className={s.fieldErr} id="bk-phone-err">{errors.phone}</span> : <span className={s.hint} id="bk-phone-hint">העסק ישתמש בו כדי לחזור אליך לגבי התור.</span>}
+              {errors.phone ? <span className={s.fieldErr} id="bk-phone-err">{errors.phone}</span> : <span className={s.hint} id="bk-phone-hint">{needsCode ? "נשלח אליו קוד אימות ב-WhatsApp. העסק ישתמש בו כדי לחזור אליך לגבי התור." : "העסק ישתמש בו כדי לחזור אליך לגבי התור."}</span>}
             </div>
             <div className={s.field}>
               <label className={s.label} htmlFor="bk-note">הערה לעסק (לא חובה)</label>
@@ -387,6 +465,24 @@ export function BookingFlow({ publicId }: { publicId: string }) {
             {formError ? <div className={s.banner} role="alert">{formError}</div> : null}
           </form>
         ) : null}
+
+        {step === "verify" && service && startsAt ? (
+          <form className={s.list} noValidate onSubmit={(e) => { e.preventDefault(); void confirmCode(); }} id="bk-code-form">
+            <p className={s.hint}>למספר <bdi dir="ltr">{phoneShown(phone)}</bdi> · <button type="button" className={s.linkBtn} onClick={() => { setCodeErr(null); go("details"); }}>שינוי</button></p>
+            <div className={s.field}>
+              <label className={s.label} htmlFor="bk-code">קוד אימות (6 ספרות)</label>
+              <input id="bk-code" className={`${s.input} ${s.code} ${codeErr ? s.inputBad : ""}`} value={code} onChange={(e) => { setCode(codeDigits(e.target.value)); setCodeErr(null); }}
+                inputMode="numeric" autoComplete="one-time-code" dir="ltr" maxLength={7} pattern="[0-9]*" aria-invalid={!!codeErr} aria-describedby={codeErr ? "bk-code-err" : "bk-code-hint"} />
+              {codeErr ? <span className={s.fieldErr} id="bk-code-err" role="alert">{codeErr}</span> : <span className={s.hint} id="bk-code-hint">הקוד תקף ל-5 דקות.</span>}
+            </div>
+            <p className={s.hint} style={{ textAlign: "center" }}>
+              {resendAt !== null && resendAt > nowTick
+                ? `לא הגיע? שליחה חוזרת בעוד ${countdown((resendAt - nowTick) / 1000)}`
+                : <>לא הגיע? <button type="button" className={s.linkBtn} disabled={sending} onClick={() => void requestCode()}>שליחה חוזרת</button></>}
+            </p>
+            <p className={s.note}>השעה שבחרת לא נתפסת עד לאימות. {service.approval === "AUTO" ? "אחרי האימות התור נקבע מיד ויישלח אליך אישור ב-WhatsApp." : "אחרי האימות הבקשה תישלח לעסק, והתשובה תגיע אליך ב-WhatsApp."}</p>
+          </form>
+        ) : null}
       </div>
 
       <div className={s.cta}>
@@ -397,8 +493,10 @@ export function BookingFlow({ publicId }: { publicId: string }) {
           {stepIndex > 0 ? <button type="button" className={`${s.btn} ${s.ghost}`} onClick={back} disabled={sending}>חזרה</button> : null}
           {/* Distinct keys: React must never turn the "continue" button into the submit button while it is being
               clicked — the browser would then complete that click as a form submission. */}
-          {step === "details" ? (
-            <button key="send" type="submit" form="bk-form" className={s.btn} disabled={sending} aria-busy={sending}>{sending ? "שולח…" : service?.approval === "AUTO" ? "קביעת התור" : "שליחת בקשה לתור"}</button>
+          {step === "verify" ? (
+            <button key="verify" type="submit" form="bk-code-form" className={s.btn} disabled={sending || code.length !== 6} aria-busy={sending}>{sending ? "בודק…" : service?.approval === "AUTO" ? "אימות וקביעת התור" : "אימות ושליחת הבקשה"}</button>
+          ) : step === "details" ? (
+            <button key="send" type="submit" form="bk-form" className={s.btn} disabled={sending} aria-busy={sending}>{sending ? "שולח…" : needsCode ? "שליחת קוד ב-WhatsApp" : service?.approval === "AUTO" ? "קביעת התור" : "שליחת בקשה לתור"}</button>
           ) : (
             <button key="next" type="button" className={s.btn} onClick={next} disabled={!canNext || (step === "staff" && p.staffChoice === "REQUIRED" && staff === ANY)}>המשך</button>
           )}
@@ -422,7 +520,7 @@ function Business({ p }: { p: ProfileWire }) {
   const sub = [b.category, [b.address, b.city].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
   return (
     <div className={s.top}>
-      <div className={s.logo} aria-hidden="true">{b.name.trim().slice(0, 1) || "·"}</div>
+      <div className={s.logo} aria-hidden="true">{b.logo ? <img src={b.logo} alt="" className={s.logoImg} /> : b.name.trim().slice(0, 1) || "·"}</div>
       <div className={s.biz}>
         <h1 className={s.bizName}>{b.name}</h1>
         {sub ? <span className={s.bizSub}>{sub}</span> : null}
@@ -469,7 +567,7 @@ function Answer({ result, business, headingRef }: { result: SubmitWire; business
         {state === "PENDING" && result.expiresAt ? <p className={s.hint}>השעה שמורה לך עד שהעסק יענה, ולא אחרי {whenShort(result.expiresAt)}. אם לא יענה עד אז, הבקשה תפוג.</p> : null}
         {!off ? (
           <div className={s.linkBox}>
-            <p className={s.hint}><b>כדאי לשמור את הקישור הזה.</b> דרכו אפשר לבדוק אם העסק אישר{result.selfCancelUntil || state === "PENDING" ? " ולבטל" : ""}. לא נשלחות הודעות — זה הקישור היחיד.</p>
+            <p className={s.hint}><b>כדאי לשמור את הקישור הזה.</b> דרכו אפשר לבדוק אם העסק אישר{result.selfCancelUntil || state === "PENDING" ? " ולבטל" : ""}. עדכונים על התור יישלחו אליך גם ב-WhatsApp.</p>
             <div className={s.linkRow}>
               <code className={s.linkCode} dir="ltr">{link}</code>
               <button type="button" className={`${s.btn} ${s.small}`} onClick={() => { navigator.clipboard?.writeText(link).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000); }).catch(() => undefined); }}>{copied ? "הועתק" : "העתקה"}</button>

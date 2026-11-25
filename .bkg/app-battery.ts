@@ -58,7 +58,36 @@ async function main() {
   const { signAuthToken } = await import("@/lib/auth-token");
   const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
   const { runBookingSweep } = await import("@/lib/services/booking/booking-sweep.service");
-  const { isQuietHours, sha256Hex } = await import("@/lib/services/booking/booking.core");
+  const { isQuietHours, parsePublicPhone, sha256Hex } = await import("@/lib/services/booking/booking.core");
+  // Appointments completion G2 (owner requirement 8): every public request needs a verified phone, and the door is open
+  // only while a WhatsApp path can deliver the code. This battery is about everything else, so the delivery path is
+  // declared available and each request gets a verification written as the owner (a verified challenge + its token —
+  // exactly what a customer who typed the right code holds). The verification flow itself: lib/services/booking/
+  // phone-verification.db.test.ts on the appointments-completion lab.
+  const { phoneHashOf, verificationTokenOf, otpKeysFromEnv } = await import("@/lib/services/booking/phone-verification.core");
+  const { toE164 } = await import("@/lib/notifications/customer/appointment-messages");
+  const { __setOtpTestHooks } = await import("@/lib/services/booking/phone-verification.service");
+  __setOtpTestHooks({ deliveryAvailable: () => true });
+  const bizOfPublic = new Map<string, number>();
+  const verifiedFor = async (pid: string, rawPhone: unknown): Promise<string | undefined> => {
+    const digits = parsePublicPhone(rawPhone);
+    const e164 = digits ? toE164(digits) : null;
+    if (!e164) return undefined;
+    let biz = bizOfPublic.get(pid);
+    if (biz === undefined) {
+      const row = await owner.bookingSettings.findFirst({ where: { publicId: pid }, select: { businessId: true } });
+      if (!row) return undefined;
+      biz = row.businessId;
+      bizOfPublic.set(pid, biz);
+    }
+    const keys = otpKeysFromEnv();
+    const t0 = new Date();
+    const c = await owner.bookingPhoneChallenge.create({
+      data: { businessId: biz, phoneHash: phoneHashOf(keys.current, e164), codeHash: "0".repeat(64), attempts: 1, sends: 1, createdAt: t0, expiresAt: new Date(t0.getTime() + 300_000), verifiedAt: t0 },
+      select: { id: true, verifiedAt: true },
+    });
+    return verificationTokenOf(keys.current, biz, c.id, c.verifiedAt as Date);
+  };
   const routes = {
     profile: await import("@/app/api/public/booking/[publicId]/route"),
     slots: await import("@/app/api/public/booking/[publicId]/slots/route"),
@@ -220,8 +249,10 @@ async function main() {
   console.log("C. submit");
   let phoneSeq = 1000000;
   const phone = () => `05${(phoneSeq++).toString().padStart(8, "0")}`;
-  const submit = (b: Record<string, unknown>, k: string = key(), init: Init = {}, id = publicId) =>
-    routes.submit.POST(req(`/api/public/booking/${id}/requests`, { method: "POST", key: k, body: b, ...init }), p({ publicId: id }));
+  const submit = async (b: Record<string, unknown>, k: string = key(), init: Init = {}, id = publicId) => {
+    const signed = "verificationToken" in b ? b : { ...b, verificationToken: await verifiedFor(id, b.phone) };
+    return routes.submit.POST(req(`/api/public/booking/${id}/requests`, { method: "POST", key: k, body: signed, ...init }), p({ publicId: id }));
+  };
   const k1 = key();
   const p1 = phone();
   const b1 = { serviceId: haircut, startsAt: at("10:00"), name: "נועה לוי", phone: p1, note: "פעם ראשונה" };
@@ -249,6 +280,14 @@ async function main() {
   ok("C9 …and the earlier link stopped working", (await view(s1.manageToken)).status === 404 && (await view(s1b.manageToken)).status === 200);
   r = await submit({ ...b1, startsAt: at("10:30") }, k1);
   ok("C10 the same key with another body → 409 IDEMPOTENCY_KEY_REUSED", r.status === 409 && (await body(r))?.error === "IDEMPOTENCY_KEY_REUSED");
+  {
+    const before = await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA}`);
+    const res = await submit({ serviceId: haircut, startsAt: at("13:00"), name: "בלי אימות", phone: phone(), verificationToken: undefined });
+    const res2 = await submit({ serviceId: haircut, startsAt: at("13:00"), name: "אימות מזויף", phone: phone(), verificationToken: "A".repeat(43) });
+    ok("C9b G2: no verification, or a forged token → 403 PHONE_NOT_VERIFIED, nothing written (owner requirement 8)",
+      res.status === 403 && (await body(res))?.error === "PHONE_NOT_VERIFIED" && res2.status === 403
+      && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA}`)) === before);
+  }
   const refused = async (label: string, b: Record<string, unknown>, status: number, code: string) => {
     const before = await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA}`);
     const res = await submit({ name: "ניסיון עקיפה", phone: phone(), ...b });
@@ -723,7 +762,7 @@ async function main() {
   // ceiling that the sections above used up) the same phone books freely.
   const { submitPublicRequest } = await import("@/lib/services/booking/public-booking.service");
   const atCapInC = await autoAt("16:00", 4, px);
-  const inA = await submitPublicRequest(newId, { serviceId: color, startsAt: at("09:00", W(0)), name: "בעסק אחר", phone: px }, key()).then((x) => x.status, (e) => (e as { code?: string }).code);
+  const inA = await submitPublicRequest(newId, { serviceId: color, startsAt: at("09:00", W(0)), name: "בעסק אחר", phone: px, verificationToken: await verifiedFor(newId, px) }, key()).then((x) => x.status, (e) => (e as { code?: string }).code);
   ok("P19 isolation: the phone at its cap in C (429 there) books in business A (CONFIRMED)", atCapInC.status === 429 && inA === "CONFIRMED", `${atCapInC.status} ${inA}`);
 
   console.log(`\n${pass} passed, ${failures.length} failed`);

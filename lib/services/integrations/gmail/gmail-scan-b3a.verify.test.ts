@@ -766,6 +766,8 @@ async function main() {
       ACCOUNTANT_LINK_PUBLIC: "closed", ACCOUNTANT_LINK_FILE: "closed", ACCOUNTANT_LINK_CODE: "closed",
       ACCOUNTANT_LINK_VERIFY: "closed", ACCOUNTANT_SEND: "closed", PUBLIC_BOOKING_SUBMIT: "closed",
       PUBLIC_BOOKING_SUBMIT_BUSINESS: "closed", PUBLIC_BOOKING_READ: "closed", PUBLIC_BOOKING_MANAGE: "closed",
+      // Phone verification on the booking link (appointments completion G2): sending a code costs money.
+      PUBLIC_BOOKING_OTP_SEND: "closed", PUBLIC_BOOKING_OTP_VERIFY: "closed",
       GMAIL_SCAN: "closed", DOCUMENTS_API: "open", WHATSAPP_INTAKE: "open", CRM_ATTACHMENT_UPLOAD: "closed",
       DATA_TRANSFER_IMPORT_EXECUTE: "closed", DATA_TRANSFER_DOCUMENTS_IMPORT: "closed", LANDING_COMPOSE: "closed",
       // The owner's FCM credential check (notifications #1146): one Google token exchange per admitted call.

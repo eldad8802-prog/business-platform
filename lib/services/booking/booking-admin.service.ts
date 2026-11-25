@@ -29,6 +29,7 @@ import type { OwnerRequest } from "@/lib/services/appointment/appointment-reques
 
 import { newPublicId, PLATFORM_LIMITS, DEFAULT_PENDING_TTL_MINUTES } from "./booking.core";
 import { publicBookingOpen } from "./public-booking.service";
+import { bookingLinkReadiness } from "./booking-readiness";
 import { resolveRequestNotification } from "./booking-notify";
 
 type Tx = Prisma.TransactionClient;
@@ -44,12 +45,18 @@ const DEFAULTS = {
   staffChoiceMode: "OPTIONAL" as const, assignmentMode: "BALANCED" as const, selfCancelEnabled: true, selfCancelWindowHours: 24,
   maxOpenRequestsPerPhone: PLATFORM_LIMITS.maxOpenRequestsPerPhone, showAddress: false, showBusinessDetails: false, showPrices: false,
   showStaffNames: true, version: 0,
+  // G15 / D4 (migration 20261226090000) — the same values as the column defaults.
+  selfRescheduleEnabled: false, selfRescheduleWindowHours: 24, reminderOffsetsMinutes: [1440] as number[], bookingHorizonDays: 60, showLogo: false,
 };
+
+/** Reminder offsets the screen offers (D4: up to three). Any 30..10080 value is accepted by the server. */
+export const REMINDER_OFFSET_CHOICES = [1440, 180, 60] as const;
 
 export async function getBookingSettings(principal: AppointmentPrincipal) {
   authorizeAppointmentAction(principal, "policy.read");
   const businessId = principal.businessId;
   const platformOpen = await publicBookingOpen(businessId);
+  const readiness = await bookingLinkReadiness(businessId);
   return tenantTx(businessId, async (tx) => {
     const row = await tx.bookingSettings.findUnique({ where: { businessId } });
     const s = row ?? DEFAULTS;
@@ -74,9 +81,13 @@ export async function getBookingSettings(principal: AppointmentPrincipal) {
         selfCancelEnabled: s.selfCancelEnabled, selfCancelWindowHours: s.selfCancelWindowHours,
         maxOpenRequestsPerPhone: s.maxOpenRequestsPerPhone, pendingTtlMinutes: s.pendingTtlMinutes,
         showAddress: s.showAddress, showBusinessDetails: s.showBusinessDetails, showPrices: s.showPrices, showStaffNames: s.showStaffNames,
+        selfRescheduleEnabled: s.selfRescheduleEnabled, selfRescheduleWindowHours: s.selfRescheduleWindowHours,
+        reminderOffsetsMinutes: [...s.reminderOffsetsMinutes], bookingHorizonDays: s.bookingHorizonDays, showLogo: s.showLogo,
         version: row ? row.version : null,
       },
       platform: { open: platformOpen, limits: PLATFORM_LIMITS },
+      // G3: what turning the link on still needs (verification by WhatsApp is always required — owner requirement 8).
+      readiness,
       services: services.map((x) => {
         const p = policies.find((y) => y.businessServiceId === x.id);
         return {
@@ -96,6 +107,22 @@ export async function updateBookingSettings(principal: AppointmentPrincipal, inp
   const data: Record<string, unknown> = {};
   const bool = (k: string) => { if (input[k] === undefined) return; if (!isBool(input[k])) throw invalid(k); data[k] = input[k]; };
   bool("enabled"); bool("selfCancelEnabled"); bool("showAddress"); bool("showBusinessDetails"); bool("showPrices"); bool("showStaffNames");
+  bool("selfRescheduleEnabled"); bool("showLogo");
+  if (input.selfRescheduleWindowHours !== undefined) {
+    if (!isIntIn(input.selfRescheduleWindowHours, 0, 720)) throw invalid("selfRescheduleWindowHours");
+    data.selfRescheduleWindowHours = input.selfRescheduleWindowHours;
+  }
+  if (input.bookingHorizonDays !== undefined) {
+    if (!isIntIn(input.bookingHorizonDays, 1, 365)) throw invalid("bookingHorizonDays");
+    data.bookingHorizonDays = input.bookingHorizonDays;
+  }
+  if (input.reminderOffsetsMinutes !== undefined) {
+    const list = input.reminderOffsetsMinutes;
+    if (!Array.isArray(list) || list.length > 3 || !list.every((m) => isIntIn(m, 30, 10080)) || new Set(list).size !== list.length) throw invalid("reminderOffsetsMinutes");
+    data.reminderOffsetsMinutes = [...(list as number[])].sort((a, b) => b - a);
+  }
+  // requireVerification is deliberately NOT accepted: phone verification is mandatory for every business (owner
+  // requirement 8) and the stored value is left exactly as it is.
   if (input.defaultApprovalMode !== undefined) {
     if (input.defaultApprovalMode !== "MANUAL" && input.defaultApprovalMode !== "AUTO") throw invalid("defaultApprovalMode");
     data.defaultApprovalMode = input.defaultApprovalMode;
@@ -123,6 +150,12 @@ export async function updateBookingSettings(principal: AppointmentPrincipal, inp
   const businessId = principal.businessId;
   // Turning the link on only once the platform has opened public booking for the business; turning it off, always.
   if (data.enabled === true && !(await publicBookingOpen(businessId))) throw new AppointmentServiceError("BOOKING_CLOSED");
+  // G3 + owner requirement 8: and only once the business is READY — hours, an open service, and a WhatsApp path that can
+  // deliver the mandatory phone verification (whatever requireVerification holds; it is not consulted).
+  if (data.enabled === true) {
+    const readiness = await bookingLinkReadiness(businessId);
+    if (!readiness.ready) throw new AppointmentServiceError("BOOKING_NOT_READY", { missing: readiness.missing });
+  }
   await tenantTx(businessId, async (tx) => {
     const current = await tx.bookingSettings.findUnique({ where: { businessId } });
     if (current && expectedVersion !== undefined && expectedVersion !== null && current.version !== expectedVersion) {

@@ -126,6 +126,24 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "ip", limit: 120, windowSeconds: 60 * 60 },
     ],
   },
+  // Phone verification on the link (G2, appointments completion). Asking for a WhatsApp code costs money, so the IP
+  // ceiling sits in front of the platform-wide / per-business send caps counted in the database (OTP_SEND_CAPS in
+  // lib/services/booking/phone-verification.core.ts). Checking a code: the challenge itself allows 5 attempts; this
+  // stops one address from cycling through many phones. PROPOSED values, pending owner approval.
+  PUBLIC_BOOKING_OTP_SEND: {
+    failMode: "closed",
+    rules: [
+      { scope: "ip", limit: 3, windowSeconds: 60 },
+      { scope: "ip", limit: 10, windowSeconds: 60 * 60 },
+    ],
+  },
+  PUBLIC_BOOKING_OTP_VERIFY: {
+    failMode: "closed",
+    rules: [
+      { scope: "ip", limit: 20, windowSeconds: 15 * 60 },
+      { scope: "ip", limit: 60, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
   // Extended Gmail scan (B3-a), counted in PAGES — one admitted request = one page. These are ceilings ON TOP
   // of the Gmail quota-unit budget (lib/services/integrations/gmail/gmail-quota-budget.ts), which is what
   // actually keeps the scan inside Gmail's quotas; never a substitute for it. Per user AND per business: a

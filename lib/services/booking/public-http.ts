@@ -31,7 +31,25 @@ const MESSAGES: Record<string, string> = {
   IDEMPOTENCY_KEY_INVALID: "הבקשה לא תקינה. כדאי לרענן את הדף ולנסות שוב.",
   IDEMPOTENCY_KEY_STALE: "הבקשה לא תקינה. כדאי לרענן את הדף ולנסות שוב.",
   IDEMPOTENCY_KEY_REUSED: "הבקשה לא תקינה. כדאי לרענן את הדף ולנסות שוב.",
+  // G2 — phone verification. None of these says whether the phone has bookings.
+  PHONE_NOT_VERIFIED: "צריך לאמת את מספר הטלפון בקוד שנשלח ב-WhatsApp לפני קביעת התור.",
+  OTP_INVALID: "הקוד שגוי או שפג תוקפו. אפשר לבקש קוד חדש.",
+  OTP_COOLDOWN: "קוד נשלח זה עתה. אפשר לבקש קוד חדש בעוד רגע — הקוד הקודם עדיין בתוקף.",
+  OTP_LIMIT: "נשלחו יותר מדי קודים. אפשר לנסות שוב מאוחר יותר, או לפנות לעסק ישירות.",
+  OTP_UNAVAILABLE: "לא הצלחנו לשלוח קוד כרגע. אפשר לנסות שוב בעוד דקה.",
+  // G15 — self-reschedule.
+  SELF_RESCHEDULE_CLOSED: "כבר אי אפשר לשנות את המועד דרך הקישור. אפשר לפנות לעסק ישירות.",
+  VERSION_CONFLICT: "התור השתנה בינתיים. כדאי לרענן את הדף ולנסות שוב.",
 };
+
+/** The only details a public answer carries: the invalid field, or how long to wait before asking again. */
+function publicDetails(e: AppointmentServiceError): Record<string, unknown> | undefined {
+  if (e.code === "INVALID_INPUT" && typeof e.details.field === "string") return { field: e.details.field };
+  if ((e.code === "OTP_COOLDOWN" || e.code === "OTP_UNAVAILABLE") && typeof e.details.retryAfterSeconds === "number") {
+    return { retryAfterSeconds: e.details.retryAfterSeconds };
+  }
+  return undefined;
+}
 
 export function publicJson(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, { status, headers: PUBLIC_HEADERS });
@@ -39,8 +57,8 @@ export function publicJson(body: unknown, status = 200): NextResponse {
 
 export function publicError(e: unknown): NextResponse {
   if (e instanceof AppointmentServiceError) {
-    // Public answers name the field of an invalid input (so a form can point at it) and nothing else.
-    const details = e.code === "INVALID_INPUT" && typeof e.details.field === "string" ? { field: e.details.field } : undefined;
+    // Public answers name the field of an invalid input (so a form can point at it), or a wait — nothing else.
+    const details = publicDetails(e);
     const code = e.status === 404 ? "NOT_FOUND" : e.code;
     return publicJson({ error: code, message: MESSAGES[code] ?? "לא הצלחנו להשלים את הפעולה.", ...(details ? { details } : {}) }, e.status === 404 ? 404 : e.status);
   }
