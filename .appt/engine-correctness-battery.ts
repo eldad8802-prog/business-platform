@@ -234,7 +234,7 @@ async function main() {
   await owner.businessFeatureAccess.create({ data: { businessId: bizB, featureKey: "inbox", state: "ENABLED", reason: "lab" } });
   await owner.businessFeatureAccess.create({ data: { businessId: bizB, featureKey: "appointments", state: "DISABLED", reason: "lab" } });
   r = await routes.conversation.POST(req("/api/conversations/999999/appointment", { method: "POST", token: tokenB, body: {} }), p({ id: "999999" }));
-  ok("L9 the conversation route refuses a business without appointments (403 FEATURE_NOT_AVAILABLE, feature appointments)", r.status === 403 && (await body(r))?.feature === "appointments", `${r.status} ${JSON.stringify(await body(r))}`);
+  ok("L9 the conversation route refuses a business without appointments (404, as every appointments route)", r.status === 404 && (await body(r))?.error === "Not found", `${r.status} ${JSON.stringify(await body(r))}`);
   // A business with both features on (its own: feature answers are cached per business for a short while).
   const bizC = (await owner.business.create({ data: { name: `${tag}-C` } })).id;
   const tokenC = signAuthToken((await owner.user.create({ data: { email: `${tag}-c@lab.test`, password: "x", businessId: bizC } })).id, 0);
