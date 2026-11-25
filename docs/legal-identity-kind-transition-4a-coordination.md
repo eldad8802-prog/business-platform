@@ -183,6 +183,26 @@ profile.
   A Tax Authority inquiry is drafted (`ITA-INQUIRY-DRAFT.md`) only for the point the spec does not address in words:
   the "מספר עוסק מורשה" fields for an exempt dealer.
 
+### T2 status (2026-11-26)
+
+**CLOSED.** All three v2 packages passed the official ITA simulator (uniform structure 1.31) on 25/11/2026. The result
+was "תקינה", with no remarks in the table.
+
+| Package | Input number | Records | C100 | D110 | D120 | B110 |
+|---|---|---|---|---|---|---|
+| PRE | 251120260244 | 2,202 | 720 | 0 | 1,440 | 40 |
+| POST | 251120260304 | 2,296 | 638 | 1,496 | 120 | 40 |
+| STRADDLE | 251120262334 | 4,456 | 1,358 | 1,496 | 1,560 | 40 |
+
+4a verified this against the reports themselves:
+- Every record type matches `SUMMARY.json` exactly.
+- STRADDLE equals PRE + POST, with the 40 B110 shared and one A100/Z900 pair: 2,202 + 2,296 − 40 − 2 = 4,456.
+- The six uploaded files have the same SHA-256 as `input-SHA256SUMS`.
+- No contradiction with spec 1.31 was found (README).
+
+The PDFs stay with the owner (they include a personal name); their SHA-256 values are in the README. The simulator
+checks structure only, not the substance of the VAT. The ITA inquiry draft was not needed and was not sent.
+
 ### T3 — 0%-VAT drafts must be reviewed before issuing (Gate; owner 11-21)
 
 - After the transition, a draft created while exempt with 0% lines cannot be issued until the owner opened it and
@@ -284,7 +304,7 @@ approval and happens only after every condition below holds.
 | # | Condition | State |
 |---|---|---|
 | C1 | T1 + T1a: the writer, Google re-auth, and the 20261225090000 wiring applied in Production | ✅ applied (release-migrate 45292801317 and 45320505488; proof 45323806725 9/9) |
-| C2 | T2: the three v2 packages pass the official ITA simulator; no contradiction with spec 1.31 | ⏳ the owner runs the simulator (`docs/compliance/tax-authority/t2-kind-transition/t2-simulator-packages-v2.zip`) |
+| C2 | T2: the three v2 packages pass the official ITA simulator; no contradiction with spec 1.31 | ✅ passed 25/11/2026 (input numbers 251120260244 / 251120260304 / 251120262334); T2 closed 2026-11-26 |
 | C3 | T3: #1273 merged and live | ✅ `a111cf83`, live 2026-11-25 (quote check 45490270774: gap 0) |
 | C4 | T4 | ✅ #1269 + #1279 live |
 | C5 | T5, T6 | ✅ closed (4a) |
