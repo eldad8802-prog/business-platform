@@ -185,6 +185,12 @@ export const ANONYMIZE_MODELS = [
     fields: { contactName: "blank", contactPhone: "null", contactEmail: "null", customerNote: "null", erasedAt: "now" },
   },
   { model: "appointmentManageToken", fields: { revokedAt: "now" } },
+  // Appointments completion (migration 20261226090000): a recurring rule's free text and customer pointer; the
+  // phone-verification challenge's keyed hashes (phone, code, IP); a customer WhatsApp delivery's phone. Erased in
+  // place — the runtime holds no DELETE on any of them. Retention sweeps (7 / 30 days) remove them earlier.
+  { model: "appointmentSeries", fields: { title: "null", customerId: "null", erasedAt: "now" } },
+  { model: "bookingPhoneChallenge", fields: { phoneHash: "null", codeHash: "null", ipHash: "null", erasedAt: "now" } },
+  { model: "notificationDelivery", fields: { recipientPhone: "null" } },
   // Document ↔ supplier links (migration 20261103090000) hold no text: ids, closed tokens, versions and times.
   // Who linked / removed / acted is nulled by document_supplier_link_erase_business() (the adapter calls it),
   // so neither model needs a field entry here.

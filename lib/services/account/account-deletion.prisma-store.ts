@@ -470,6 +470,22 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             where: { businessId, revokedAt: null },
             data: { revokedAt: new Date() },
           });
+          // Appointments completion (migration 20261226090000). A recurring rule loses its free text and its
+          // customer pointer (the rule itself is the business's history); every phone-verification challenge loses
+          // its three keyed hashes (the guard trigger allows exactly this transition); every customer WhatsApp
+          // delivery loses the customer's phone (the row, its status and provider id stay — metering and audit).
+          await tx.appointmentSeries.updateMany({
+            where: { businessId },
+            data: { title: null, customerId: null, erasedAt: new Date() },
+          });
+          await tx.bookingPhoneChallenge.updateMany({
+            where: { businessId, erasedAt: null },
+            data: { phoneHash: null, codeHash: null, ipHash: null, erasedAt: new Date() },
+          });
+          await tx.notificationDelivery.updateMany({
+            where: { businessId, recipientPhone: { not: null } },
+            data: { recipientPhone: null },
+          });
           // The journal is append-only for the runtime too: this SECURITY DEFINER
           // function is its one path (acting users and request digests), and it
           // refuses unless the business in this tenant context is being deleted.

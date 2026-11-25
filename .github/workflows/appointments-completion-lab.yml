@@ -16,6 +16,8 @@
 #      existing rows and the new-row defaults, isolation per new table, cross-business references, every CHECK, the
 #      new labels usable, the journal still append-only, the two doors, the erasure shapes.
 #   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   5. R10: main's Prisma Client (the previous application) works on the migrated schema (.apc/old-code.sh).
+#   6. R9: realistic row counts — lock_timeout behind a held lock (atomic, recoverable), release time, no rewrite.
 #
 # There is no rollback step: the release's rollback is a CODE rollback with the additive schema left in place (enum
 # labels cannot be dropped in place). See the PR body.
@@ -66,6 +68,8 @@ jobs:
       PREFLIGHT: ops/evidence/appointments-completion-preflight.sql
       PROOF: ops/evidence/appointments-completion-production-evidence.sql
       MIGRATION: prisma/migrations/20261226090000_appointments_completion/migration.sql
+      # The pending chain is built once (step 1) and every other lab database is cloned from it.
+      APC_TEMPLATE: apc_tpl
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -91,11 +95,11 @@ jobs:
       - name: 1. Baseline — pending; the preflight passes whole, the proof refuses
         run: |
           set -euo pipefail
-          bash .apc/lab.sh apc_base
+          bash .apc/lab.sh apc_tpl
           q() { PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
-          q apc_base "$PREFLIGHT" | tee /tmp/pre.out
+          q apc_tpl "$PREFLIGHT" | tee /tmp/pre.out
           ! grep -q '|FAIL|' /tmp/pre.out || { echo "preflight not whole on the baseline"; exit 1; }
-          if PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d apc_base -v ON_ERROR_STOP=1 -f "$PROOF" > /tmp/proof0.out 2>&1; then
+          if PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d apc_tpl -v ON_ERROR_STOP=1 -f "$PROOF" > /tmp/proof0.out 2>&1; then
             grep -q '^1|FAIL|' /tmp/proof0.out || { cat /tmp/proof0.out; echo "the proof should refuse before the migration"; exit 1; }
           else
             grep -q 'relation "AppointmentSeries" does not exist' /tmp/proof0.out || { cat /tmp/proof0.out; echo "the proof failed for another reason"; exit 1; }
@@ -143,7 +147,19 @@ jobs:
                  OR (table_name = 'NotificationDelivery' AND column_name IN ('recipientKind','recipientPhone','templateKey','messageClass','providerMessageId','providerStatus','providerUpdatedAt','appointmentId')))
             + (SELECT count(*) FROM pg_type WHERE typname = 'AppointmentSeriesFrequency')
             + (SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE (t.typname = 'NotificationChannel' AND e.enumlabel = 'WHATSAPP') OR (t.typname = 'AppointmentEventType' AND e.enumlabel = 'ARRIVED'))
-            + (SELECT count(*) FROM pg_proc WHERE proname IN ('notification_whatsapp_due','notification_delivery_by_provider_message'))
+            + (SELECT count(*) FROM pg_proc WHERE proname IN ('notification_whatsapp_due','notification_delivery_by_provider_message','booking_otp_send_counts','booking_phone_challenge_purge','notification_customer_phone_purge','booking_phone_challenge_guard','notification_customer_delivery_guard'))
             + (SELECT count(*) FROM information_schema.columns WHERE table_name = 'BookingSettings' AND column_name = 'defaultApprovalMode' AND column_default LIKE '''AUTO''%')")
           echo "objects left=$left"
           test "$left" = "0" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Old code on the new schema (R10) — main's Prisma Client against the migrated lab
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          BASE_REF=FETCH_HEAD bash .apc/old-code.sh apc_mig
+
+      - name: 6. Locks and time (R9) — realistic row counts, lock_timeout behind a held lock, no table rewrite
+        run: |
+          set -euo pipefail
+          bash .apc/timing.sh apc_perf | tee /tmp/timing.out
+          grep -q "^TIMING OK$" /tmp/timing.out

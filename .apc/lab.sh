@@ -9,9 +9,11 @@
 # notification engine foundation onto the same database (NTE_ONTO=1 .nte/lab.sh --with-nte: FORCE RLS + tenant
 # policies on "Notification" / "NotificationDelivery" from their canonical migration, the worker's columns), so this
 # migration meets exactly the objects it extends.
-# `db push` (inside the base lab) builds this branch's schema.prisma, which models this migration: everything it made
-# for it is removed here (the two tables, the new columns, the new enum, and the WHATSAPP label — "NotificationChannel"
-# is rebuilt without it) so the migration builds them the way Production will have them. "Customer" gets Production's
+# The chain runs from a throwaway CHAIN ROOT: copies of the lab scripts it calls and of prisma/migrations, the
+# node_modules of this checkout linked in, and the BASE schema.prisma (BASE_REF, default origin/main — main before this
+# package). So `db push` inside the chain builds Production's schema as it is TODAY, none of this migration's objects
+# exist before it runs, and the other labs' drop steps (which do not know this package's tables) never meet them. The
+# drop block below stays as a guard for a base that already carries some of them. "Customer" gets Production's
 # ("businessId", "id") key (20260926110000, which `db push` cannot make) when it is missing.
 # The ledger is completed with EVERY migration of this checkout that sorts before this one (real sha256), as
 # Production's is. Pending: only this migration.
@@ -20,7 +22,14 @@
 #   --broken-apc:   the same with it failing on its last statement (atomicity);
 #   --deploy-only:  skip the build (a pending lab built by a plain run, with rows added in between) and deploy.
 #
-# env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional), APC_SEED (optional). Synthetic only. ZERO secrets. ZERO network.
+#
+# APC_TEMPLATE (optional): the name of a PENDING lab already built by a plain run. The new database is cloned from it
+# (CREATE DATABASE … TEMPLATE — a file copy of exactly the same pending state, roles are cluster-wide) instead of
+# rebuilding the whole chain; APC_SEED still applies. The chain takes most of an hour on a slow disk.
+#
+# env: PGHOST, PGPORT, SUPER, LAB_PASSWORD (optional), APC_SEED (optional), APC_TEMPLATE (optional), BASE_REF (optional,
+# default origin/main; CI sets FETCH_HEAD after fetching main). Synthetic only.
+# ZERO secrets. ZERO network.
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,8 +37,33 @@ APC="20261226090000_appointments_completion"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 
-if [ "$MODE" != "--deploy-only" ]; then
-bash "$ROOT/.bkg/lab.sh" "$DB" --with-bkg >/dev/null
+if [ "$MODE" != "--deploy-only" ] && [ -n "${APC_TEMPLATE:-}" ] && [ "${APC_TEMPLATE}" != "$DB" ]; then
+  PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres \
+    -c "DROP DATABASE IF EXISTS \"$DB\"" -c "CREATE DATABASE \"$DB\" TEMPLATE \"$APC_TEMPLATE\" OWNER lab_owner"
+  if [ -n "${APC_SEED:-}" ]; then psql_owner -f "$APC_SEED"; fi
+  CLONED=1
+fi
+
+if [ "$MODE" != "--deploy-only" ] && [ -z "${CLONED:-}" ]; then
+BASE_REF="${BASE_REF:-origin/main}"
+CHAIN="$(mktemp -d)"
+# The node_modules link is removed as a LINK first (rmdir on a junction / rm on a symlink), never followed.
+cleanup_chain() { if [ -e "$CHAIN/node_modules" ] || [ -L "$CHAIN/node_modules" ]; then if command -v cmd.exe >/dev/null 2>&1; then MSYS_NO_PATHCONV=1 cmd.exe /c rmdir "$(cygpath -w "$CHAIN/node_modules")" >/dev/null; else rm -f "$CHAIN/node_modules"; fi; fi; [ -e "$CHAIN/node_modules" ] || rm -rf "$CHAIN"; }
+trap cleanup_chain EXIT
+mkdir -p "$CHAIN/prisma" "$CHAIN/scripts/ci"
+for lab in .c594 .m6 .p3a .p3e .te .aet .dt .trp .acct .appt .bkg .nte; do cp -r "$ROOT/$lab" "$CHAIN/$lab"; done
+cp -r "$ROOT/prisma/migrations" "$CHAIN/prisma/migrations"
+cp "$ROOT/scripts/ci/notification-rls-bootstrap.mjs" "$CHAIN/scripts/ci/"
+git -C "$ROOT" show "$BASE_REF:prisma/schema.prisma" > "$CHAIN/prisma/schema.prisma"
+if grep -q "model AppointmentSeries" "$CHAIN/prisma/schema.prisma"; then
+  echo "BASE_REF $BASE_REF already models this package; the lab needs main BEFORE it" >&2; exit 1
+fi
+if command -v cmd.exe >/dev/null 2>&1; then
+  MSYS_NO_PATHCONV=1 cmd.exe /c mklink /J "$(cygpath -w "$CHAIN/node_modules")" "$(cygpath -w "$ROOT/node_modules")" >/dev/null
+else
+  ln -s "$ROOT/node_modules" "$CHAIN/node_modules"
+fi
+bash "$CHAIN/.bkg/lab.sh" "$DB" --with-bkg >/dev/null || { echo "the base chain (.bkg → … → .c594) failed" >&2; exit 1; }
 
 psql_owner <<'SQL'
 DROP TABLE IF EXISTS "AppointmentSeries", "BookingPhoneChallenge" CASCADE;
@@ -62,7 +96,7 @@ END
 $do$;
 SQL
 
-NTE_ONTO=1 bash "$ROOT/.nte/lab.sh" "$DB" --with-nte >/dev/null
+NTE_ONTO=1 bash "$CHAIN/.nte/lab.sh" "$DB" --with-nte >/dev/null || { echo "the notification engine step (.nte) failed" >&2; exit 1; }
 
 # Production's ledger: every migration of this checkout that sorts before this one is recorded and finished.
 LEDGER="$(mktemp)"
@@ -76,6 +110,18 @@ for d in "$ROOT"/prisma/migrations/*/; do
 done
 psql_owner -f "$LEDGER"; rm -f "$LEDGER"
 if [ -n "${APC_SEED:-}" ]; then psql_owner -f "$APC_SEED"; fi
+# Lab-only snapshot of the existing tables this migration touches, taken BEFORE it: grants (relacl), policy count and
+# storage (relfilenode). The battery proves no grant or policy changed (R2) and the timing run proves no table was
+# rewritten (R9). Not part of the migration; never in Production.
+psql_owner <<'SQL'
+DROP TABLE IF EXISTS "_apc_lab_snapshot";
+CREATE TABLE "_apc_lab_snapshot" AS
+SELECT c.relname::text AS relname, coalesce(c.relacl::text, '') AS acl, c.relfilenode::bigint AS filenode,
+       (SELECT count(*)::int FROM pg_policies p WHERE p.tablename = c.relname) AS policies
+  FROM pg_class c
+ WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
+   AND c.relname IN ('Appointment', 'AppointmentEvent', 'BookingSettings', 'BookingRequest', 'Notification', 'NotificationDelivery');
+SQL
 fi
 
 case "$MODE" in
@@ -94,7 +140,10 @@ set +e
 ( cd "$ROOT" && DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" node_modules/.bin/prisma migrate deploy --schema "$TMP/prisma/schema.prisma" ) > "$TMP/deploy.log" 2>&1
 rc=$?
 set -e
-grep -E "migrations found|Applying migration|have been successfully applied|No pending|Error|error" "$TMP/deploy.log" | head -8
+# `|| true`: under pipefail a run whose log matches nothing must not end this script silently; on a failure the
+# whole log is shown.
+grep -E "migrations found|Applying migration|have been successfully applied|No pending|Error|error" "$TMP/deploy.log" | head -8 || true
+if [ $rc -ne 0 ] && [ "$MODE" != "--broken-apc" ]; then echo "--- migrate deploy log (rc=$rc) ---" >&2; cat "$TMP/deploy.log" >&2; fi
 rm -rf "$TMP"
 if [ "$MODE" = "--broken-apc" ]; then
   [ $rc -ne 0 ] || { echo "broken migration did NOT fail"; exit 1; }

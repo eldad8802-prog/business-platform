@@ -224,7 +224,8 @@ CREATE TABLE "BookingPhoneChallenge" (
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "BookingPhoneChallenge_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "BookingPhoneChallenge_hashes" CHECK (
-        ("erasedAt" IS NULL AND "phoneHash" ~ '^[0-9a-f]{64}$' AND "codeHash" ~ '^[0-9a-f]{64}$'
+        ("erasedAt" IS NULL AND "phoneHash" IS NOT NULL AND "codeHash" IS NOT NULL
+         AND "phoneHash" ~ '^[0-9a-f]{64}$' AND "codeHash" ~ '^[0-9a-f]{64}$'
          AND ("ipHash" IS NULL OR "ipHash" ~ '^[0-9a-f]{64}$'))
      OR ("erasedAt" IS NOT NULL AND "phoneHash" IS NULL AND "codeHash" IS NULL AND "ipHash" IS NULL)),
   CONSTRAINT "BookingPhoneChallenge_counters" CHECK ("attempts" BETWEEN 0 AND 5 AND "sends" BETWEEN 1 AND 3),

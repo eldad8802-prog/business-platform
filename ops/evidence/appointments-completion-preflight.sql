@@ -25,7 +25,7 @@
 \echo ' 7 AppointmentEventType holds exactly its 7 original labels (observed = labels)'
 \echo ' 8 NotificationChannel holds exactly IN_APP, PUSH (observed = labels)'
 \echo ' 9 AppointmentSeriesFrequency does not exist yet (want 0)'
-\echo '10 the two WhatsApp functions are still absent (want 0)'
+\echo '10 the five new functions and the two guard functions are still absent (want 0)'
 \echo '11 app_runtime exists: NOLOGIN NOSUPERUSER NOBYPASSRLS (want 1)'
 \echo '12 premise keys: Customer (businessId, id) + Appointment (id, businessId) + appointment_user_same_business() (observed = of 3)'
 \echo '13 NotificationDelivery: RLS enabled and forced (want 1)'
@@ -35,6 +35,8 @@
 \echo '17 NotificationDelivery rows (info: each becomes a USER delivery, nothing else changes)'
 \echo '18 Appointment rows (info: none joins a series)'
 \echo '19 public_booking: OFF globally (want 0 policies globally ON)'
+\echo '20 BookingSettings rows with requireVerification = false (info: compare with proof line 26 — the release keeps them)'
+\echo '21 BookingSettings rows with defaultApprovalMode = MANUAL (info: compare with proof line 27)'
 
 SET statement_timeout = '30s';
 SET default_transaction_read_only = on;
@@ -61,7 +63,9 @@ WITH c(n, observed, want, info) AS (
   UNION ALL SELECT 8, (SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'NotificationChannel'), 2, false
   UNION ALL SELECT 9, (SELECT count(*) FROM pg_type WHERE typname = 'AppointmentSeriesFrequency'), 0, false
   UNION ALL SELECT 10, (SELECT count(*) FROM pg_proc p JOIN pg_namespace s ON s.oid = p.pronamespace
-      WHERE s.nspname = 'public' AND p.proname IN ('notification_whatsapp_due', 'notification_delivery_by_provider_message')), 0, false
+      WHERE s.nspname = 'public' AND p.proname IN ('notification_whatsapp_due', 'notification_delivery_by_provider_message', 'booking_otp_send_counts',
+                         'booking_phone_challenge_purge', 'notification_customer_phone_purge', 'booking_phone_challenge_guard',
+                         'notification_customer_delivery_guard')), 0, false
   UNION ALL SELECT 11, (SELECT count(*) FROM pg_roles WHERE rolname = 'app_runtime' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls), 1, false
   UNION ALL SELECT 12, (SELECT count(*) FROM pg_constraint WHERE conname = 'Customer_businessId_id_key')
       + (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname = 'Appointment_id_businessId_key' AND relkind = 'i')
@@ -74,6 +78,8 @@ WITH c(n, observed, want, info) AS (
   UNION ALL SELECT 17, (SELECT count(*) FROM "NotificationDelivery"), NULL, true
   UNION ALL SELECT 18, (SELECT count(*) FROM "Appointment"), NULL, true
   UNION ALL SELECT 19, (SELECT count(*) FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'public_booking' AND "globalEnabled"), 0, false
+  UNION ALL SELECT 20, (SELECT count(*) FROM "BookingSettings" WHERE NOT "requireVerification"), NULL, true
+  UNION ALL SELECT 21, (SELECT count(*) FROM "BookingSettings" WHERE "defaultApprovalMode"::text = 'MANUAL'), NULL, true
 )
 SELECT n, CASE WHEN info OR observed = want THEN 'PASS' ELSE 'FAIL' END AS result, observed AS observed_count FROM c ORDER BY n;
 
