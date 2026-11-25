@@ -1,0 +1,163 @@
+# Subscriptions stage C / migration 20261228090000_subscriptions_stage_c — proof on PostgreSQL 17 BEFORE it reaches
+# Production. Migration-only PR: trial claims, plan / quota requests, the quota policy (owner's opening matrix) and its
+# history, per-business adjustments, usage counters and the unit ledger, the definer functions that are their only
+# writers, and the admin console's read. The Prisma models and the code come in separate PRs.
+#
+#   1. Current schema (prisma db push) + the four roles as in Production, businesses and users that exist BEFORE, and
+#      the stage B state (every business a tester).
+#   2. The read-only preflight passes.
+#   3. The migration applies in ONE transaction; applying it again is refused and changes nothing.
+#   4. The lab: shape, privileges, tester never limited, trial / paid quotas, shadow vs enforce, idempotent units,
+#      reserve / settle, storage, alerts, isolation, requests, admin writers + audit, signup trial / duplicate / phone
+#      hint, trial expiry, cascade.
+#   5. Concurrency: 40 parallel consumers race for the last 5 units of a quota under enforce — exactly 5 pass, the
+#      counter equals the ledger; 20 parallel retries of ONE unit count it once.
+#   6. The read-only evidence passes after the migration; it catches a wrong matrix value and a trialing row.
+#   7. Rollback restores the previous state; the preflight passes again; apply again; lab and evidence again.
+#
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network beyond the image and npm.
+
+name: subscriptions stage C — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261228090000_subscriptions_stage_c/**"
+      - ".subscriptions-stage-c/**"
+      - "ops/evidence/subscriptions-stage-c-*.sql"
+      - ".github/workflows/subscriptions-stage-c-migration-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: subscriptions stage C migration (PG17, one transaction, isolation, quotas, concurrency, rollback)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_owner
+          POSTGRES_PASSWORD: sc_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_sc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_owner -d dubiz_sc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: lab_owner
+      PGDATABASE: dubiz_sc
+      PGPASSWORD: sc_ci_synthetic_owner_pw
+      OWNER_URL: postgresql://lab_owner:sc_ci_synthetic_owner_pw@localhost:5432/dubiz_sc
+      MIGRATION: prisma/migrations/20261228090000_subscriptions_stage_c/migration.sql
+      STAGE_B: prisma/migrations/20261224090000_platform_subscriptions/migration.sql
+      LEDGER_ROW: >-
+        INSERT INTO "_prisma_migrations" (id, checksum, finished_at, migration_name, applied_steps_count)
+        VALUES ('subscriptions-stage-c-lab', md5('x'), now(), '20261228090000_subscriptions_stage_c', 1);
+      SEED: >-
+        INSERT INTO "Business" ("id", "name", "createdAt", "updatedAt") VALUES
+        (930001, 'lab A', now() - interval '1 hour', now()), (930002, 'lab B', now() - interval '1 hour', now()),
+        (930003, 'lab C', now() - interval '1 hour', now()), (930004, 'lab D', now() - interval '1 hour', now());
+        INSERT INTO "User" ("id", "email", "businessId", "role", "updatedAt") VALUES
+        (930101, 'admin@lab.invalid', 930001, 'PLATFORM_ADMIN', now()), (930102, 'user@lab.invalid', 930001, 'USER', now());
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 1. current schema, Production's roles and ledger, businesses and users that exist before, stage B applied
+        run: |
+          DATABASE_URL="$OWNER_URL" DIRECT_URL="$OWNER_URL" npx prisma db push --skip-generate
+          # A stacked branch may carry Prisma models of these tables: drop every copy db push built, so the migrations
+          # (the real thing) create them — exactly as in Production.
+          psql -v ON_ERROR_STOP=1 \
+            -c 'DROP TABLE IF EXISTS "PlatformUsageMetricMode", "BusinessUsageEvent", "BusinessUsageCounter", "BusinessQuotaAdjustment", "PlatformQuotaPolicyEvent", "PlatformQuotaPolicy", "PlatformSubscriptionRequest", "PlatformTrialClaim", "PlatformSubscriptionEvent", "PlatformSubscription";'
+          psql -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE app_ctlplane NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE app_auth NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "CREATE ROLE app_admin NOLOGIN NOSUPERUSER NOBYPASSRLS;" \
+            -c "GRANT USAGE ON SCHEMA public TO app_runtime, app_ctlplane, app_auth, app_admin;" \
+            -c 'GRANT SELECT ON "PlatformAuditEvent" TO app_admin;'
+          psql -v ON_ERROR_STOP=1 -c 'CREATE TABLE "_prisma_migrations" (id varchar(36) PRIMARY KEY, checksum varchar(64) NOT NULL, finished_at timestamptz, migration_name varchar(255) NOT NULL, logs text, rolled_back_at timestamptz, started_at timestamptz NOT NULL DEFAULT now(), applied_steps_count integer NOT NULL DEFAULT 0);'
+          for d in prisma/migrations/*/; do
+            n=$(basename "$d"); case "$n" in 20261228090000_subscriptions_stage_c) continue;; esac
+            echo "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count) VALUES (md5('$n')::varchar(36), md5('$n'), now(), '$n', 1);"
+          done | psql -v ON_ERROR_STOP=1 -q
+          psql -v ON_ERROR_STOP=1 -c "$SEED"
+          psql -1 -v ON_ERROR_STOP=1 -f "$STAGE_B"
+
+      - name: 2. preflight (read-only) passes before the migration — no FAIL cell, at least one PASS
+        run: |
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/subscriptions-stage-c-preflight.sql | tee pre.out
+          if grep -qE "\|FAIL\|" pre.out; then echo "FAIL row in pre.out"; exit 1; fi
+          grep -qE "\|PASS\|" pre.out
+
+      - name: 3. migration in one transaction; a second run is refused and changes nothing
+        run: |
+          psql -1 -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -c "$LEDGER_ROW"
+          before=$(psql -tAc 'SELECT count(*) FROM "PlatformQuotaPolicyEvent"')
+          if psql -1 -v ON_ERROR_STOP=1 -f "$MIGRATION" 2> second.err; then echo "second run was accepted"; exit 1; fi
+          grep -q "SUBSCRIPTIONS_STAGE_C: a stage C table already exists" second.err
+          test "$(psql -tAc 'SELECT count(*) FROM "PlatformQuotaPolicyEvent"')" = "$before"
+
+      - name: 4. lab — shape, privileges, quotas, idempotency, isolation, admin writers, signup, expiry, cascade
+        run: psql -v ON_ERROR_STOP=1 -tA -f .subscriptions-stage-c/migration-lab.sql | tee lab.out && grep -q "^MIGRATION_LAB_OK$" lab.out
+
+      - name: 5. concurrency — the last units of a quota go to exactly as many consumers; a retried unit counts once
+        run: .subscriptions-stage-c/concurrency-lab.sh
+
+      - name: 6. evidence (read-only) passes after the migration and catches a wrong matrix value and a trialing row
+        run: |
+          set -euo pipefail
+          row() { awk -F'|' -v n="$2" '$1==n{print $2}' "$1"; }
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/subscriptions-stage-c-production-evidence.sql | tee ev.out
+          if grep -qE "\|FAIL\|" ev.out; then echo "FAIL row in ev.out"; exit 1; fi
+          grep -qE "\|PASS\|" ev.out
+          psql -v ON_ERROR_STOP=1 -c 'UPDATE "PlatformQuotaPolicy" SET "quota" = 301 WHERE "metric" = '"'"'ocr_pages'"'"' AND "tier" = '"'"'BASIC'"'"';' \
+            -c "INSERT INTO \"Business\" (\"id\", \"name\", \"createdAt\", \"updatedAt\") VALUES (930008, 'lab H', now(), now());" \
+            -c "INSERT INTO \"PlatformSubscription\" (\"businessId\", \"accountType\", \"status\", \"catalogVersion\", \"trialStartedAt\", \"trialEndsAt\", \"source\", \"updatedAt\") VALUES (930008, 'CUSTOMER', 'TRIALING', '2026-11-20', now(), now() + interval '30 days', 'SIGNUP', now());"
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/subscriptions-stage-c-production-evidence.sql | tee bad.out
+          test "$(row bad.out 18)" = "FAIL"
+          test "$(row bad.out 19)" = "FAIL"
+          test "$(row bad.out 20)" = "FAIL"
+          psql -v ON_ERROR_STOP=1 -c 'UPDATE "PlatformQuotaPolicy" SET "quota" = 300 WHERE "metric" = '"'"'ocr_pages'"'"' AND "tier" = '"'"'BASIC'"'"';' \
+            -c 'DELETE FROM "Business" WHERE "id" = 930008;'
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/subscriptions-stage-c-production-evidence.sql > ev-clean.out
+          if grep -qE "\|FAIL\|" ev-clean.out; then cat ev-clean.out; echo "evidence did not return to clean"; exit 1; fi
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/subscriptions-stage-c-preflight.sql | tee pre2.out
+          grep -qE "\|FAIL\|" pre2.out
+
+      - name: 7. rollback restores the previous state; preflight passes again; apply again; lab and evidence again
+        run: |
+          psql -1 -v ON_ERROR_STOP=1 -tA -f .subscriptions-stage-c/rollback.sql | grep -q "^ROLLBACK_OK$"
+          psql -v ON_ERROR_STOP=1 -c "DELETE FROM \"_prisma_migrations\" WHERE migration_name = '20261228090000_subscriptions_stage_c';"
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/subscriptions-stage-c-preflight.sql | tee pre3.out
+          if grep -qE "\|FAIL\|" pre3.out; then echo "FAIL row in pre3.out"; exit 1; fi
+          psql -v ON_ERROR_STOP=1 -c 'DELETE FROM "User" WHERE "id" IN (930101, 930102);' -c 'DELETE FROM "Business" WHERE "id" BETWEEN 930001 AND 930099;' -c "$SEED" \
+            -c "INSERT INTO \"PlatformSubscription\" (\"businessId\", \"accountType\", \"status\", \"catalogVersion\", \"source\", \"updatedAt\") SELECT \"id\", 'TESTER', 'EXEMPT', '2026-11-20', 'BACKFILL', now() FROM \"Business\" WHERE \"id\" BETWEEN 930001 AND 930004;"
+          psql -1 -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -c "$LEDGER_ROW"
+          psql -v ON_ERROR_STOP=1 -tA -f .subscriptions-stage-c/migration-lab.sql | grep -q "^MIGRATION_LAB_OK$"
+          psql -v ON_ERROR_STOP=1 -tA -f ops/evidence/subscriptions-stage-c-production-evidence.sql | tee ev2.out
+          if grep -qE "\|FAIL\|" ev2.out; then echo "FAIL row in ev2.out"; exit 1; fi
+          grep -qE "\|PASS\|" ev2.out
