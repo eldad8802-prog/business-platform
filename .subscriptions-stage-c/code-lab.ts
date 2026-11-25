@@ -34,7 +34,7 @@ import { openSignupSubscriptionInAccountTx, trialConfig } from "@/lib/services/s
 import { reserveBusinessDocument } from "@/lib/services/subscriptions/usage/business-document-usage";
 import { meteredOcr } from "@/lib/services/subscriptions/usage/metered-ocr";
 import { checkUsageHeadroom, consumeUsage, QuotaExhaustedError, requireUsage, settleUsage } from "@/lib/services/subscriptions/usage/usage-meter";
-import { loadUsageView } from "@/lib/services/subscriptions/usage/usage-snapshot.service";
+import { loadSubscriptionView } from "@/lib/services/subscriptions/subscription-view.service";
 import { MeteredStorageService } from "@/lib/storage/metered-storage";
 import type { PutObjectInput, StorageService } from "@/lib/storage/types";
 import { runWithTenantContext } from "@/lib/tenant/context";
@@ -110,8 +110,8 @@ async function main() {
   ok("T1 a tester far beyond every quota is counted, never refused", t1.allowed && t1.outcome === "COUNTED" && t1.quota === null);
   const tg = await planGate(TESTER, PLATFORM_FEATURE_KEYS.BILLING, "write", "lab");
   ok("T2 a tester's plan gate allows writes in enforce", tg.allowed && tg.access === "full");
-  const tv = await loadUsageView(TESTER);
-  ok("T3 a tester's usage view shows no quota (not limited)", tv.metrics.every((m) => m.quota === null) && tv.subscription.accountType === "TESTER");
+  const tv = await loadSubscriptionView(TESTER);
+  ok("T3 a tester has no subscription to manage and is told nothing", tv.visible === false && tv.attention.length === 0 && tv.status === null);
   ok("T4 a tester stays a tester (no code path changed the record)", (await readSubscriptionRecord(TESTER))?.accountType === "TESTER");
 
   /* ── L. lifecycle: signup trial, duplicate, phone hint, admin fix, usage, expiry, plan, renewal ── */
@@ -261,15 +261,17 @@ async function main() {
   const head = await checkUsageHeadroom({ businessId: RACE, metric: "accountant_emails", amount: 1 });
   ok("I3 headroom check: refused at the quota", !head.allowed);
 
-  /* ── V. the owner's usage view ── */
-  const view = await loadUsageView(RACE);
-  const mail = view.metrics.find((m) => m.metric === "accountant_emails");
-  ok("V1 my usage: quota, used, remaining, reached", mail?.quota === 5 && mail.used === 5 && mail.remaining === 0 && mail.reached === true);
-  ok("V2 the rights-floor line is always shown", view.rightsFloor.length > 10);
+  /* ── V. the owner's subscription view (owner decision 2026-11-25: no counters, attention only) ── */
+  const view = await loadSubscriptionView(RACE);
+  const json = JSON.stringify(view);
+  ok("V1 the owner view carries no counter (no used / remaining / percent)", !/"used"|"remaining"|"percent"/.test(json), json.slice(0, 300));
+  ok("V2 an ENFORCED quota used up is an attention item, without numbers", view.attention.some((a) => a.kind === "quota_reached" && a.metric === "accountant_emails"));
+  ok("V3 the plan terms come from the live policy (Basic: 5 accountant emails), Premium not open", view.plans.find((p) => p.plan === "BASIC")?.terms.some((t) => t.metric === "accountant_emails" && t.quota === 5) === true && view.plans.find((p) => p.plan === "PREMIUM")?.open === false);
+  ok("V4 the rights-floor line is always shown", view.rightsFloor.length > 10);
 
   /* ── N. alerts once ── */
   const notes = await owner.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM "Notification" WHERE "businessId" = ${RACE} AND "semanticCategory" = 'subscription.usage'`;
-  ok("N1 crossing 80/90/100 % notified the business (once per threshold)", Number(notes[0]?.n) >= 1 && Number(notes[0]?.n) <= 3 * 8, String(notes[0]?.n));
+  ok("N1 an ENFORCED quota nearly / fully used notified the owner (once per threshold, 90 and 100 only)", Number(notes[0]?.n) >= 1 && Number(notes[0]?.n) <= 2 * 8, String(notes[0]?.n));
 
   console.log(`code lab: ${pass} passed, ${failures.length} failed`);
   for (const f of failures) console.log(`FAIL ${f}`);

@@ -157,15 +157,19 @@ async function maybeAlert(tx: TenantTx, businessId: number, metric: UsageMetric,
   const marked = await tx.$queryRaw<{ raised: boolean }[]>`
     SELECT public.usage_mark_alert(${metric}::text, ${d.periodKey}::text, ${pct}::integer) AS raised`;
   if (!marked[0]?.raised) return;
+  // Owner decision 2026-11-25 (display only): the owner sees no counters, bars or percentages. Every threshold is
+  // still marked above (admin console), but the OWNER is told only when it needs attention: the metric is ENFORCED
+  // (in shadow nothing is limited, so nothing is said) and the quota is nearly used (90) or used up (100). No numbers.
+  if (d.mode !== "ENFORCE" || pct < 90) return;
   const label = METRIC_DEFINITIONS[metric].label;
   await notify(tx, {
     businessId,
     category: "subscription.usage",
     entity: { type: "usage_metric", id: pct },
     dedupeKey: `usage:${metric}:${d.periodKey}:${pct}`,
-    title: pct >= 100 ? `הגעת למכסה: ${label}` : `ניצלת ${pct}% מהמכסה: ${label}`,
+    title: pct >= 100 ? `המכסה במסלול הסתיימה: ${label}` : `המכסה במסלול עומדת להסתיים: ${label}`,
     summary: null,
-    href: "/settings",
+    href: "/settings/subscription",
     now: new Date(),
   });
 }
@@ -270,16 +274,17 @@ export async function checkUsageHeadroom(input: { businessId: number; metric: Us
 /** The JSON a refused request answers with (403, code QUOTA_EXHAUSTED) — the same shape everywhere. */
 export function quotaExhaustedBody(d: UsageDecision): Record<string, unknown> {
   const label = METRIC_DEFINITIONS[d.metric].label;
+  const message = d.periodEnd
+    ? `הגעת למכסת "${label}" במסלול שלך. המכסה מתחדשת ב-${d.periodEnd.toLocaleDateString("he-IL", { timeZone: "Asia/Jerusalem" })}. אפשר לבקש תוספת במסך "המנוי שלי".`
+    : `הגעת למכסת "${label}" במסלול שלך. אפשר לבקש תוספת במסך "המנוי שלי".`;
+  // `error` is the readable message: screens show a server error verbatim (owner 2026-11-25: a message at the moment
+  // action is needed, never a code). The machine-readable code is `code`.
   return {
-    error: "QUOTA_EXHAUSTED",
+    error: message,
     code: "QUOTA_EXHAUSTED",
     metric: d.metric,
     label,
-    used: d.used,
-    quota: d.quota,
     renewsAt: d.periodEnd ? d.periodEnd.toISOString() : null,
-    message: d.periodEnd
-      ? `הגעת למכסת "${label}" במסלול שלך. המכסה מתחדשת ב-${d.periodEnd.toLocaleDateString("he-IL", { timeZone: "Asia/Jerusalem" })}.`
-      : `הגעת למכסת "${label}" במסלול שלך.`,
+    message,
   };
 }

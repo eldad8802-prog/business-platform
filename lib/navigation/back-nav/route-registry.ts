@@ -224,6 +224,7 @@ const DECLARED_RULES: readonly Omit<RouteRule, "parentLabel">[] = [
   { pattern: "/settings/connections", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/inbound-email", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/security", parent: "/settings", parentLabelKey: "toSettings" },
+  { pattern: "/settings/subscription", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/team", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/workspace", parent: "/settings", parentLabelKey: "toSettings" },
   { pattern: "/settings/notifications", parent: "/settings", parentLabelKey: "toSettings" },

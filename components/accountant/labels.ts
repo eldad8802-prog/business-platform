@@ -25,6 +25,8 @@ export const ERROR_HE: Record<string, string> = {
   REPORT_NOT_IN_PACKAGE: "בחבילה הזו אין דוח Excel. אפשר להוריד את החבילה המלאה (ZIP).",
   INVALID_FORMAT: "סוג ההורדה אינו מוכר.",
   PDF_RENDER_FAILED: "לא הצלחנו להפיק את דוח ה־PDF כרגע. אפשר להוריד את דוח ה־Excel או את החבילה המלאה.",
+  // Subscriptions stage C: an enforced quota (accountant packages / emails) is used up — a message, never a code.
+  QUOTA_EXHAUSTED: "הגעת למכסה של המסלול לפעולה הזאת. אפשר לבקש תוספת או לבחור מסלול במסך \"המנוי שלי\". הורדה חוזרת של חבילה קיימת תמיד פתוחה.",
 };
 
 export function errorHe(code: string): string {

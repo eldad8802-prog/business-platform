@@ -126,13 +126,15 @@ export async function planGate(
 /** The JSON a refused request answers with (403) — the same shape on every module. */
 export function planRefusalBody(featureKey: PlatformFeatureKey, answer: PlanGateAnswer): Record<string, unknown> {
   const inactive = answer.reasonCode === "FREE_LIMITED";
+  const message = inactive
+    ? "תקופת הניסיון הסתיימה. אפשר להמשיך לצפות בכל המידע ולהוריד אותו; כדי ליצור דברים חדשים יש לבחור מסלול במסך \"המנוי שלי\"."
+    : "הפעולה הזאת כלולה במסלול גבוה יותר. אפשר לבחור מסלול במסך \"המנוי שלי\".";
+  // `error` is the readable message (screens show it verbatim); `code` is machine-readable.
   return {
-    error: inactive ? "SUBSCRIPTION_INACTIVE" : "PLAN_REQUIRED",
+    error: message,
     code: inactive ? "SUBSCRIPTION_INACTIVE" : "PLAN_REQUIRED",
     feature: featureKey,
     requiredPlan: answer.requiredPlan,
-    message: inactive
-      ? "תקופת הניסיון הסתיימה. אפשר להמשיך לצפות בכל המידע ולהוריד אותו; כדי ליצור דברים חדשים יש לבחור מסלול."
-      : "הפעולה הזאת כלולה במסלול גבוה יותר.",
+    message,
   };
 }

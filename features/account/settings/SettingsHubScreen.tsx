@@ -15,7 +15,7 @@
  * /api/profile/summary) or not shown at all.
  */
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { buildSettingsHub, type HubRow } from "@/components/settings/settings-hub";
 import { useSettingsFeatures } from "@/components/settings/use-settings-features";
@@ -54,6 +54,7 @@ export function SettingsHubScreen({ versionLabel }: { versionLabel: string }) {
   const { locale, t } = useI18n();
   const featureOn = useSettingsFeatures();
   const hub = useMemo(() => buildSettingsHub(t, featureOn), [t, featureOn]);
+  const subscriptionVisible = useSubscriptionVisible();
 
   const connectionsCount =
     connections.state === "ready" && connections.data.available ? connections.data.active : null;
@@ -94,10 +95,10 @@ export function SettingsHubScreen({ versionLabel }: { versionLabel: string }) {
                   icon={row.icon}
                   title={row.title}
                   subtitle={row.subtitle}
-                  href={row.href}
+                  href={row.key === "subscription" && subscriptionVisible ? "/settings/subscription" : row.href}
                   external={row.external}
                   value={rowValue(row)}
-                  badge={row.badge === "soon" ? <WarmPill tone="sand">{t("account.settings.hub.soon")}</WarmPill> : undefined}
+                  badge={row.badge === "soon" && !(row.key === "subscription" && subscriptionVisible) ? <WarmPill tone="sand">{t("account.settings.hub.soon")}</WarmPill> : undefined}
                 />
               ))}
             </WarmRowList>
@@ -111,6 +112,28 @@ export function SettingsHubScreen({ versionLabel }: { versionLabel: string }) {
       </footer>
     </div>
   );
+}
+
+/**
+ * Subscriptions stage C: the "subscription" row links to /settings/subscription ONLY when the business really has a
+ * customer subscription (GET /api/business/subscription → visible). Testers, internal accounts and businesses without
+ * a record keep the static "בקרוב" row, as before. Any failure keeps it static (fail-closed).
+ */
+function useSubscriptionVisible(): boolean {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/business/subscription", { cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<{ visible?: boolean }>) : null))
+      .then((json) => {
+        if (live) setVisible(json?.visible === true);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  return visible;
 }
 
 function AccountCard({

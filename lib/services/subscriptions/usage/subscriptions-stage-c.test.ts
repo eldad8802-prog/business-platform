@@ -12,7 +12,7 @@
  *    the payment-settlement receipt never call the meter; internal AI is measured AND rate-limited; the legacy video
  *    counter is no longer called; the trial opens only in the auth-plane signup and only behind its switch.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
@@ -23,6 +23,7 @@ import { RECEIPT_LIKE_TYPES } from "./business-document-usage";
 import { MEASURED_METRICS, METRIC_DEFINITIONS, OPENING_MATRIX, QUOTA_METRICS, SUBSCRIPTION_TIERS } from "./usage-metrics";
 import { effectiveUsageMode, usageModeCeiling } from "./usage-mode";
 import { thresholdReached } from "./usage-meter";
+import { attentionFor } from "../subscription-view.service";
 import { estimateUsageCostUsd } from "./usage-cost";
 
 let pass = 0;
@@ -157,6 +158,35 @@ ok("6 every subscriptions admin handler awaits the platform-admin guard first", 
   return handlers.length > 0 && handlers.every((h) => /^[^\n]*\)\s*\{\n\s*const auth = await requirePlatformAdminOrResponse\(req\);\s*if \(auth instanceof NextResponse\) return auth;/.test(h));
 }), adminRoutes);
 ok("6 the admin service writes only through definer functions", !/INSERT INTO|UPDATE "|DELETE FROM/.test(read("lib/services/platform-admin/subscriptions-admin.service.ts")));
+
+/* ── 7. The owner's view (owner decision 2026-11-25: display only — no counters, attention only) ── */
+{
+  const now = new Date("2026-12-01T10:00:00Z");
+  const day = 86_400_000;
+  const q = (used: number, quota: number | null, enforced = true) => ({ metric: "document_uploads" as const, quota, used, enforced, renewsAt: new Date("2027-01-01T00:00:00Z") });
+  const base = { status: "ACTIVE", trialEndsAt: null, subscriptionEnforced: true, quotas: [], now };
+  ok("7 nothing to say → no attention item", attentionFor(base).length === 0);
+  ok("7 a quota below 90% is not mentioned", attentionFor({ ...base, quotas: [q(80, 100)] }).length === 0);
+  ok("7 an ENFORCED quota at 90% → quota_near (no numbers in the item)", JSON.stringify(attentionFor({ ...base, quotas: [q(90, 100)] })) === JSON.stringify([{ kind: "quota_near", metric: "document_uploads", label: "העלאת מסמכים", renewsAt: "2027-01-01T00:00:00.000Z" }]));
+  ok("7 an ENFORCED quota used up → quota_reached", attentionFor({ ...base, quotas: [q(100, 100)] })[0]?.kind === "quota_reached");
+  ok("7 a quota in SHADOW is never mentioned, even far over", attentionFor({ ...base, quotas: [q(500, 100, false)] }).length === 0);
+  ok("7 no quota (tester) / quota 0 is never mentioned", attentionFor({ ...base, quotas: [q(5, null), q(5, 0)] }).length === 0);
+  ok("7 trial ending: only within 7 days", attentionFor({ ...base, status: "TRIALING", trialEndsAt: new Date(now.getTime() + 8 * day) }).length === 0
+    && attentionFor({ ...base, status: "TRIALING", trialEndsAt: new Date(now.getTime() + 7 * day) })[0]?.kind === "trial_ending");
+  ok("7 limited: said only when the subscription is enforced, and without per-quota noise", attentionFor({ ...base, status: "FREE_LIMITED", quotas: [q(1, 1)] }).map((a) => a.kind).join() === "limited"
+    && attentionFor({ ...base, status: "FREE_LIMITED", subscriptionEnforced: false }).length === 0);
+  const meter = read("lib/services/subscriptions/usage/usage-meter.ts");
+  ok("7 the owner notification: enforced metrics only, at 90 / 100 only, no percentage in the text", /if \(d\.mode !== "ENFORCE" \|\| pct < 90\) return;/.test(meter) && !/ניצלת \$\{pct\}%/.test(meter));
+  ok("7 the refusal body carries no counters", !/used: d\.used|quota: d\.quota/.test(meter.slice(meter.indexOf("export function quotaExhaustedBody"))));
+  ok("7 the owner-facing API has no counters route any more", !existsSync("app/api/business/usage/route.ts"));
+  for (const p of ["components/settings/subscription/subscription-screen.tsx", "components/settings/subscription/subscription-attention-banner.tsx"]) {
+    const ui = read(p);
+    ok(`7 ${p}: no counter, bar or percentage on the owner's screen`, !/\.used\b|remaining|percent|<progress|role="progressbar"|%\s*\}/.test(ui));
+  }
+  ok("7 the Home banner renders nothing unless there is an attention item", /if \(!item\) return null;/.test(read("components/settings/subscription/subscription-attention-banner.tsx")));
+  ok("7 the settings row links to the screen only for a real customer subscription", /row\.key === "subscription" && subscriptionVisible \? "\/settings\/subscription" : row\.href/.test(read("features/account/settings/SettingsHubScreen.tsx")));
+  ok("7 a refusal shows a readable message (error = message), the code stays machine-readable", /error: message,\s*code: "QUOTA_EXHAUSTED"/.test(meter) && /error: message,\s*code: inactive/.test(read("lib/services/subscriptions/plan-gate.ts")));
+}
 
 console.log(`subscriptions stage C: ${pass} passed, ${failed} failed`);
 if (failed) process.exit(1);
