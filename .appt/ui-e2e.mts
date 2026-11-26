@@ -237,12 +237,15 @@ async function main() {
     if (!(await dlg.isVisible())) throw new Error("staying closed the form");
     await closeForm(p);
   });
-  await check("D12 a staff member who does not perform the new service is cleared, with a word", async () => {
+  // G10 (calendar daily use): a cleared choice never falls back to the business's own lane silently — the service's
+  // only performer (שירה) takes its place, said in the same line; with several performers the form would ask.
+  await check("D12 a staff member who does not perform the new service is cleared, with a word (G10: never the business lane)", async () => {
     const dlg = await openNew(p);
     await dlg.getByLabel("צוות", { exact: true }).selectOption({ label: "אבי" });
     await dlg.getByLabel("שירות", { exact: true }).selectOption({ label: "צבע · שעה ו־30 דק׳" });
-    await dlg.getByText(/אבי לא מבצע\/ת את השירות הזה/).waitFor({ timeout: 10_000 });
-    if ((await dlg.getByLabel("צוות", { exact: true }).inputValue()) !== "") throw new Error("the hidden choice stayed");
+    await dlg.getByText(/אבי לא מבצע\/ת את השירות הזה, ולכן נבחר\/ה שירה/).waitFor({ timeout: 10_000 });
+    const lane = await dlg.getByLabel("צוות", { exact: true }).inputValue();
+    if (lane !== String(seed.staff.shira)) throw new Error(`the cleared choice became ${JSON.stringify(lane)}, not the only performer`);
     await closeForm(p);
   });
 

@@ -234,6 +234,8 @@ export function AppointmentForm({
   const [staffId, setStaffId] = useState<number | null>(initialStaff.staffId);
   const [staffPending, setStaffPending] = useState(initialStaff.pending);
   const [staffCleared, setStaffCleared] = useState<string | null>(null);
+  // G10: who took the cleared choice's place (the service's only performer), or null when the form asks instead.
+  const [staffReplaced, setStaffReplaced] = useState<string | null>(null);
   const [day, setDay] = useState<DayKey>(prefill.day);
   const [time, setTime] = useState(prefill.minute !== undefined ? clock(prefill.minute) : "");
   const [duration, setDuration] = useState<number>(30);
@@ -410,6 +412,7 @@ export function AppointmentForm({
                 // Never fall back to the business's lane silently: the only performer, or ask.
                 const d = defaultStaffChoice({ tapped: undefined, lastUsed: null, activeStaffIds: staffForService(staff, next).map((x) => x.id) });
                 setStaffId(d.staffId); setStaffPending(d.pending);
+                setStaffReplaced(d.staffId !== null ? (activeStaff.find((x) => x.id === d.staffId)?.displayName ?? null) : null);
               } else {
                 setStaffId(kept);
               }
@@ -445,7 +448,7 @@ export function AppointmentForm({
           </Line>
         ) : null}
         {activeStaff.length && !staffPending && staffId === null ? <p className={s.note} role="note" style={{ paddingTop: 6 }}>{BUSINESS_LANE_NOTE}</p> : null}
-        {staffCleared ? <p className={s.note} role="status" style={{ paddingTop: 6 }}>{staffCleared} לא מבצע/ת את השירות הזה, ולכן הבחירה נוקתה.</p> : null}
+        {staffCleared ? <p className={s.note} role="status" style={{ paddingTop: 6 }}>{staffCleared} לא מבצע/ת את השירות הזה, ולכן {staffReplaced ? `נבחר/ה ${staffReplaced} (היחיד/ה שמבצע/ת אותו).` : "הבחירה נוקתה."}</p> : null}
         {kind === "CUSTOMER" && serviceId !== null && staffChoices.length < activeStaff.length ? <p className={s.note} style={{ paddingTop: 6 }}>מוצגים רק מי שמבצעים את השירות.</p> : null}
 
         <Line label="תאריך" icon={<IconCalendar />} htmlFor="appt-day">
