@@ -62,10 +62,16 @@ export type WriteResult = { appointment: AppointmentWire; replayed?: boolean; wa
 // ── Appointments ────────────────────────────────────────────────────────────────────────────────
 
 export function listAppointments(from: Date, to: Date, opts: { staffMemberId?: number | "none"; includeCanceled?: boolean } = {}) {
+  return listCalendar(from, to, opts).then((r) => r.appointments);
+}
+
+/** The range's appointments, and apart the live ones without a time or an end ("ללא שעה", G22). */
+export function listCalendar(from: Date, to: Date, opts: { staffMemberId?: number | "none"; includeCanceled?: boolean } = {}) {
   const q = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
   if (opts.staffMemberId !== undefined) q.set("staffMemberId", String(opts.staffMemberId));
   if (opts.includeCanceled) q.set("includeCanceled", "true");
-  return call<{ appointments: AppointmentWire[] }>("GET", `/api/appointments?${q}`).then((r) => r.appointments);
+  return call<{ appointments: AppointmentWire[]; untimed?: AppointmentWire[] }>("GET", `/api/appointments?${q}`)
+    .then((r) => ({ appointments: r.appointments, untimed: r.untimed ?? [] }));
 }
 
 export const getAppointment = (id: number) =>
@@ -155,8 +161,11 @@ export function getAvailability(staffMemberId: number | null, fromDay?: string) 
   return call<{ staffMemberId: number | null; rules: RuleWire[]; exceptions: ExceptionWire[] }>("GET", `/api/appointments/availability?${q}`);
 }
 
+/** G20: live future appointments that a save left outside the hours (information only), by day. */
+export type ImpactWire = { count: number; days: Array<{ dayKey: string; count: number }>; firstIds: number[] };
+
 export const replaceWeeklyRules = (intent: string, staffMemberId: number | null, rules: RuleWire[]) =>
-  write<{ rules: RuleWire[] }>(intent, "PUT", "/api/appointments/availability", {
+  write<{ rules: RuleWire[]; impact?: ImpactWire }>(intent, "PUT", "/api/appointments/availability", {
     staffMemberId,
     rules: rules.map((r) => ({ weekday: r.weekday, startMinute: r.startMinute, endMinute: r.endMinute })),
   });
@@ -164,10 +173,14 @@ export const replaceWeeklyRules = (intent: string, staffMemberId: number | null,
 export const addException = (
   intent: string,
   input: { staffMemberId: number | null; dayKey: string; kind: "CLOSED" | "OPEN_HOURS"; startMinute?: number | null; endMinute?: number | null; label?: string | null },
-) => write<{ exception: ExceptionWire }>(intent, "POST", "/api/appointments/availability/exceptions", input);
+) => write<{ exception: ExceptionWire; impact?: ImpactWire }>(intent, "POST", "/api/appointments/availability/exceptions", input);
 
 export const removeException = (intent: string, id: number) =>
-  write<{ exception: ExceptionWire }>(intent, "DELETE", `/api/appointments/availability/exceptions/${id}`, undefined);
+  write<{ exception: ExceptionWire; impact?: ImpactWire }>(intent, "DELETE", `/api/appointments/availability/exceptions/${id}`, undefined);
+
+/** G19: the owner's one tap — the calendar's weekly hours into the business profile's opening hours (text built on the server). */
+export const syncProfileHours = () =>
+  call<{ updated: boolean; text: string | null }>("POST", "/api/appointments/availability/profile-hours", {});
 
 export type PolicyWire = {
   businessServiceId: number;
@@ -187,7 +200,7 @@ export const getPolicy = (serviceId: number) =>
   call<{ policy: PolicyWire }>("GET", `/api/appointments/services/${serviceId}/policy`).then((r) => r.policy);
 
 export const savePolicy = (intent: string, serviceId: number, input: Partial<Omit<PolicyWire, "businessServiceId" | "version" | "persisted">> & { expectedVersion?: number | null }) =>
-  write<{ policy: PolicyWire }>(intent, "PUT", `/api/appointments/services/${serviceId}/policy`, input);
+  write<{ policy: PolicyWire; impact?: ImpactWire }>(intent, "PUT", `/api/appointments/services/${serviceId}/policy`, input);
 
 // ── The catalog, customers and leads (existing routes) ──────────────────────────────────────────
 

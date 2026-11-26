@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   getAvailability,
-  listAppointments,
+  listCalendar,
   listServices,
   listStaff,
   CalendarApiError,
@@ -33,6 +33,8 @@ const asError = (e: unknown) => (e instanceof CalendarApiError ? e : new Calenda
 
 export function useCalendarData(range: { from: Date; to: Date } | null, opts: { includeCanceled?: boolean } = {}) {
   const [appointments, setAppointments] = useState<Load<AppointmentWire[]>>({ status: "loading" });
+  /** G22: live appointments without a time or an end ("ללא שעה"), whenever they are. */
+  const [untimed, setUntimed] = useState<AppointmentWire[]>([]);
   const [staff, setStaff] = useState<StaffWire[]>([]);
   const [services, setServices] = useState<ServiceWire[]>([]);
   const [hours, setHours] = useState<RuleWire[]>([]);
@@ -59,8 +61,8 @@ export function useCalendarData(range: { from: Date; to: Date } | null, opts: { 
     if (!fromIso || !toIso) return;
     const mine = ++seq.current;
     try {
-      const list = await listAppointments(new Date(fromIso), new Date(toIso), { includeCanceled });
-      if (mine === seq.current) setAppointments({ status: "ready", value: list });
+      const r = await listCalendar(new Date(fromIso), new Date(toIso), { includeCanceled });
+      if (mine === seq.current) { setAppointments({ status: "ready", value: r.appointments }); setUntimed(r.untimed); }
     } catch (e) {
       if (mine !== seq.current) return;
       const err = asError(e);
@@ -73,9 +75,9 @@ export function useCalendarData(range: { from: Date; to: Date } | null, opts: { 
     if (!fromIso || !toIso) return;
     let cancelled = false;
     const mine = ++seq.current;
-    listAppointments(new Date(fromIso), new Date(toIso), { includeCanceled })
-      .then((list) => {
-        if (!cancelled && mine === seq.current) setAppointments({ status: "ready", value: list });
+    listCalendar(new Date(fromIso), new Date(toIso), { includeCanceled })
+      .then((r) => {
+        if (!cancelled && mine === seq.current) { setAppointments({ status: "ready", value: r.appointments }); setUntimed(r.untimed); }
       })
       .catch((e) => {
         if (cancelled || mine !== seq.current) return;
@@ -140,5 +142,5 @@ export function useCalendarData(range: { from: Date; to: Date } | null, opts: { 
   /** Read everything again (after a failed read). */
   const retry = useCallback(() => { setRefTick((x) => x + 1); void loadAppointments(); }, [loadAppointments]);
 
-  return { appointments, staff, services, hours, availability, availabilityReady, names, problems, retry, reload: loadAppointments, rememberCustomer };
+  return { appointments, untimed, staff, services, hours, availability, availabilityReady, names, problems, retry, reload: loadAppointments, rememberCustomer };
 }

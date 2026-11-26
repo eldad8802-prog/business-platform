@@ -179,7 +179,9 @@ export async function getPublicProfile(publicId: unknown) {
 type Lane = { staffMemberId: number | null; durationMinutes: number };
 
 async function laneSlots(tx: Tx, businessId: number, lane: Lane, policy: { bufferBeforeMinutes: number; bufferAfterMinutes: number; slotStepMinutes: number; minLeadMinutes: number; maxAdvanceDays: number }, fromDay: JerusalemDayKey, toDay: JerusalemDayKey, now: Date) {
-  const { rules, exceptions } = await laneAvailability(tx, businessId, lane.staffMemberId, fromDay, toDay);
+  // The public link's rule: a staff lane is bounded by the business's own hours (weekly and special), G21.
+  const hours = await laneAvailability(tx, businessId, lane.staffMemberId, fromDay, toDay, "BUSINESS_HOURS");
+  const { rules, exceptions } = hours;
   // A lane with no hours at all is never offered to the public (the owner's calendar may still book it).
   if (rules.length === 0 && exceptions.every((e) => e.kind !== "OPEN_HOURS")) return [];
   const range = { start: new Date(`${addCalendarDays(fromDay, -1)}T00:00:00.000Z`), end: new Date(`${addCalendarDays(toDay, 2)}T00:00:00.000Z`) };
@@ -189,14 +191,14 @@ async function laneSlots(tx: Tx, businessId: number, lane: Lane, policy: { buffe
     fromDay, toDay, durationMinutes: lane.durationMinutes,
     bufferBeforeMinutes: policy.bufferBeforeMinutes, bufferAfterMinutes: policy.bufferAfterMinutes,
     slotStepMinutes: policy.slotStepMinutes, minLeadMinutes: policy.minLeadMinutes, maxAdvanceDays: policy.maxAdvanceDays,
-    now, rules, exceptions, busy,
+    now, rules, exceptions, windowsOf: hours.windowsOf, busy,
   });
   // The business lane's hours are the business's. A staff member's lane may run on own hours (they stand in for the
   // business hours on the owner's calendar); on the link they may only narrow the business's own windows (owner
-  // decision 2026-10-28). This one place serves the free times, the server's re-check on submit, and "any staff".
+  // decision 2026-10-28) — already in hours.windowsOf; kept as the explicit last check (across midnight, G17).
+  // This one place serves the free times, the server's re-check on submit, and "any staff".
   if (lane.staffMemberId === null) return slots;
-  const business = await laneAvailability(tx, businessId, null, fromDay, toDay);
-  return slots.filter((s) => withinBusinessHours(s, business));
+  return slots.filter((s) => withinBusinessHours(s, hours.business));
 }
 
 function pickService(catalog: Awaited<ReturnType<typeof publicCatalog>>, serviceId: unknown) {

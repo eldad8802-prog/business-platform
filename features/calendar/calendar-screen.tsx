@@ -38,6 +38,7 @@ import {
   dayShort,
   durationOf,
   errorText,
+  headline,
   instantAt,
   isTerminal,
   shiftAnchor,
@@ -364,6 +365,29 @@ function CalendarBody() {
           </span>
           <Link href="/calendar/hours" prefetch={false} className={`${s.btn} ${s.btnSm} ${s.btnSoft}`}>הגדרת שעות</Link>
         </div>
+      ) : null}
+
+      {/* G22: live appointments the grid cannot place (no time, or no end) — listed apart, each opens its card, and
+          "שינוי מועד" gives it a time like any move (under the same lock and overlap rule). */}
+      {!showRequests && data.untimed.length ? (
+        <section className={`${s.banner} ${s.bannerInfo}`} aria-labelledby="untimed-title">
+          <span className={s.bannerText}>
+            <strong id="untimed-title">ללא שעה · {data.untimed.length}</strong>
+            <span>תורים פעילים בלי שעה או בלי שעת סיום, ולכן הם לא מופיעים ביומן. נגיעה בתור פותחת אותו, ו„שינוי מועד” קובע לו שעה.</span>
+            <ul className={s.list} aria-label="תורים ללא שעה">
+              {data.untimed.map((a) => (
+                <li key={a.id}>
+                  <button type="button" className={s.listRow} onClick={() => select(a.id)}>
+                    <span className={s.rowText}>
+                      <span className={s.rowTitle} style={{ fontSize: 16 }}>{a.customerName ?? headline(a, data.names)}</span>
+                      <span className={s.rowSub}>{a.startsAt ? `${dayShort(todayKey(new Date(a.startsAt)))} · ללא שעת סיום` : "ללא מועד"}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </span>
+        </section>
       ) : null}
 
       <div className={s.cols}>

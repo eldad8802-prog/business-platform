@@ -3,6 +3,7 @@ import { guardFeature } from "@/lib/services/feature-access/feature-guard";
 import { PLATFORM_FEATURE_KEYS } from "@/lib/services/feature-access/platform-feature-catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { createFromPending } from "@/lib/services/appointment/appointment.service";
+import { appointmentsEnabled } from "@/lib/services/appointment/appointments-http";
 
 /**
  * Thin web adapter: Inbox owner converts a Pending Appointment Request into an
@@ -27,6 +28,11 @@ export async function POST(
     const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // G22: an appointment is created here, so the calendar (`appointments`) must be on for the business too — the
+    // same gate and answer as every appointments route (OFF ⇒ 404); the Inbox gate above stays.
+    if (!(await appointmentsEnabled(user.businessId))) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const { id } = await params;

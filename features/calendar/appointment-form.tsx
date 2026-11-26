@@ -45,6 +45,7 @@ import {
   errorText,
   FIELD_LABEL,
   instantAt,
+  isTimed,
   LIMITS,
   LOCATION_LABEL,
   minuteInDay,
@@ -57,6 +58,7 @@ import {
   type DayKey,
   type Names,
   type StaffWire,
+  UNTIMED_DEFAULT_MINUTES,
 } from "./calendar-model";
 import {
   keepStaffFor,
@@ -658,11 +660,13 @@ export function MoveForm({
   onCancel: () => void;
   onDirty: (dirty: boolean) => void;
 }) {
-  const start = new Date(appt.startsAt!);
-  const startDay = jerusalemDayKey(start);
+  // G22: an appointment without a time starts the picker on today at 09:00 (nothing is preselected for it), and one
+  // without a length takes the default the server would give it.
+  const [start] = useState(() => (appt.startsAt ? new Date(appt.startsAt) : null));
+  const startDay = start ? jerusalemDayKey(start) : jerusalemDayKey(new Date());
   const [day, setDay] = useState<DayKey>(startDay);
-  const [time, setTime] = useState(clock(minuteInDay(start, startDay)));
-  const [duration, setDuration] = useState<number>(durationOf(appt) ?? 30);
+  const [time, setTime] = useState(start ? clock(minuteInDay(start, startDay)) : "09:00");
+  const [duration, setDuration] = useState<number>(durationOf(appt) ?? (isTimed(appt) ? 30 : UNTIMED_DEFAULT_MINUTES));
   const [staffId, setStaffId] = useState<number | null>(appt.staffMemberId);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<SlotWire[] | null>(null);
@@ -730,7 +734,7 @@ export function MoveForm({
   return (
     <form className={`${s.sheet} ${s.form}`} onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
       <SheetHead title="שינוי מועד" onClose={onCancel} />
-      <p className={s.note}>כרגע: {DATE_LONG.format(start)} · <bdi dir="ltr">{timeLabel(appt).replace(/[⁦⁩]/g, "")}</bdi></p>
+      <p className={s.note}>{start ? <>כרגע: {DATE_LONG.format(start)} · <bdi dir="ltr">{timeLabel(appt).replace(/[⁦⁩]/g, "")}</bdi>{isTimed(appt) ? null : " · ללא שעת סיום"}</> : "כרגע: ללא מועד. בוחרים יום ושעה, והתור ייכנס ליומן."}</p>
       <div>
         <Line label="תאריך" icon={<IconCalendar />} htmlFor="move-day">
           <span className={s.dateLine}>{dayTitle(day)}<input id="move-day" type="date" value={day} onChange={(e) => { if (e.target.value) { setDay(e.target.value); touch(); } }} /></span>

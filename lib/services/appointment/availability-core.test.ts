@@ -7,7 +7,14 @@
  * No database, no clock of its own.
  */
 import {
+  appointmentsOutside,
   computeSlots,
+  effectiveEnd,
+  intersectWindows,
+  isRepeatedWallClock,
+  laneWindowsForDay,
+  openStretches,
+  UNTIMED_DEFAULT_MINUTES,
   insideAvailability,
   instantOf,
   isDayKey,
@@ -21,6 +28,7 @@ import {
   type SlotQuery,
   type WeeklyRule,
 } from "./availability.core";
+import { openingHoursText } from "./opening-hours-text";
 
 let failures = 0;
 let total = 0;
@@ -114,6 +122,97 @@ eq("a reversed range is refused", computeSlots({ ...base, fromDay: "2026-12-07" 
 {
   const dst = computeSlots({ ...base, fromDay: "2026-10-25", toDay: "2026-10-25", rules: [{ weekday: 0, startMinute: 540, endMinute: 600 }], now: at("2026-10-01T00:00:00Z") });
   eq("on the autumn change day a 09:00 slot is 09:00 Israel time (07:00Z)", dst.map((s) => iso(s.startsAt)), ["2026-10-25T07:00:00.000Z"]);
+}
+
+
+// ── 2026-11-24: engine correctness (G17, G20, G21, G22, G25, G19 text) ─────────────────────────────────
+console.log("— G17: a night across midnight");
+{
+  // Tue 2026-12-08 20:00–24:00 + Wed 00:00–02:00 (winter, UTC+2): 20:00 = 18:00Z, 02:00 Wed = 00:00Z Wed.
+  const night: WeeklyRule[] = [{ weekday: 2, startMinute: 1200, endMinute: 1440 }, { weekday: 3, startMinute: 0, endMinute: 120 }];
+  const stretches = openStretches("2026-12-08", "2026-12-08", (d) => windowsForDay(d, night, []));
+  eq("the two rules are one stretch, 20:00 Tue → 02:00 Wed", stretches.filter((w) => iso(w.start) === "2026-12-08T18:00:00.000Z").map((w) => iso(w.end)), ["2026-12-09T00:00:00.000Z"]);
+  const q: SlotQuery = { ...base, fromDay: "2026-12-08", toDay: "2026-12-08", durationMinutes: 120, slotStepMinutes: 60, rules: night };
+  eq("a 120-minute service is offered at 20:00, 21:00, 22:00, 23:00 (23:00 runs to 01:00 Wed)", computeSlots(q).map((x) => iso(x.startsAt)),
+    ["2026-12-08T18:00:00.000Z", "2026-12-08T19:00:00.000Z", "2026-12-08T20:00:00.000Z", "2026-12-08T21:00:00.000Z"]);
+  eq("…and from the Wednesday side only 00:00 fits (it starts on Wednesday)", computeSlots({ ...q, fromDay: "2026-12-09", toDay: "2026-12-09" }).map((x) => iso(x.startsAt)),
+    ["2026-12-08T22:00:00.000Z"]);
+  eq("…a Wednesday closure cuts the night's tail", computeSlots({ ...q, exceptions: [{ dayKey: "2026-12-09", kind: "CLOSED", startMinute: null, endMinute: null }] }).map((x) => iso(x.startsAt)),
+    ["2026-12-08T18:00:00.000Z", "2026-12-08T19:00:00.000Z", "2026-12-08T20:00:00.000Z"]);
+  check("inside the hours across midnight (23:00–01:00)", insideAvailability(at("2026-12-08T21:00:00Z"), at("2026-12-08T23:00:00Z"), stretches));
+  check("…but not past 02:00", !insideAvailability(at("2026-12-08T22:00:00Z"), at("2026-12-09T00:30:00Z"), stretches));
+  check("a day ending 24:00 with no next-morning rule does not reach past midnight", !insideAvailability(at("2026-12-08T21:00:00Z"), at("2026-12-08T23:00:00Z"),
+    openStretches("2026-12-08", "2026-12-08", (d) => windowsForDay(d, [night[0]], []))));
+}
+
+console.log("— G21: special days per lane");
+{
+  const biz = { rules: weekdays, exceptions: [{ dayKey: "2026-12-11", kind: "OPEN_HOURS" as const, startMinute: 480, endMinute: 780 }] }; // Fri 08:00–13:00
+  const own = { rules: [{ weekday: 5, startMinute: 600, endMinute: 960 }], exceptions: [] }; // staff: Fri 10:00–16:00
+  eq("windows intersect", intersectWindows([{ startMinute: 600, endMinute: 960 }], [{ startMinute: 480, endMinute: 780 }]), [{ startMinute: 600, endMinute: 780 }]);
+  eq("the business lane: its special day", laneWindowsForDay("2026-12-11", biz, null), [{ startMinute: 480, endMinute: 780 }]);
+  eq("a staff member's own hours, bounded by the business's special day (10:00–13:00, not 08:00–13:00)", laneWindowsForDay("2026-12-11", biz, own), [{ startMinute: 600, endMinute: 780 }]);
+  eq("a staff member without own hours follows the special day", laneWindowsForDay("2026-12-11", biz, { rules: [], exceptions: [] }), [{ startMinute: 480, endMinute: 780 }]);
+  eq("a business closure closes every lane", laneWindowsForDay("2026-12-11", { ...biz, exceptions: [{ dayKey: "2026-12-11", kind: "CLOSED", startMinute: null, endMinute: null }] }, own), []);
+  eq("a business part-closure cuts a staff lane", laneWindowsForDay("2026-12-07", { rules: weekdays, exceptions: [{ dayKey: "2026-12-07", kind: "CLOSED", startMinute: 720, endMinute: 780 }] }, { rules: [{ weekday: 1, startMinute: 600, endMinute: 900 }], exceptions: [] }),
+    [{ startMinute: 600, endMinute: 720 }, { startMinute: 780, endMinute: 900 }]);
+  const staffEx = { rules: own.rules, exceptions: [{ dayKey: "2026-12-11", kind: "CLOSED" as const, startMinute: null, endMinute: null }] };
+  eq("a staff member's own closure closes only their lane", laneWindowsForDay("2026-12-11", biz, staffEx), []);
+  eq("…the business lane is untouched by it", laneWindowsForDay("2026-12-11", biz, null), [{ startMinute: 480, endMinute: 780 }]);
+  eq("a staff special day stays theirs, bounded by the business's special day", laneWindowsForDay("2026-12-11", biz, { rules: [], exceptions: [{ dayKey: "2026-12-11", kind: "OPEN_HOURS", startMinute: 420, endMinute: 1200 }] }), [{ startMinute: 480, endMinute: 780 }]);
+  eq("owner's calendar: on an ordinary day own hours stand outside the business's weekly hours (Saturday work)", laneWindowsForDay("2026-12-12", { rules: weekdays, exceptions: [] }, { rules: [{ weekday: 6, startMinute: 600, endMinute: 720 }], exceptions: [] }), [{ startMinute: 600, endMinute: 720 }]);
+  eq("public link: staff hours only narrow the business's weekly hours (Saturday: none)", laneWindowsForDay("2026-12-12", { rules: weekdays, exceptions: [] }, { rules: [{ weekday: 6, startMinute: 600, endMinute: 720 }], exceptions: [] }, "BUSINESS_HOURS"), []);
+  eq("public link: …and on a weekday the intersection", laneWindowsForDay("2026-12-07", { rules: weekdays, exceptions: [] }, { rules: [{ weekday: 1, startMinute: 480, endMinute: 720 }], exceptions: [] }, "BUSINESS_HOURS"), [{ startMinute: 540, endMinute: 720 }]);
+  const slots = computeSlots({ ...base, fromDay: "2026-12-11", toDay: "2026-12-11", windowsOf: (d) => laneWindowsForDay(d, biz, own) });
+  eq("slots of the staff lane on the business's short Friday: 10:00, 11:00, 12:00", slots.map((x) => iso(x.startsAt)), ["2026-12-11T08:00:00.000Z", "2026-12-11T09:00:00.000Z", "2026-12-11T10:00:00.000Z"]);
+}
+
+console.log("— G22: an appointment with a start and no end occupies time");
+{
+  const s0 = at("2026-12-06T08:00:00Z");
+  eq("its own length", iso(effectiveEnd({ startsAt: s0, endsAt: null, durationMinutes: 45 }) as Date), "2026-12-06T08:45:00.000Z");
+  eq("or the default hour", iso(effectiveEnd({ startsAt: s0, endsAt: null, durationMinutes: null }) as Date), new Date(s0.getTime() + UNTIMED_DEFAULT_MINUTES * 60_000).toISOString());
+  eq("its end when it has one", iso(effectiveEnd({ startsAt: s0, endsAt: at("2026-12-06T09:30:00Z"), durationMinutes: 45 }) as Date), "2026-12-06T09:30:00.000Z");
+  eq("no start: it occupies nothing", effectiveEnd({ startsAt: null, endsAt: null, durationMinutes: 30 }), null);
+  const busy = [occupiedRange(s0, effectiveEnd({ startsAt: s0, endsAt: null, durationMinutes: null }) as Date, 0, 0)];
+  eq("the slot at 10:00 is not offered over it", computeSlots({ ...base, busy }).map((x) => iso(x.startsAt)), ["2026-12-06T07:00:00.000Z", "2026-12-06T09:00:00.000Z"]);
+}
+
+console.log("— G25: the autumn night's repeated hour");
+{
+  // 25 Oct 2026: 02:00 IDT → 01:00 IST. 01:00 happens at 22:00Z (IDT) and again at 23:00Z (IST) on 24 Oct UTC.
+  check("the second 01:00 is the repeated one", isRepeatedWallClock(at("2026-10-24T23:00:00Z")));
+  check("the first 01:00 is not", !isRepeatedWallClock(at("2026-10-24T22:00:00Z")));
+  check("an ordinary night has no repeats", !isRepeatedWallClock(at("2026-12-06T23:00:00Z")));
+  const all = computeSlots({ ...base, fromDay: "2026-10-25", toDay: "2026-10-25", rules: [{ weekday: 0, startMinute: 0, endMinute: 240 }], now: at("2026-10-01T00:00:00Z") });
+  const clocks = all.map((x) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jerusalem", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(x.startsAt));
+  eq("00:00–04:00 that night lists each wall-clock hour once", clocks, ["00:00", "01:00", "02:00", "03:00"]);
+  eq("…the first 01:00 is the one offered", iso(all[1].startsAt), "2026-10-24T22:00:00.000Z");
+}
+
+console.log("— G20: appointments outside the hours after a change");
+{
+  const windowsOf = (_lane: number | null, d: string) => windowsForDay(d, weekdays, [{ dayKey: "2026-12-07", kind: "CLOSED", startMinute: null, endMinute: null }]);
+  const appts = [
+    { id: 1, staffMemberId: null, startsAt: at("2026-12-06T08:00:00Z"), endsAt: at("2026-12-06T09:00:00Z") }, // Sun 10:00 inside
+    { id: 2, staffMemberId: null, startsAt: at("2026-12-07T08:00:00Z"), endsAt: at("2026-12-07T09:00:00Z") }, // Mon closed
+    { id: 3, staffMemberId: 4, startsAt: at("2026-12-06T14:30:00Z"), endsAt: at("2026-12-06T15:30:00Z") }, // past closing
+    { id: 4, staffMemberId: 4, startsAt: at("2026-12-07T10:00:00Z"), endsAt: at("2026-12-07T11:00:00Z") },
+  ];
+  eq("three are outside, counted per day, never changed", appointmentsOutside(appts, windowsOf, () => true),
+    { count: 3, days: [{ dayKey: "2026-12-06", count: 1 }, { dayKey: "2026-12-07", count: 2 }], firstIds: [2, 3, 4] });
+  eq("a lane without any hours known is never outside", appointmentsOutside(appts, windowsOf, (lane) => lane === null).count, 1);
+}
+
+console.log("— G19: the profile's opening hours, from the calendar");
+{
+  eq("weekdays and a short Friday, Saturday closed", openingHoursText([...weekdays, { weekday: 5, startMinute: 540, endMinute: 780 }]),
+    "ראשון–חמישי 09:00–17:00 · שישי 09:00–13:00 · שבת סגור");
+  eq("a night past midnight reads as one range", openingHoursText([{ weekday: 2, startMinute: 1200, endMinute: 1440 }, { weekday: 3, startMinute: 0, endMinute: 120 }]),
+    "ראשון–שני סגור · שלישי 20:00–02:00 · רביעי–שבת סגור");
+  eq("a break is kept", openingHoursText([{ weekday: 0, startMinute: 540, endMinute: 780 }, { weekday: 0, startMinute: 840, endMinute: 1080 }]),
+    "ראשון 09:00–13:00, 14:00–18:00 · שני–שבת סגור");
+  eq("no hours: nothing to write", openingHoursText([]), null);
 }
 
 console.log(`\n${total - failures} passed, ${failures} failed`);

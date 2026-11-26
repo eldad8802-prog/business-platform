@@ -14,7 +14,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 
-import { insideAvailability, windowsAsIntervals, windowsForDay, type DayException, type WeeklyRule } from "@/lib/services/appointment/availability.core";
+import { insideAvailability, openStretches, windowsForDay, type DayException, type WeeklyRule } from "@/lib/services/appointment/availability.core";
 import { normalizeCustomerPhone } from "@/lib/services/integrations/whatsapp/phone";
 import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
@@ -148,7 +148,10 @@ export function chooseStaff(candidates: StaffCandidate[], mode: AssignmentMode):
  */
 export function withinBusinessHours(slot: { startsAt: Date; endsAt: Date }, business: { rules: WeeklyRule[]; exceptions: DayException[] }): boolean {
   const day = jerusalemDayKey(slot.startsAt);
-  return insideAvailability(slot.startsAt, slot.endsAt, windowsAsIntervals(day, windowsForDay(day, business.rules, business.exceptions)));
+  const last = jerusalemDayKey(new Date(slot.endsAt.getTime() - 1));
+  // Across midnight (G17): a night stored as 20:00–24:00 + 00:00–02:00 is one stretch (the exceptions given must
+  // cover the next day too — laneAvailability reads one day beyond each end).
+  return insideAvailability(slot.startsAt, slot.endsAt, openStretches(day, last < day ? day : last, (d) => windowsForDay(d, business.rules, business.exceptions)));
 }
 
 /** D9: whether the customer may still cancel, and until when. */

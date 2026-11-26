@@ -1,9 +1,12 @@
-import { createAppointment, listAppointments } from "@/lib/services/appointment/appointment-schedule.service";
+import { createAppointment, listAppointments, listUntimed } from "@/lib/services/appointment/appointment-schedule.service";
 import { appointmentsRoute, idempotencyKeyOf, json, jsonBody, numericParam, queryOf } from "@/lib/services/appointment/appointments-http";
 
 export const runtime = "nodejs";
 
-/** GET — the calendar of a range: appointments starting in [from, to) (≤ 62 days), optionally one staff lane. */
+/**
+ * GET — the calendar of a range: appointments starting in [from, to) (≤ 62 days), optionally one staff lane; and,
+ * apart, the live appointments without a time or without an end ("ללא שעה", G22) — whenever they are.
+ */
 export async function GET(req: Request) {
   return appointmentsRoute(req, async ({ principal }) => {
     const q = queryOf(req);
@@ -13,7 +16,7 @@ export async function GET(req: Request) {
       staffMemberId: q.staffMemberId === "none" ? null : numericParam(q.staffMemberId),
       includeCanceled: q.includeCanceled,
     });
-    return json({ appointments });
+    return json({ appointments, untimed: await listUntimed(principal) });
   });
 }
 
