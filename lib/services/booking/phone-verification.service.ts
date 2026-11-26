@@ -29,7 +29,7 @@ import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { toE164 } from "@/lib/notifications/customer/appointment-messages";
 import { sendBookingVerificationCode, type VerificationSendResult } from "@/lib/notifications/customer/verification";
 import { customerMessagesEntitlement } from "@/lib/notifications/customer/customer-entitlement";
-import type { TransportDeps } from "@/lib/notifications/customer/platform-transport";
+import { platformSendStopped, type TransportDeps } from "@/lib/notifications/customer/platform-transport";
 
 import { AppointmentServiceError, invalid } from "@/lib/services/appointment/appointment-errors";
 
@@ -107,6 +107,11 @@ export async function issueBookingCode(businessId: number, input: { phone?: unkn
   const now = ctx.now ?? new Date();
   const { digits, e164 } = e164Of(input.phone);
   if (!otpDeliveryAvailable()) throw new AppointmentServiceError("OTP_UNAVAILABLE");
+  // F's emergency stop (WHATSAPP_PLATFORM_SEND_MODE=off): nothing is sent — "try again later", and no challenge is
+  // written, so a stop spends no cap and leaves nothing to verify.
+  if (platformSendStopped(hooks.send?.transport?.env ?? process.env)) {
+    throw new AppointmentServiceError("OTP_UNAVAILABLE", { retryAfterSeconds: OTP_POLICY.resendCooldownSeconds });
+  }
   // The business may message customers at all (appointments AND public_booking AND the notifications_engine kill
   // switch — workstream F's gate): refused BEFORE a challenge is written, so a switched-off business burns no cap.
   const entitled = hooks.send?.entitled ? await hooks.send.entitled(businessId) : (await customerMessagesEntitlement(businessId)).allowed;
@@ -171,6 +176,8 @@ export async function issueBookingCode(businessId: number, input: { phone?: unkn
   );
   if (!sent.ok) {
     if (sent.reason === "not_entitled") throw new AppointmentServiceError("OTP_UNAVAILABLE");
+    // send_failed (Meta refused / unreachable) and send_stopped (the emergency stop switched on between the check above
+    // and the send): the same "try again later" — a new code after the cooldown, inside the caps.
     throw new AppointmentServiceError("OTP_UNAVAILABLE", { retryAfterSeconds: OTP_POLICY.resendCooldownSeconds });
   }
   return { sent: true, expiresInSeconds: OTP_POLICY.lifetimeMinutes * 60, resendInSeconds: OTP_POLICY.resendCooldownSeconds };

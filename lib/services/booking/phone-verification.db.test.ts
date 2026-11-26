@@ -146,6 +146,14 @@ async function main() {
   const killedReady = await settle(admin.getBookingSettings({ kind: "OWNER", businessId: KILLED, userId: userK }));
   ok("A4 …and its readiness names it as not eligible", killedReady.ok && JSON.stringify(killedReady.v?.readiness?.missing ?? []).includes("eligible"), killedReady);
 
+  const stopBefore = await owner.bookingPhoneChallenge.count({ where: { businessId: B } });
+  pv.__setOtpTestHooks({ deliveryAvailable: () => true, send: { transport: { env: { WHATSAPP_PLATFORM_SEND_MODE: "off" } } } });
+  r = await issue(sB.publicId, newPhone());
+  pv.__setOtpTestHooks({ deliveryAvailable: () => true, generateCode: () => { const c = nextCode || String(100000 + Math.floor(Math.random() * 899999)); nextCode = ""; codes.push(c); return c; }, send });
+  ok("A5 F's emergency stop (send mode off): \"try again later\" (OTP_UNAVAILABLE + retry-after), no challenge written",
+    !r.ok && r.code === "OTP_UNAVAILABLE" && (r.details as { retryAfterSeconds?: number } | undefined)?.retryAfterSeconds === 60
+    && (await owner.bookingPhoneChallenge.count({ where: { businessId: B } })) === stopBefore, r);
+
   /* ── B. a code ───────────────────────────────────────────────────────────────────────────────────── */
   console.log("B. a code");
   const p1 = newPhone();
