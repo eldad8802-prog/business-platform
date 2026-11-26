@@ -1,5 +1,5 @@
 # Appointments completion E — recurring appointments (G5), arrival / lateness / status correction (G6) and the setup
-# wizard's server (G9), on migration 20261226090000_appointments_completion (stacked on the DB package; not applied
+# wizard's server (G9), on migration 20261230090000_appointments_completion (stacked on the DB package; not applied
 # anywhere by this workflow except its own ephemeral PostgreSQL).
 #
 #   1. Pure rules: the series' end and days (no open-ended series, 1..104 occurrences, ≤ 730 days), the same local

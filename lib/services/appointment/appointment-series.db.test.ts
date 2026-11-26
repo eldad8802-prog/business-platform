@@ -1,7 +1,7 @@
 /**
  * Recurring appointments (G5), arrival / correction (G6) and the setup wizard's server (G9) — end to end on a real
  * database AS THE RESTRICTED RUNTIME (app_runtime_prod: NOSUPERUSER NOBYPASSRLS), over migration
- * 20261226090000_appointments_completion applied by `prisma migrate deploy` on Production's role topology
+ * 20261230090000_appointments_completion applied by `prisma migrate deploy` on Production's role topology
  * (`.apc/lab.sh <db> --with-apc`). The owner role (BYPASSRLS) writes fixtures and reads back only.
  *
  *   A. HTTP edge: the new routes are 404 with the flag OFF, 401 without a session; ON for business A only.
