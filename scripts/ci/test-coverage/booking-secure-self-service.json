@@ -1,5 +1,5 @@
 {
-  "note": "Appointments completion, workstream G (G2 / G3 / G15 / G16 / G24): WhatsApp phone verification on the public booking link (mandatory for every business — owner requirement 8), eligibility and self-activation of the link, self-reschedule and manage-link expiry, bidi / control character rules for public inputs. Needs migration 20261226090000_appointments_completion (Draft, not applied) and workstream F's verification send API.",
+  "note": "Appointments completion, workstream G (G2 / G3 / G15 / G16 / G24): WhatsApp phone verification on the public booking link (mandatory for every business — owner requirement 8), eligibility and self-activation of the link, self-reschedule and manage-link expiry, bidi / control character rules for public inputs. Needs migration 20261230090000_appointments_completion (Draft, not applied) and workstream F's verification send API.",
   "tests": {
     "lib/services/booking/booking-secure-self-service.test.ts": {
       "class": "SECURITY_REQUIRED",

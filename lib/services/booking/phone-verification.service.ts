@@ -1,7 +1,7 @@
 /**
  * Phone verification on the public booking link (G2, design c — appointments completion program, workstream G).
  * SERVER-ONLY. The rules are in phone-verification.core.ts; the table and its guarantees in migration
- * 20261226090000_appointments_completion ("BookingPhoneChallenge": hashes only, 5-minute default lifetime, attempts
+ * 20261230090000_appointments_completion ("BookingPhoneChallenge": hashes only, 5-minute default lifetime, attempts
  * 0..5, a guard trigger for single use, one OPEN challenge per business + phone).
  *
  *   issue    a new 6-digit code for (business, phone): the IP and every send cap are checked first (platform-wide through

@@ -196,7 +196,7 @@ jobs:
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/apc_proof?$TZQ" \
             npx tsx lib/notifications/customer/customer-whatsapp.db.test.ts
 
-      - name: 6. Secure self-service (workstream G, G2/G3/G15/G16/G24) — phone verification, readiness, self-reschedule, as the runtime
+      - name: 8. Secure self-service (workstream G, G2/G3/G15/G16/G24) — phone verification, readiness, self-reschedule, as the runtime
         run: |
           set -euo pipefail
           TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"

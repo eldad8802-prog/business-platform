@@ -45,7 +45,7 @@ const DEFAULTS = {
   staffChoiceMode: "OPTIONAL" as const, assignmentMode: "BALANCED" as const, selfCancelEnabled: true, selfCancelWindowHours: 24,
   maxOpenRequestsPerPhone: PLATFORM_LIMITS.maxOpenRequestsPerPhone, showAddress: false, showBusinessDetails: false, showPrices: false,
   showStaffNames: true, version: 0,
-  // G15 / D4 (migration 20261226090000) — the same values as the column defaults.
+  // G15 / D4 (migration 20261230090000) — the same values as the column defaults.
   selfRescheduleEnabled: false, selfRescheduleWindowHours: 24, reminderOffsetsMinutes: [1440] as number[], bookingHorizonDays: 60, showLogo: false,
 };
 

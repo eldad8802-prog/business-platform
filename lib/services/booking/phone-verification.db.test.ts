@@ -1,6 +1,6 @@
 /**
  * Appointments completion, workstream G (G2 / G3 / G15 / G16 / G24) — end to end on a real database AS THE RESTRICTED
- * RUNTIME (app_runtime_prod: NOSUPERUSER NOBYPASSRLS) over every migration including 20261226090000_appointments_completion.
+ * RUNTIME (app_runtime_prod: NOSUPERUSER NOBYPASSRLS) over every migration including 20261230090000_appointments_completion.
  * The WhatsApp transport is SIMULATED (workstream F's sendBookingVerificationCode with transport env {} — never a network
  * call: the global fetch throws). The owner role (OWNER_URL) writes fixtures and reads back only.
  *
