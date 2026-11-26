@@ -129,15 +129,26 @@ async function main() {
 
   console.log("G. channel-agnostic: WhatsApp (as F will add it)");
   await owner.$executeRawUnsafe(`ALTER TYPE "NotificationChannel" ADD VALUE IF NOT EXISTS 'WHATSAPP'`);
-  await owner.$executeRawUnsafe(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "attemptedAt")
-    VALUES ($1, $2, 'WHATSAPP', 'FAILED', ${UTC_NOW} - interval '10 minutes')`, bizA, notif);
+  // INTEGRATION (#1289 DB / #1291 F): on the completion schema a WhatsApp delivery is a CUSTOMER delivery
+  // (CHECK NotificationDelivery_customer_channel); before it, the column does not exist.
+  const kindCol = Boolean(await one(`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'NotificationDelivery' AND column_name = 'recipientKind'`));
+  const waC = kindCol ? `, "recipientKind", "recipientPhone", "templateKey", "messageClass"` : "";
+  const waV = kindCol ? `, 'CUSTOMER', '+972501234567', 'dubiz_appt_reminder', 'OPERATIONAL'` : "";
+  // …and at most one customer delivery per notification (NotificationDelivery_customer_one_per_notification_key).
+  let waSeq = 0;
+  const waNotif = async () => kindCol ? Number(await one(`INSERT INTO "Notification" ("businessId", "dedupeKey", "domain", "semanticCategory", "severity", "entityType", "entityId",
+      "title", "summary", "href", "intendedChannels", "reason", "cooldownHours", "updatedAt")
+    VALUES ($1, $2, 'appointments', 'ACTION_REQUIRED', 'HIGH', 'booking_request', 1, 'x', NULL, '/calendar',
+      ARRAY['WHATSAPP']::"NotificationChannel"[], 'lab', 2, now()) RETURNING "id"`, bizA, `health:appointments:wa:${++waSeq}`)) : notif;
+  await owner.$executeRawUnsafe(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "attemptedAt"${waC})
+    VALUES ($1, $2, 'WHATSAPP', 'FAILED', ${UTC_NOW} - interval '10 minutes'${waV})`, bizA, await waNotif());
   const g1 = await check();
   ok("G1 WhatsApp failed, none sent (push still sends) → delivery_outage, one channel", g1.failing.join(",") === "delivery_outage" && g1.counts.channelsInOutage === 1, JSON.stringify(g1));
-  await owner.$executeRawUnsafe(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "attemptedAt") VALUES ($1, $2, 'WHATSAPP', 'SENT', ${UTC_NOW})`, bizA, notif);
+  await owner.$executeRawUnsafe(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "attemptedAt"${waC}) VALUES ($1, $2, 'WHATSAPP', 'SENT', ${UTC_NOW}${waV})`, bizA, await waNotif());
   const g2 = await check();
   ok("G2 one WhatsApp send → no outage", g2.ok && g2.counts.channelsInOutage === 0, JSON.stringify(g2));
-  const wa = Number(await one(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "createdAt", "attemptedAt")
-    VALUES ($1, $2, 'WHATSAPP', 'PENDING', ${UTC_NOW} - interval '45 minutes', ${UTC_NOW} - interval '45 minutes') RETURNING "id"`, bizA, notif));
+  const wa = Number(await one(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "createdAt", "attemptedAt"${waC})
+    VALUES ($1, $2, 'WHATSAPP', 'PENDING', ${UTC_NOW} - interval '45 minutes', ${UTC_NOW} - interval '45 minutes'${waV}) RETURNING "id"`, bizA, await waNotif()));
   const g3 = await check();
   ok("G3 an owed WhatsApp delivery due 45 min ago → owed_delivery_lag", g3.failing.join(",") === "owed_delivery_lag" && (g3.counts.oldestOwedDeliveryMinutes ?? 0) >= 44, JSON.stringify(g3));
   await owner.$executeRawUnsafe(`UPDATE "NotificationDelivery" SET "status" = 'SENT' WHERE "id" = $1`, wa);
