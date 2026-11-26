@@ -16,7 +16,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useFeatureState } from "@/lib/ui/use-feature-enabled";
 
 import { HoursEditor, SpecialDays } from "./availability-editors";
-import { getAvailability, getBookingAdmin, listServices, listStaff, type BookingAdminWire, type ExceptionWire, type RuleWire, type ServiceWire } from "./calendar-client";
+import { getAvailability, getBookingAdmin, getSetupState, listServices, listStaff, type BookingAdminWire, type ExceptionWire, type RuleWire, type ServiceWire } from "./calendar-client";
 import {
   todayKey,
   type StaffWire,
@@ -24,7 +24,7 @@ import {
 import {
   hoursSummary,
 } from "./calendar-rules";
-import { Chevron, FeatureOff, IconCalendar, IconClock, IconLink, IconScissors, IconUsers, LeaveConfirm, Loading, ScreenHead, useToast } from "./ui";
+import { Chevron, FeatureOff, IconCalendar, IconClock, IconGear, IconLink, IconScissors, IconUsers, LeaveConfirm, Loading, ScreenHead, useToast } from "./ui";
 import s from "./calendar.module.css";
 
 type Read<T> = { state: "loading" } | { state: "ready"; value: T } | { state: "error" };
@@ -64,6 +64,8 @@ export function ManageScreen() {
   const staff = useRead(useCallback(() => listStaff(), []), on);
   const services = useRead(useCallback(() => listServices().then((v) => v.filter((x) => x.active)), []), on);
   const booking = useRead(useCallback(() => getBookingAdmin(), []), on);
+  // G9: while the calendar is still empty (no hours, no services), the setup wizard stays one tap away.
+  const setup = useRead(useCallback(() => getSetupState(), []), on);
 
   if (on === false) return <FeatureOff title="ניהול היומן" />;
 
@@ -78,6 +80,9 @@ export function ManageScreen() {
       <div className={s.narrow}>
         <ScreenHead title="ניהול היומן" subtitle="הגדרות וניהול המערכת" fallback="/calendar" />
         <ul className={s.list} style={{ marginTop: 20 }}>
+          {setup.state === "ready" && setup.value.needsSetup ? (
+            <Row href="/calendar/setup" icon={<IconGear size={28} />} title="הגדרת יומן מהירה" sub="שעות, שירותים וצוות בשלושה צעדים" />
+          ) : null}
           <Row href="/calendar/hours" icon={<IconClock size={28} />} title="שעות פעילות" sub={<bdi>{hoursText}</bdi>} tag={avail.state === "ready" && !avail.value.rules.length ? <span className={`${s.tag} ${s.tagWarn}`}>לא הוגדרו</span> : null} />
           <Row href="/calendar/staff" icon={<IconUsers size={28} />} title="צוות" sub={staffText} />
           <Row href="/calendar/services" icon={<IconScissors size={28} />} title="שירותים" sub={servicesText} />

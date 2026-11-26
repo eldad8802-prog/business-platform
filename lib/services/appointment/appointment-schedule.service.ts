@@ -90,7 +90,7 @@ function optionalVersion(value: unknown): number | undefined {
 }
 
 /** End and duration from what the request gave: an end, a duration, or the service's (staff-specific) duration. */
-function resolveSpan(startsAt: Date, endsAt: Date | null, durationMinutes: number | null): { endsAt: Date; durationMinutes: number } {
+export function resolveSpan(startsAt: Date, endsAt: Date | null, durationMinutes: number | null): { endsAt: Date; durationMinutes: number } {
   let minutes: number;
   if (endsAt) {
     const ms = endsAt.getTime() - startsAt.getTime();
@@ -110,19 +110,19 @@ function resolveSpan(startsAt: Date, endsAt: Date | null, durationMinutes: numbe
 
 type Tx = Prisma.TransactionClient;
 
-async function loadOwn(tx: Tx, businessId: number, id: number): Promise<Appointment> {
+export async function loadOwn(tx: Tx, businessId: number, id: number): Promise<Appointment> {
   const row = await tx.appointment.findFirst({ where: { id, businessId } });
   if (!row) throw new AppointmentServiceError("NOT_FOUND");
   return row;
 }
 
-async function activeStaff(tx: Tx, businessId: number, staffMemberId: number) {
+export async function activeStaff(tx: Tx, businessId: number, staffMemberId: number) {
   const s = await tx.staffMember.findFirst({ where: { id: staffMemberId, businessId, active: true, erasedAt: null }, select: { id: true } });
   if (!s) throw new AppointmentServiceError("STAFF_NOT_FOUND");
   return s;
 }
 
-async function activeService(tx: Tx, businessId: number, businessServiceId: number) {
+export async function activeService(tx: Tx, businessId: number, businessServiceId: number) {
   const s = await tx.businessService.findFirst({
     where: { id: businessServiceId, businessId, active: true },
     select: { id: true, name: true, durationMinutes: true },
@@ -132,7 +132,7 @@ async function activeService(tx: Tx, businessId: number, businessServiceId: numb
 }
 
 /** A staff member may take a service when the service names no staff at all, or names them. */
-async function staffServiceDuration(tx: Tx, businessId: number, businessServiceId: number, staffMemberId: number | null): Promise<number | null> {
+export async function staffServiceDuration(tx: Tx, businessId: number, businessServiceId: number, staffMemberId: number | null): Promise<number | null> {
   const live = await tx.staffServiceAssignment.findMany({
     where: { businessId, businessServiceId, removedAt: null },
     select: { staffMemberId: true, durationOverrideMinutes: true },
@@ -143,7 +143,7 @@ async function staffServiceDuration(tx: Tx, businessId: number, businessServiceI
   return mine.durationOverrideMinutes;
 }
 
-async function bufferPolicy(tx: Tx, businessId: number, businessServiceId: number | null) {
+export async function bufferPolicy(tx: Tx, businessId: number, businessServiceId: number | null) {
   if (businessServiceId === null) return { bufferBeforeMinutes: 0, bufferAfterMinutes: 0 };
   const p = await tx.serviceBookingPolicy.findFirst({
     where: { businessId, businessServiceId },
@@ -181,7 +181,7 @@ export async function laneOccupants(tx: Tx, businessId: number, staffMemberId: n
   return rows.map((r) => ({ id: r.id, startsAt: r.startsAt as Date, endsAt: r.endsAt as Date, bufferBeforeMinutes: r.bufferBeforeMinutes, bufferAfterMinutes: r.bufferAfterMinutes }));
 }
 
-async function assertFree(tx: Tx, businessId: number, staffMemberId: number | null, occupied: Interval, excludeId?: number): Promise<void> {
+export async function assertFree(tx: Tx, businessId: number, staffMemberId: number | null, occupied: Interval, excludeId?: number): Promise<void> {
   const occupants = await laneOccupants(tx, businessId, staffMemberId, occupied, excludeId);
   const clashing = occupants.filter((o) => overlaps(occupied, occupiedRange(o.startsAt, o.endsAt, o.bufferBeforeMinutes, o.bufferAfterMinutes)));
   if (clashing.length > 0) {
@@ -214,7 +214,7 @@ export async function laneAvailability(tx: Tx, businessId: number, staffMemberId
   return { rules, exceptions, hasRules: allRules.length > 0 };
 }
 
-async function outsideAvailability(tx: Tx, businessId: number, staffMemberId: number | null, startsAt: Date, endsAt: Date): Promise<boolean> {
+export async function outsideAvailability(tx: Tx, businessId: number, staffMemberId: number | null, startsAt: Date, endsAt: Date): Promise<boolean> {
   const day = jerusalemDayKey(startsAt);
   const { rules, exceptions, hasRules } = await laneAvailability(tx, businessId, staffMemberId, day, day);
   if (!hasRules && exceptions.length === 0) return false; // no hours defined yet: nothing to be outside of
@@ -309,7 +309,7 @@ export async function createAppointment(principal: AppointmentPrincipal, req: Ow
   return materialize(principal.businessId, out);
 }
 
-async function materialize(businessId: number, out: { appointmentId: number; replayed: boolean; warnings: string[] }): Promise<AppointmentWriteResult> {
+export async function materialize(businessId: number, out: { appointmentId: number; replayed: boolean; warnings: string[] }): Promise<AppointmentWriteResult> {
   const appointment = await tenantTx(businessId, (tx) => loadOwn(tx, businessId, out.appointmentId));
   return { appointment, replayed: out.replayed, warnings: out.warnings };
 }

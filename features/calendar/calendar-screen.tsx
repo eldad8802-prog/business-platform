@@ -30,7 +30,7 @@ import { addCalendarDays } from "@/lib/utils/jerusalem-day";
 
 import { AppointmentDetails } from "./appointment-details";
 import { AppointmentForm, MoveForm, type FormDone, type Prefill } from "./appointment-form";
-import { CalendarApiError, customerName, forgetIntent, moveAppointment, pendingRequestCount, type CustomerWire } from "./calendar-client";
+import { CalendarApiError, customerName, forgetIntent, getSetupState, moveAppointment, pendingRequestCount, type CustomerWire } from "./calendar-client";
 import {
   availabilityWarning,
   BLOCK_CONFLICT_TEXT,
@@ -56,6 +56,7 @@ import {
 import { DayStrip, Legend, MonthGrid, TimeGrid, WeekList, dayColumns, type Column, type DropTarget } from "./calendar-views";
 import { RequestsView } from "./requests-view";
 import { Chevron, Empty, FeatureOff, IconCalendar, IconGear, IconPlus, LeaveConfirm, Loading, LoadError, ScreenHead, useToast } from "./ui";
+import { setupSkipped } from "./setup-wizard";
 import { useCalendarData } from "./use-calendar-data";
 import s from "./calendar.module.css";
 
@@ -77,6 +78,13 @@ function CalendarBody() {
   const router = useRouter();
   const params = useSearchParams();
   const [now, setNow] = useState(() => new Date());
+  // G9: an empty calendar (no hours, no services) opens the setup wizard once — unless the owner skipped it here.
+  useEffect(() => {
+    if (setupSkipped()) return;
+    let cancelled = false;
+    getSetupState().then((st) => { if (!cancelled && st.needsSetup) router.replace("/calendar/setup"); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [router]);
   const today = todayKey(now);
 
   const urlView = params?.get("view");
@@ -276,7 +284,8 @@ function CalendarBody() {
     await data.reload();
     const d = out.appointment.startsAt ? todayKey(new Date(out.appointment.startsAt)) : anchor;
     setUrl({ day: d, appointment: String(out.appointment.id), sheet: null });
-    flash(out.warnings.includes("OUTSIDE_AVAILABILITY") ? `${verb} — מחוץ לשעות הפעילות` : verb);
+    const words = out.message ?? verb;
+    flash(out.warnings.includes("OUTSIDE_AVAILABILITY") ? `${words} — מחוץ לשעות הפעילות` : words);
   };
 
   const newAt = (prefill: Partial<Prefill> = {}) =>

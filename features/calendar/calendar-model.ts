@@ -57,6 +57,11 @@ export type AppointmentWire = {
   sourceChannel?: string;
   /** Booked through the public link (Milestone C): the request's state and who asked — the owner's eyes only. */
   booking?: BookingWire | null;
+  /** G5: the occurrence's series and its 0-based place in it (null outside a series). */
+  seriesId?: number | null;
+  seriesIndex?: number | null;
+  /** G6: when the customer arrived (ARRIVED). Lateness is computed from it, never stored. */
+  actualStartedAt?: string | null;
 };
 
 export type BookingWire = { requestId: number; status: string; contactName: string; contactPhone: string | null; note: string | null; expiresAt: string };
@@ -159,6 +164,10 @@ export function errorText(code: string, status?: number): string {
     case "INVALID_TRANSITION": return "אי אפשר לבצע את הפעולה הזו במצב הנוכחי של התור.";
     case "NOT_STARTED": return "אפשר לסמן „התקיים” או „לא הגיע” רק אחרי שעת התחלת התור.";
     case "NO_CUSTOMER": return "„לא הגיע” מתאים רק לתור של לקוח.";
+    case "TOO_EARLY": return "אפשר לסמן הגעה החל משלוש שעות לפני התור.";
+    case "ALREADY_ARRIVED": return "ההגעה כבר סומנה.";
+    case "NOT_CONFIRMED": return "אפשר לסמן הגעה רק לתור מאושר.";
+    case "PUBLIC_BOOKING": return "תור שהוזמן מהקישור לא מתוקן כאן.";
     case "STAFF_NOT_ASSIGNED": return "העובד הזה לא משויך לשירות שנבחר.";
     case "STAFF_NOT_FOUND": return "העובד לא נמצא או שאינו פעיל.";
     case "SERVICE_NOT_FOUND": return "השירות לא נמצא או שאינו פעיל.";
@@ -194,6 +203,10 @@ export const FIELD_LABEL: Record<string, string> = {
   window: "טווח השעות",
   dayKey: "התאריך",
   label: "תיאור",
+  frequency: "תדירות",
+  occurrenceCount: "מספר הפעמים",
+  endsOn: "תאריך הסיום",
+  seriesEnd: "סיום הסדרה",
 };
 
 // ── Days, ranges and clocks ─────────────────────────────────────────────────────────────────────

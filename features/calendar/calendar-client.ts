@@ -108,6 +108,64 @@ export const updateDetails = (
   input: { title?: string | null; notes?: string | null; locationKind?: string | null; locationDetail?: string | null; expectedVersion: number },
 ) => write<WriteResult>(intent, "PATCH", `/api/appointments/${id}/details`, input);
 
+// ── Recurring series (G5), arrival and correction (G6) ─────────────────────────────────────────
+
+export type SeriesRequest = Omit<CreateInput, "endsAt"> & { frequency: "WEEKLY" | "BIWEEKLY"; occurrenceCount?: number; endsOn?: string };
+export type SeriesPreviewWire = {
+  durationMinutes: number;
+  occurrences: Array<{ index: number; dayKey: string; startsAt: string; endsAt: string; ok: boolean; reason: "CONFLICT" | "CLOSED" | null; outside: boolean }>;
+  bookable: number;
+  skipped: number;
+};
+export type SkippedWire = { index: number; dayKey: string; reason: "CONFLICT" | "CLOSED" };
+export type SeriesWire = {
+  id: number; frequency: "WEEKLY" | "BIWEEKLY"; weekday: number; startMinute: number; durationMinutes: number;
+  startsOn: string; endsOn: string | null; occurrenceCount: number | null; cancelledAt: string | null; version: number;
+};
+export type SeriesSummaryWire = {
+  series: SeriesWire;
+  occurrences: Array<{ id: number; seriesIndex: number; status: string; startsAt: string; endsAt: string; version: number }>;
+  skipped: SkippedWire[];
+};
+
+/** Read-only: what the series would book and skip (shown before saving). */
+export const previewSeries = (input: SeriesRequest) => call<SeriesPreviewWire>("POST", "/api/appointments/series/preview", input);
+
+export const createSeries = (intent: string, input: SeriesRequest) =>
+  write<SeriesSummaryWire & { firstAppointmentId: number; replayed?: boolean; warnings?: string[] }>(intent, "POST", "/api/appointments/series", input);
+
+export const getSeries = (id: number) => call<SeriesSummaryWire>("GET", `/api/appointments/series/${id}`);
+
+export type SeriesChangeInput =
+  | { action: "cancel"; scope: "one" | "following"; appointmentId: number; expectedVersion: number; cancelReason?: string | null; reason?: string | null }
+  | { action: "move"; scope: "one" | "following"; appointmentId: number; expectedVersion: number; startsAt: string; durationMinutes?: number; staffMemberId?: number | null };
+
+export const changeSeries = (intent: string, seriesId: number, input: SeriesChangeInput) =>
+  write<{ appointment: AppointmentWire; toSeriesId: number; changed: number; skipped: SkippedWire[]; warnings?: string[] }>(
+    intent, "POST", `/api/appointments/series/${seriesId}/change`, input,
+  );
+
+export const markArrived = (intent: string, id: number, expectedVersion: number) =>
+  write<WriteResult>(intent, "POST", `/api/appointments/${id}/arrival`, { expectedVersion });
+
+export const correctStatus = (
+  intent: string,
+  id: number,
+  input: { to: "CONFIRMED" | "COMPLETED" | "NO_SHOW" | "CANCELED"; reasonCode: string; note?: string | null; expectedVersion: number },
+) => write<WriteResult>(intent, "POST", `/api/appointments/${id}/correction`, input);
+
+// ── First-time setup (G9) ───────────────────────────────────────────────────────────────────────
+
+export type SetupStateWire = { needsSetup: boolean; hasHours: boolean; hasServices: boolean; hasStaff: boolean };
+export type SetupResultWire = { hours: "written" | "kept" | "skipped"; services: "written" | "kept" | "skipped"; staff: "written" | "kept" | "skipped"; state: SetupStateWire };
+
+export const getSetupState = () => call<SetupStateWire>("GET", "/api/appointments/setup");
+export const applySetup = (input: {
+  hours?: Array<{ weekday: number; startMinute: number; endMinute: number }>;
+  services?: Array<{ name: string; durationMinutes: number; priceAmount?: number | null }>;
+  staff?: Array<{ displayName: string }>;
+}) => call<SetupResultWire>("POST", "/api/appointments/setup", input);
+
 export type SlotWire = { startsAt: string; endsAt: string };
 
 export function findSlots(input: { fromDay: string; toDay: string; businessServiceId?: number | null; durationMinutes?: number; staffMemberId?: number | null }) {

@@ -1,0 +1,16 @@
+{
+  "note": "Appointments completion E (recurring G5, arrival / correction G6, setup wizard server G9) on migration 20261230090000_appointments_completion. Both tests run on pull_request by appointments-recurring-ci.yml; the DB one on .apc/lab.sh --with-apc as app_runtime_prod.",
+  "tests": {
+    "lib/services/appointment/appointment-series-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "pure (no DB/network/clock): a series ends after 1..104 occurrences or on a date ≤ 730 days (exactly one; open-ended refused), weekly / bi-weekly days, the same local start across both Israeli clock changes, ending a series before a day; lateness computed from the actual start (never stored), when an arrival may be recorded, correction targets limited to CONFIRMED and what the lifecycle allows from it; run on pull_request by appointments-recurring-ci.yml",
+      "notSecurityBecause": "pure calendar arithmetic and display rules; every authority, isolation and write decision is proven against the database by appointment-series.db.test.ts"
+    },
+    "lib/services/appointment/appointment-series.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "appointments-recurring-ci.yml",
+      "reason": "AS the restricted runtime on migration 20261230090000 (.apc lab): new routes 404 with the flag off / 401 without a session; series preview writes nothing; create books every free occurrence under ownerWrite (lock + Idempotency-Key ledger), skips taken / closed days and reports them, journals APPOINTMENT_CREATED + SERIES_CREATED, replays a repeated key and refuses a reused one; simultaneous series never double-book (no overlapping active pair); business B cannot read, change or reference A's series / staff / customers / occurrences (service, raw RLS, composite FK); cancel / move this or following bump the version, split the rule, refuse a stale version and never force a taken time; ARRIVED and STATUS_CORRECTED journalled with closed tokens; the setup wizard writes only empty parts once (concurrent submits), never overwrites; the erasure line clears series title / customer; run on pull_request by appointments-recurring-ci.yml"
+    }
+  }
+}
