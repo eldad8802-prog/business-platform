@@ -70,8 +70,8 @@ export type TemplateMessage = {
   templateName: string;
   languageCode: string;
   bodyParams: readonly string[];
-  /** AUTHENTICATION templates: the code for Meta's copy-code button. */
-  otpButtonCode?: string;
+  /** The URL button's parameter: the manage token (appointment templates) or the code (AUTHENTICATION copy-code button). */
+  urlButtonParam?: string;
   /** Echoed by Meta in this message's status webhooks (the attempt's fence — whatsapp-worker.ts). */
   callbackData?: string;
   /** Aborts the request before the caller's lease ends. */
@@ -108,7 +108,7 @@ export async function sendPlatformTemplate(msg: TemplateMessage, deps: Transport
     templateName: msg.templateName,
     languageCode: msg.languageCode,
     bodyParams: msg.bodyParams,
-    ...(msg.otpButtonCode ? { otpButtonCode: msg.otpButtonCode } : {}),
+    ...(msg.urlButtonParam ? { urlButtonParam: msg.urlButtonParam } : {}),
     ...(msg.callbackData ? { callbackData: msg.callbackData } : {}),
     ...(msg.signal ? { signal: msg.signal } : {}),
   });

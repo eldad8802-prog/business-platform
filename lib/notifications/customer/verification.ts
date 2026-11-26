@@ -99,7 +99,7 @@ export async function sendBookingVerificationCode(
       ? { kind: "transient", code: "lease_short" }
       : await sendPlatformTemplate({
           toPhone: phone, templateName: template.name, languageCode: template.language, bodyParams: params,
-          otpButtonCode: input.code, callbackData: fence.callback(input.businessId, prepared.deliveryId, token), signal: AbortSignal.timeout(deadline),
+          urlButtonParam: input.code, callbackData: fence.callback(input.businessId, prepared.deliveryId, token), signal: AbortSignal.timeout(deadline),
         }, deps.transport ?? {}).catch((): TransportResult => ({ kind: "uncertain", code: "transport_threw" }));
 
   await tenantTx(input.businessId, async (tx) => {

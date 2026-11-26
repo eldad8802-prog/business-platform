@@ -21,7 +21,7 @@ import { platformConfig, platformPhoneNumberId, platformSendStopped, sendPlatfor
 import { platformStatusesFromBody, statusInstant } from "./whatsapp-status";
 import { fence, sendDeadlineMs, SEND_MARGIN_MS, stillFits, WA_LEASE_MS } from "./whatsapp-worker";
 import { meteringMonth, withinQuota, customerMessageQuota } from "./usage";
-import { buildTemplateParams, renderTemplate, templateByName, templateParam, WHATSAPP_TEMPLATES } from "./whatsapp-templates";
+import { buildTemplateParams, buttonUrlParam, renderTemplate, templateByName, templateCompliance, templateParam, WHATSAPP_TEMPLATES } from "./whatsapp-templates";
 import { sendWhatsAppTemplate } from "@/lib/services/integrations/whatsapp/graph.service";
 
 let passed = 0;
@@ -44,7 +44,7 @@ async function main() {
   console.log("1. templates");
   const all = Object.values(WHATSAPP_TEMPLATES);
   ok("nine templates, unique names, Meta-safe names", all.length === 9 && new Set(all.map((t) => t.name)).size === 9 && all.every((t) => /^[a-z0-9_]{1,64}$/.test(t.name)));
-  ok("every template is marked pending owner AND Meta approval", all.every((t) => t.approval === "pending_owner_and_meta"));
+  ok("every template: owner-approved text (D11), Meta review still pending", all.every((t) => t.approval === "owner_approved_pending_meta"));
   ok("every template is Hebrew", all.every((t) => t.language === "he" && /[֐-׿]/.test(t.body)));
   ok("every OPERATIONAL template names the business (a `business` parameter, used in the body)",
     all.filter((t) => t.messageClass === "OPERATIONAL").every((t) => t.namesBusiness && t.params.includes("business") && t.body.includes(`{{${t.params.indexOf("business") + 1}}}`)));
@@ -57,14 +57,38 @@ async function main() {
     const nums = [...t.body.matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1]));
     return nums.length === t.params.length && nums.every((n, i) => n === i + 1);
   }));
-  ok("the link templates have a link; the no-link forms none", all.every((t) => t.name.endsWith("_nolink") ? !t.params.includes("link") : true)
-    && ["dubiz_appt_confirmed", "dubiz_appt_changed", "dubiz_appt_reminder", "dubiz_appt_received"].every((n) => templateByName(n)!.params.includes("link")));
+  ok("the link templates carry the manage link as a URL BUTTON; the no-link forms and the cancellation none",
+    ["dubiz_appt_confirmed", "dubiz_appt_changed", "dubiz_appt_reminder", "dubiz_appt_received"].every((n) => !!templateByName(n)!.urlButton)
+      && all.filter((t) => t.name.endsWith("_nolink") || t.name === "dubiz_appt_cancelled").every((t) => !t.urlButton));
+
+  console.log("1b. META COMPLIANCE (D11)");
+  ok("every UTILITY template passes Meta's body rules (no leading / trailing / adjacent parameter, sequential, ≤ 1024, ratio, button)",
+    all.every((t) => templateCompliance(t).length === 0), all.map((t) => [t.name, templateCompliance(t)]).filter(([, x]) => (x as string[]).length > 0));
+  ok("no UTILITY body starts or ends with a parameter", all.filter((t) => t.metaCategory === "UTILITY").every((t) => !/^\{\{/.test(t.body.trim()) && !/\}\}[\s.,!?:]*$/.test(t.body.trim())));
+  ok("the details sit on their own lines, each with its label (owner D11)",
+    all.filter((t) => t.messageClass === "OPERATIONAL").every((t) => t.body.includes("בית העסק: {{1}}\nשירות: {{2}}\nתאריך: {{3}}\nשעה: {{4}}")));
+  ok("the line breaks live in the template text, never in a parameter", all.every((t) => t.params.length === 0 || t.body.includes("\n") || t.metaCategory === "AUTHENTICATION"));
+  ok("button labels are the owner's words and ≤ 25 characters", all.filter((t) => t.urlButton).every((t) => ["לניהול התור", "לניהול הבקשה"].includes(t.urlButton!.text) && t.urlButton!.text.length <= 25));
+  ok("the button URL ends with its ONE variable (the manage token)", all.filter((t) => t.urlButton).every((t) => /book\/manage#\{\{1\}\}$/.test(t.urlButton!.url)));
+  ok("owner's exact text where Meta allows it: the cancellation and every _nolink form (no deviation)",
+    WHATSAPP_TEMPLATES.appt_cancelled.body === "התור שלך בוטל.\n\nבית העסק: {{1}}\nשירות: {{2}}\nתאריך: {{3}}\nשעה: {{4}}\n\nלקביעת תור חדש יש לפנות לבית העסק."
+      && all.filter((t) => t.name.endsWith("_nolink")).every((t) => t.body.endsWith("לשינוי או לביטול התור יש לפנות לבית העסק.") && t.deviations.length === 0));
+  ok("every deviation from the owner's text is recorded with its reason", all.filter((t) => t.urlButton).every((t) => t.deviations.length === 1 && /dangling parameter/.test(t.deviations[0])));
+  const conf0 = WHATSAPP_TEMPLATES.appt_confirmed as unknown as Parameters<typeof templateCompliance>[0];
+  const bad = (body: string, extra: Partial<typeof conf0> = {}) => templateCompliance({ ...conf0, ...extra, body });
+  ok("the checker catches a trailing parameter (the owner's literal 'לניהול התור: {{5}}' form)", bad("שלום {{1}} {{2}} {{3}} {{4}} — טקסט קבוע לגמרי ארוך מספיק\nלניהול התור: {{5}}", { params: ["business", "service", "date", "time", "code"] }).some((x) => /ends with/.test(x)));
+  ok("…a leading parameter", bad("{{1}} שלום טקסט קבוע ארוך מספיק {{2}} טקסט {{3}} טקסט {{4}} סוף.").some((x) => /starts with/.test(x)));
+  ok("…adjacent parameters", bad("שלום טקסט קבוע ארוך מספיק {{1}} {{2}} טקסט {{3}} טקסט {{4}} סוף.").some((x) => /adjacent/.test(x)));
+  ok("…a parameter followed only by punctuation at the end", bad("שלום טקסט קבוע ארוך מספיק {{1}} טקסט {{2}} טקסט {{3}} טקסט {{4}}.").some((x) => /ends with/.test(x)));
+  ok("…too many parameters for the text", bad("א {{1}} ב {{2}} ג {{3}} ד {{4}} ה").some((x) => /too many/.test(x)));
+  ok("…a button label over 25 characters", templateCompliance({ ...conf0, urlButton: { text: "א".repeat(26), url: "{APP_BASE_URL}/book/manage#{{1}}" } }).some((x) => /label/.test(x)));
+  ok("button parameter: the base64url manage token only", buttonUrlParam(WHATSAPP_TEMPLATES.appt_confirmed, "abc_DEF-123") === "abc_DEF-123" && buttonUrlParam(WHATSAPP_TEMPLATES.appt_confirmed, "a b") === null && buttonUrlParam(WHATSAPP_TEMPLATES.appt_confirmed_nolink, "abc") === null);
   ok("only the code is VERIFICATION", all.filter((t) => t.messageClass === "VERIFICATION").map((t) => t.name).join() === "dubiz_booking_code");
   const conf = WHATSAPP_TEMPLATES.appt_confirmed;
-  ok("no business name ⇒ refused", buildTemplateParams(conf, { service: "תספורת", date: "א׳", time: "10:00", link: "https://x/book/manage" }) === null);
-  ok("blank business name ⇒ refused", buildTemplateParams(conf, { business: "  ", service: "s", date: "d", time: "t", link: "l" }) === null);
-  ok("a missing value ⇒ refused", buildTemplateParams(conf, { business: "מספרת דנה", service: "s", date: "d", time: "t" }) === null);
-  const p = buildTemplateParams(conf, { business: "מספרת\nדנה    בע\"מ", service: "תספורת", date: "יום ב׳", time: "10:00", link: "https://app.example/book/manage#abc" });
+  ok("no business name ⇒ refused", buildTemplateParams(conf, { service: "תספורת", date: "א׳", time: "10:00" }) === null);
+  ok("blank business name ⇒ refused", buildTemplateParams(conf, { business: "  ", service: "s", date: "d", time: "t" }) === null);
+  ok("a missing value ⇒ refused", buildTemplateParams(conf, { business: "מספרת דנה", service: "s", date: "d" }) === null);
+  const p = buildTemplateParams(conf, { business: "מספרת\nדנה    בע\"מ", service: "תספורת", date: "יום ב׳", time: "10:00" });
   ok("parameters are flat (no new line, no run of spaces)", p !== null && p.every((x) => !/[\n\t]| {2,}/.test(x)), p);
   ok("rendered text names the business", p !== null && renderTemplate(conf, p).includes("מספרת דנה"));
   ok("templateParam keeps digits and text, flattens every line break", templateParam("10:00 בשעה 2028") === "10:00 בשעה 2028"
@@ -143,7 +167,7 @@ async function main() {
   const aborted = await sendWhatsAppTemplate({ ...base, signal: AbortSignal.abort(), fetchImpl: (async (_u: string, init: RequestInit) => { init.signal?.throwIfAborted(); return {} as Response; }) as unknown as typeof fetch });
   ok("graph (item 6): an abort (the lease deadline) is UNCERTAIN", !aborted.ok && aborted.kind === "uncertain" && aborted.code === "template_timeout");
   calls.length = 0;
-  await sendWhatsAppTemplate({ ...base, templateName: "dubiz_booking_code", bodyParams: ["482915"], otpButtonCode: "482915", callbackData: "dz1:b1:d2:AAAAAAAAAAAAAAAAAAAAAA", fetchImpl: fakeFetch(200, { messages: [{ id: "wamid.X" }] }) });
+  await sendWhatsAppTemplate({ ...base, templateName: "dubiz_booking_code", bodyParams: ["482915"], urlButtonParam: "482915", callbackData: "dz1:b1:d2:AAAAAAAAAAAAAAAAAAAAAA", fetchImpl: fakeFetch(200, { messages: [{ id: "wamid.X" }] }) });
   const otp = calls[0]?.body as { biz_opaque_callback_data?: string; template: { components: { type: string; sub_type?: string; parameters: { text: string }[] }[] } };
   ok("graph: the OTP button carries the code; the fence rides as biz_opaque_callback_data",
     otp?.biz_opaque_callback_data === "dz1:b1:d2:AAAAAAAAAAAAAAAAAAAAAA" && otp.template.components[1]?.type === "button" && otp.template.components[1]?.sub_type === "url" && otp.template.components[1]?.parameters[0]?.text === "482915", otp);
@@ -210,6 +234,11 @@ async function main() {
       && /\(await customerMessagesEntitlement\(businessId\)\)\.allowed/.test(src("whatsapp-worker.ts"))
       && /\(await customerMessagesEntitlement\(input\.businessId\)\)\.allowed/.test(src("verification.ts")));
   ok("both gate entry points use the one flag rule", (src("customer-entitlement.ts").match(/return flagsAllow\(|const allowed = flagsAllow\(/g) ?? []).length === 2);
+  ok("item 8 isolation: no engine push / in-app module reads the WhatsApp stop (only the customer lane and the verification API do)",
+    ["lib/notifications/engine/push-worker.ts", "lib/notifications/engine/notify.ts", "lib/notifications/engine/engine-gate.ts", "lib/notifications/engine/worker-decision.ts",
+      "lib/notifications/push/push-sender.ts", "lib/notifications/push/fcm-client.ts", "lib/notifications/push/push-content.ts", "lib/services/booking/booking-notify.ts"]
+      .every((f) => !/WHATSAPP_PLATFORM_SEND_MODE|platform-transport|platformSendStopped/.test(readFileSync(join(process.cwd(), f), "utf8")))
+      && /platformConfig\(transport\.env \?\? process\.env\)\.mode === "off"/.test(src("whatsapp-worker.ts")) && /platformSendStopped\(/.test(src("verification.ts")));
   ok("the lane closes a row of a gated-off business as not_entitled (never sent later)", /if \(!entitled\) return finish\("SUPPRESSED", "not_entitled"\)/.test(src("whatsapp-worker.ts")));
 
   console.log("7. item 6 — the attempt fence and the lease-bounded send");

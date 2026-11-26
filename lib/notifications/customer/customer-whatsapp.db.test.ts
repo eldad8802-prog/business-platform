@@ -25,11 +25,15 @@
  *   G. G13 owner     booking notices via notify(): in the bell, no push owed; the reminder owes ONE push, a second sweep
  *                    within two hours owes none; the lock screen is generic even with lockScreenDetails ON.
  *   H. retention     phones older than 30 days on finished rows are erased; a fresh one is kept.
+ *   K. isolation     WHATSAPP_PLATFORM_SEND_MODE=off stops customer WhatsApp ONLY: with it on, the owner's booking reminder,
+ *                    the owner's own appointment reminder (appointments.upcoming) and a non-appointment category
+ *                    (inventory.critical_stock) are still written in-app and PUSHED by the engine's worker to the
+ *                    owner's FCM device (fake endpoint), while the customer message stays held.
  *   D2 (A16–A18)     the owner's existing control — BookingSettings.reminderOffsetsMinutes: empty list / no settings ⇒ the
  *                    customers of appointments the business enters get nothing; a public-link booking still gets its answer.
  *   S. item 8        WHATSAPP_PLATFORM_SEND_MODE=off: nothing sent, the same row held ('send_stopped') and sent ONCE after the
  *                    stop is lifted, never past its expiry; the verification API refuses and writes nothing.
- *   F. item 6        a lease running out mid-send ⇒ exactly ONE provider send; an uncertain send is never resent and is
+ *   L. item 6        a lease running out mid-send ⇒ exactly ONE provider send; an uncertain send is never resent and is
  *                    resolved by the status webhook through the echoed fence (or closed unresolved); a crashed worker's
  *                    attempt is marked uncertain, not resent; too little lease left ⇒ nothing sent.
  * Every appointment write goes through the LOCKED owner API (createAppointment / changeStatus / moveAppointment — I2).
@@ -37,7 +41,7 @@
  * env: DATABASE_URL / DIRECT_URL = the runtime login (app_runtime_prod), OWNER_URL = the migration role (fixtures
  * only). Synthetic data only. Run: npx tsx lib/notifications/customer/customer-whatsapp.db.test.ts
  */
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, generateKeyPairSync, randomBytes } from "node:crypto";
 
 import { PrismaClient } from "@prisma/client";
 
@@ -48,6 +52,10 @@ process.env.WHATSAPP_APP_SECRET = "lab-app-secret";
 process.env.APP_BASE_URL = "https://app.dubiz.example";
 process.env.TASK_REQUEST_HMAC_KEY = "wa-lab-synthetic-request-hmac-key-0123456789abcdef";
 process.env.TASK_REQUEST_HMAC_KEY_ID = "wa1";
+// A fake FCM project (section K): the engine's push path, end to end, to a fake endpoint — no network.
+process.env.FCM_PROJECT_ID = "dubiz-lab";
+process.env.FCM_CLIENT_EMAIL = "push@dubiz-lab.iam.gserviceaccount.com";
+process.env.FCM_PRIVATE_KEY = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
 // No network, ever.
 globalThis.fetch = (async () => { throw new Error("NETWORK FORBIDDEN IN TESTS"); }) as typeof fetch;
 
@@ -288,13 +296,13 @@ async function main() {
   // Retries on the SAME row (fake live sender — no network).
   const liveEnv = { WHATSAPP_PLATFORM_SEND_MODE: "live", WHATSAPP_PLATFORM_PHONE_NUMBER_ID: "100200300400", WHATSAPP_PLATFORM_ACCESS_TOKEN: "lab-token", APP_BASE_URL: "https://app.dubiz.example" };
   let script: string[] = [];
-  const liveSends: { to: string; params: readonly string[]; template: string; callback: string | undefined }[] = [];
+  const liveSends: { to: string; params: readonly string[]; template: string; callback: string | undefined; button: string | undefined }[] = [];
   let midSend: (() => Promise<void>) | null = null; // runs INSIDE the provider call (a lease running out mid-send)
-  const fakeSend = async (i: { toPhone: string; bodyParams: readonly string[]; templateName: string; callbackData?: string }) => {
+  const fakeSend = async (i: { toPhone: string; bodyParams: readonly string[]; templateName: string; callbackData?: string; urlButtonParam?: string }) => {
     const next = script.shift() ?? "ok";
     if (next === "transient") return { ok: false as const, kind: "transient" as const, code: "template_429", message: "" };
     if (midSend) { const h = midSend; midSend = null; await h(); }
-    liveSends.push({ to: i.toPhone, params: i.bodyParams, template: i.templateName, callback: i.callbackData });
+    liveSends.push({ to: i.toPhone, params: i.bodyParams, template: i.templateName, callback: i.callbackData, button: i.urlButtonParam });
     if (next === "uncertain") return { ok: false as const, kind: "uncertain" as const, code: "template_timeout", message: "" }; // Meta got it, we never heard
     return { ok: true as const, providerMessageId: `wamid.LAB${stamp}${liveSends.length}` };
   };
@@ -352,10 +360,13 @@ async function main() {
   await tenantTx(A, (tx) => appendAppointmentEvent(tx, { businessId: A, appointmentId: pub2.id, eventType: "APPOINTMENT_CREATED", ctx: { actor: "CUSTOMER", userId: null, sourceChannel: "PUBLIC_BOOKING" }, payload: { status: "CONFIRMED" } }));
   const confPub = ofCat(await deliveries(A, pub2.id), "confirmed")[0];
   await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [confPub.id], transport: live, ...q });
-  const link = liveSends[liveSends.length - 1]?.params[4] ?? "";
-  ok("B16 live: a public booking's message carries a FRESH manage link; only its hash is stored",
-    /^https:\/\/app\.dubiz\.example\/book\/manage#[A-Za-z0-9_-]{43}$/.test(link) && (await owner.appointmentManageToken.count({ where: { businessId: A, appointmentId: pub2.id } })) === 1
-      && !(await owner.appointmentManageToken.findFirst({ where: { appointmentId: pub2.id } }))!.tokenHash.includes(link.split("#")[1]), link);
+  const lastSend = liveSends[liveSends.length - 1];
+  const link = lastSend?.button ?? "";
+  const { sha256Hex } = await import("@/lib/services/booking/booking.core");
+  ok("B16 live: a public booking's message carries a FRESH manage token as the URL BUTTON's parameter (Meta-compliant); only its hash is stored",
+    /^[A-Za-z0-9_-]{43}$/.test(link) && lastSend?.params.length === 4 && lastSend?.template === "dubiz_appt_confirmed"
+      && (await owner.appointmentManageToken.count({ where: { businessId: A, appointmentId: pub2.id } })) === 1
+      && (await owner.appointmentManageToken.findFirst({ where: { appointmentId: pub2.id } }))!.tokenHash === sha256Hex(link), lastSend);
 
   const c11 = await svc.create({ businessId: A, actor: actor(userA), links: { customerId: custA }, details: { startsAt: dayIn(17), durationMinutes: 30 } });
   const a11 = c11.ok ? c11.appointment.id : 0;
@@ -409,28 +420,28 @@ async function main() {
   };
   await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [f1.id], transport: live, ...q });
   const f1r = await owner.notificationDelivery.findUnique({ where: { id: f1.id } });
-  ok("F1 lease expired mid-send: worker 2 re-claims but does NOT send (marks the attempt uncertain)",
+  ok("L1 lease expired mid-send: worker 2 re-claims but does NOT send (marks the attempt uncertain)",
     innerReport !== null && (innerReport as { claimed: number; uncertain: number; sent: number }).claimed === 1 && (innerReport as { uncertain: number }).uncertain === 1 && (innerReport as { sent: number }).sent === 0, innerReport);
-  ok("F2 …worker 1's send lands: exactly ONE provider send, the row SENT with Meta's id", liveSends.length === before6 + 1 && f1r?.status === "SENT" && /^wamid\.LAB/.test(f1r.providerMessageId ?? "") && f1r.error === null, f1r);
+  ok("L2 …worker 1's send lands: exactly ONE provider send, the row SENT with Meta's id", liveSends.length === before6 + 1 && f1r?.status === "SENT" && /^wamid\.LAB/.test(f1r.providerMessageId ?? "") && f1r.error === null, f1r);
   for (const t of [20, 40, 120]) await runWhatsAppWorker(new Date(dayNow.getTime() + t * MIN), { businessId: A, deliveryIds: [f1.id], transport: live, ...q });
-  ok("F3 later passes never send it again", liveSends.length === before6 + 1);
+  ok("L3 later passes never send it again", liveSends.length === before6 + 1);
 
   const f2 = await newConfirmed(21);
   script = ["uncertain"];
   await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [f2.id], transport: live, ...q });
   const f2a = await owner.notificationDelivery.findUnique({ where: { id: f2.id } });
   const f2cb = liveSends[liveSends.length - 1].callback ?? "";
-  ok("F4 an UNCERTAIN send (Meta got it, we timed out): the row waits 15 min marked uncertain, never resent", f2a?.status === "PENDING" && /^uncertain:/.test(f2a.error ?? "") && f2a.nextAttemptAt?.getTime() === dayNow.getTime() + 15 * MIN, f2a);
+  ok("L4 an UNCERTAIN send (Meta got it, we timed out): the row waits 15 min marked uncertain, never resent", f2a?.status === "PENDING" && /^uncertain:/.test(f2a.error ?? "") && f2a.nextAttemptAt?.getTime() === dayNow.getTime() + 15 * MIN, f2a);
   const sendsF2 = liveSends.length;
   await runWhatsAppWorker(new Date(dayNow.getTime() + 5 * MIN), { businessId: A, deliveryIds: [f2.id], transport: live, ...q });
-  ok("F5 …not retried while waiting", liveSends.length === sendsF2);
+  ok("L5 …not retried while waiting", liveSends.length === sendsF2);
   const resolvedF2 = await applyPlatformStatuses([{ wamid: `wamid.LATE${stamp}`, status: "delivered", timestamp: null, callbackData: f2cb }]);
   const f2b = await owner.notificationDelivery.findUnique({ where: { id: f2.id } });
-  ok("F6 the status webhook resolves it by the echoed fence: SENT with Meta's id (and the status), once", resolvedF2.resolved === 1 && f2b?.status === "SENT" && f2b.providerMessageId === `wamid.LATE${stamp}` && f2b.providerStatus === "delivered", { resolvedF2, f2b });
+  ok("L6 the status webhook resolves it by the echoed fence: SENT with Meta's id (and the status), once", resolvedF2.resolved === 1 && f2b?.status === "SENT" && f2b.providerMessageId === `wamid.LATE${stamp}` && f2b.providerStatus === "delivered", { resolvedF2, f2b });
   const again = await applyPlatformStatuses([{ wamid: `wamid.OTHER${stamp}`, status: "read", timestamp: null, callbackData: f2cb }]);
-  ok("F7 a second, different id for the same fence changes nothing (write-once)", again.resolved === 0 && (await owner.notificationDelivery.findUnique({ where: { id: f2.id } }))?.providerMessageId === `wamid.LATE${stamp}`);
+  ok("L7 a second, different id for the same fence changes nothing (write-once)", again.resolved === 0 && (await owner.notificationDelivery.findUnique({ where: { id: f2.id } }))?.providerMessageId === `wamid.LATE${stamp}`);
   await runWhatsAppWorker(new Date(dayNow.getTime() + 20 * MIN), { businessId: A, deliveryIds: [f2.id], transport: live, ...q });
-  ok("F8 …and it is never sent again", liveSends.length === sendsF2);
+  ok("L8 …and it is never sent again", liveSends.length === sendsF2);
 
   const f3 = await newConfirmed(22);
   script = ["uncertain"];
@@ -439,16 +450,16 @@ async function main() {
   const sendsF3 = liveSends.length;
   await runWhatsAppWorker(new Date(dayNow.getTime() + 16 * MIN), { businessId: A, deliveryIds: [f3.id], transport: live, ...q });
   const f3a = await owner.notificationDelivery.findUnique({ where: { id: f3.id } });
-  ok("F9 uncertain and never resolved: closed FAILED 'unresolved:…' — NOT resent", f3a?.status === "FAILED" && /^unresolved:/.test(f3a.error ?? "") && liveSends.length === sendsF3, f3a);
+  ok("L9 uncertain and never resolved: closed FAILED 'unresolved:…' — NOT resent", f3a?.status === "FAILED" && /^unresolved:/.test(f3a.error ?? "") && liveSends.length === sendsF3, f3a);
   await applyPlatformStatuses([{ wamid: `wamid.LATE2${stamp}`, status: "read", timestamp: null, callbackData: f3cb }]);
-  ok("F10 a very late webhook still records it SENT (metering exact), still no resend", (await owner.notificationDelivery.findUnique({ where: { id: f3.id } }))?.status === "SENT" && liveSends.length === sendsF3);
+  ok("L10 a very late webhook still records it SENT (metering exact), still no resend", (await owner.notificationDelivery.findUnique({ where: { id: f3.id } }))?.status === "SENT" && liveSends.length === sendsF3);
 
   const f4 = await newConfirmed(23);
   await owner.$executeRawUnsafe(`UPDATE "NotificationDelivery" SET "error" = 'inflight:AAAAAAAAAAAAAAAAAAAAAA', "leaseUntil" = $2::timestamp(3) WHERE "id" = $1`, f4.id, new Date(dayNow.getTime() - MIN).toISOString().replace("T", " ").replace("Z", ""));
   const sendsF4 = liveSends.length;
   const r4 = await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [f4.id], transport: live, ...q });
   const f4a = await owner.notificationDelivery.findUnique({ where: { id: f4.id } });
-  ok("F11 a crashed worker's attempt (inflight, lease gone): the next claim marks it uncertain, sends nothing", r4.uncertain === 1 && liveSends.length === sendsF4 && f4a?.error === "uncertain:AAAAAAAAAAAAAAAAAAAAAA", f4a);
+  ok("L11 a crashed worker's attempt (inflight, lease gone): the next claim marks it uncertain, sends nothing", r4.uncertain === 1 && liveSends.length === sendsF4 && f4a?.error === "uncertain:AAAAAAAAAAAAAAAAAAAAAA", f4a);
 
   const f5 = await newConfirmed(24);
   let tick = 0;
@@ -456,9 +467,9 @@ async function main() {
   const sendsF5 = liveSends.length;
   const r5 = await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [f5.id], transport: live, clock: lateClock, ...q });
   const f5a = await owner.notificationDelivery.findUnique({ where: { id: f5.id } });
-  ok("F12 too little lease left to send safely: nothing sent, the row given back as it was (due now, no marker)",
+  ok("L12 too little lease left to send safely: nothing sent, the row given back as it was (due now, no marker)",
     r5.deferred === 1 && liveSends.length === sendsF5 && f5a?.status === "PENDING" && f5a.error === null && f5a.leaseUntil === null, f5a);
-  ok("F13 every provider call carried this row's fence (biz_opaque_callback_data)", liveSends.slice(before6).every((x) => /^dz1:b\d+:d\d+:[A-Za-z0-9_-]{22}$/.test(x.callback ?? "")));
+  ok("L13 every provider call carried this row's fence (biz_opaque_callback_data)", liveSends.slice(before6).every((x) => /^dz1:b\d+:d\d+:[A-Za-z0-9_-]{22}$/.test(x.callback ?? "")));
 
   /* ── C. statuses ────────────────────────────────────────────────────────────────────────────────────── */
   console.log("C. statuses (G14)");
@@ -572,6 +583,80 @@ async function main() {
   ok("H1 a finished message older than 30 days loses its phone; its row, status and provider id stay",
     erased >= 1 && (await owner.notificationDelivery.findUnique({ where: { id: conf8.id } }))?.recipientPhone === null && (await owner.notificationDelivery.findUnique({ where: { id: conf8.id } }))?.providerMessageId === wamid);
   ok("H2 a fresh one keeps its phone", (await owner.notificationDelivery.findUnique({ where: { id: conf10.id } }))?.recipientPhone === "+972501112233");
+
+  /* ── K. the WhatsApp stop never touches any other notification ───────────────────────────────────────── */
+  console.log("K. WHATSAPP_PLATFORM_SEND_MODE=off — every other notification unaffected");
+  const { runPushWorker } = await import("../engine/push-worker");
+  const { notify } = await import("../engine/notify");
+  const devices = await import("../engine/devices");
+  process.env.WHATSAPP_PLATFORM_SEND_MODE = "off";
+  try {
+    const fcm: { notificationId: string; category: string }[] = [];
+    const fcmFetch = async (url: string, init: { body: string }) => {
+      if (url.startsWith("https://oauth2.googleapis.com/")) return { status: 200, text: async () => JSON.stringify({ access_token: "lab-access", expires_in: 3600 }) };
+      const m = JSON.parse(init.body).message;
+      fcm.push({ notificationId: String(m.data?.notificationId ?? ""), category: String(m.data?.category ?? "") });
+      return { status: 200, text: async () => "{}" };
+    };
+    const u = await owner.user.findUniqueOrThrow({ where: { id: userA }, select: { tokenVersion: true } });
+    const sess = await owner.authSession.create({
+      data: { userId: userA, secretHash: randomBytes(32).toString("hex"), tokenVersionAtIssue: u.tokenVersion, createdAt: new Date(), lastUsedAt: new Date(), idleExpiresAt: new Date(Date.now() + 30 * DAY), absoluteExpiresAt: new Date(Date.now() + 30 * DAY) },
+      select: { id: true },
+    });
+    await devices.registerFcmDevice({ businessId: A, userId: userA, sessionId: sess.id }, { token: `lab-${userA}:APA91b${randomBytes(24).toString("hex")}`, platform: "android", appVersion: "1.5.0" }, new Date());
+    // Lab gap, not product: the appointments-completion lab chain LEDGERS migration 20261213090000 (Production has it
+    // applied) without building its NotificationSettings column, which the engine's per-user step reads. Bring this
+    // throwaway lab to Production's shape with that migration's own statements (idempotent; a no-op where present).
+    await owner.$executeRawUnsafe(`ALTER TABLE "NotificationSettings" ADD COLUMN IF NOT EXISTS "appointmentReminderMinutes" SMALLINT`);
+    await owner.$executeRawUnsafe(`DO $do$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'NotificationSettings_appointment_reminder') THEN
+        ALTER TABLE "NotificationSettings" ADD CONSTRAINT "NotificationSettings_appointment_reminder"
+          CHECK ("appointmentReminderMinutes" IS NULL OR "appointmentReminderMinutes" IN (30, 60, 120, 1440));
+      END IF; END $do$`);
+    // The owner's own preferences: quiet hours OFF (a fixture — the battery may run at any hour), push ON.
+    await owner.notificationSettings.upsert({
+      where: { businessId_userId: { businessId: A, userId: userA } },
+      create: { businessId: A, userId: userA, pushEnabled: true, quietHoursEnabled: false },
+      update: { pushEnabled: true, quietHoursEnabled: false },
+    });
+    const t0 = new Date();
+    const reqId = 880000 + (stamp % 1000);
+    const owedBooking = await tenantTx(A, (tx) => bn.remindPendingRequest(tx, A, { requestId: reqId, contactName: "בודק", serviceName: "תספורת", when: "א׳ 10:00" }, 2, new Date(t0.getTime() + 10 * HOUR), t0));
+    const upcoming = await tenantTx(A, (tx) => notify(tx, { businessId: A, category: "appointments.upcoming", entity: { type: "appointment", id: 990000 + (stamp % 1000) }, title: "תזכורת לתור", href: "/calendar", userId: userA, now: t0, push: { notBefore: t0, expiresAt: new Date(t0.getTime() + HOUR) } }));
+    const inventory = await tenantTx(A, (tx) => notify(tx, { businessId: A, category: "inventory.critical_stock", entity: { type: "inventory_item", id: 770000 + (stamp % 1000) }, title: "מלאי קריטי", href: "/inventory", now: t0 }));
+    const waRow = await newConfirmed(25);
+    const ids = [owedBooking, upcoming.owedDeliveryId, inventory.owedDeliveryId].filter((x): x is number => typeof x === "number");
+    const engineOn = { engineOn: true, categoryAvailable: () => true };
+    const past = new Date("2026-01-01T00:00:00Z");
+    const pushRep = await runPushWorker(new Date(t0.getTime() + 1000), {
+      businessId: A, deps: { fetch: fcmFetch as never }, quiet: true,
+      gates: async () => engineOn,
+      activation: async () => ({ kind: "on" as const, record: { firstActivatedAt: past, lastActivatedAt: past, priorActivatedAt: past, lastDeactivatedAt: null } }),
+    });
+    const waRep = await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [waRow.id], ...q });
+    const inApp = await owner.notificationDelivery.count({ where: { businessId: A, channel: "IN_APP", notificationId: { in: [upcoming.notificationId, inventory.notificationId] } } });
+    const bookingNote = await owner.notification.findFirstOrThrow({ where: { businessId: A, dedupeKey: `booking-request:${reqId}` } });
+    const sentRows = await owner.notificationDelivery.count({ where: { businessId: A, channel: "PUSH", status: "SENT", subscriptionId: { not: null }, notificationId: { in: [bookingNote.id, upcoming.notificationId, inventory.notificationId] } } });
+    const cats = new Set(fcm.map((m) => m.category));
+    ok("K1 the stop is ON for this whole section", process.env.WHATSAPP_PLATFORM_SEND_MODE === "off" && ids.length === 3, ids);
+    ok("K2 owner in-app: the appointment reminder and the inventory alert are in the bell (and the booking notice)", inApp === 2 && (await owner.notificationDelivery.count({ where: { notificationId: bookingNote.id, channel: "IN_APP" } })) >= 1);
+    const k3 = sentRows === 3 && cats.has("booking.request_waiting") && cats.has("appointments.upcoming") && cats.has("inventory.critical_stock") && pushRep.devicesSent === 3;
+    if (!k3) {
+      // Diagnostics only (the worker swallows per-row errors): surface what this lab refused.
+      const probe = async (name: string, f: () => Promise<unknown>) => { try { await f(); console.log(`  probe ${name}: ok`); } catch (e) { console.log(`  probe ${name}: ${e instanceof Error ? e.message.split("\n").slice(-2).join(" ") : e}`); } };
+      const { recipientUsers } = await import("../engine/recipients");
+      await probe("auth_sessions_live", () => tenantTx(A, (tx) => tx.$queryRaw`SELECT "id"::text AS "id" FROM public.auth_sessions_live(${[sess.id]}::uuid[], ${new Date().toISOString().replace("T", " ").replace("Z", "")}::timestamp(3))`));
+      await probe("recipientUsers", () => tenantTx(A, (tx) => recipientUsers(tx, A, getCategory("inventory.critical_stock")!, null)));
+      await probe("devices", () => tenantTx(A, (tx) => tx.pushSubscription.findMany({ where: { businessId: A, userId: userA } })));
+      console.log("  rows", JSON.stringify(await owner.notificationDelivery.findMany({ where: { businessId: A, channel: "PUSH", notificationId: { in: [bookingNote.id, upcoming.notificationId, inventory.notificationId] } }, select: { id: true, status: true, error: true, userId: true, subscriptionId: true } })));
+    }
+    ok("K3 owner PUSH through the engine's worker lane: booking reminder, appointment reminder AND a non-appointment category reach the device",
+      k3, { sentRows, cats: [...cats], pushRep });
+    const waHeld = await owner.notificationDelivery.findUnique({ where: { id: waRow.id } });
+    ok("K4 …while the customer WhatsApp message is HELD (send_stopped), nothing sent", waRep.stopped === 1 && waHeld?.status === "PENDING" && waHeld.error === "send_stopped" && waHeld.providerMessageId === null, waHeld);
+  } finally {
+    delete process.env.WHATSAPP_PLATFORM_SEND_MODE;
+  }
 
   await owner.$disconnect();
   await prisma.$disconnect();

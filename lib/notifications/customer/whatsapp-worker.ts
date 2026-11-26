@@ -45,7 +45,6 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
-import { normalizeAppBaseUrl } from "@/lib/email/transactional/config";
 import { isQuietHours, manageLinkExpiry, newManageToken, quietHoursEnd, safeTimeZone, sha256Hex } from "@/lib/services/booking/booking.core";
 import { TEMPLATE_SEND_TIMEOUT_MS } from "@/lib/services/integrations/whatsapp/graph.service";
 
@@ -55,7 +54,7 @@ import { startOfKey } from "./appointment-messages";
 import { customerMessagesEntitlement } from "./customer-entitlement";
 import { platformConfig, sendPlatformTemplate, type TransportDeps, type TransportResult } from "./platform-transport";
 import { customerMessageQuota, monthlyCustomerMessageUsageInTx, withinQuota } from "./usage";
-import { buildTemplateParams, templateByName, type TemplateValues } from "./whatsapp-templates";
+import { buildTemplateParams, buttonUrlParam, templateByName, type TemplateValues } from "./whatsapp-templates";
 
 type Tx = Prisma.TransactionClient;
 
@@ -187,6 +186,8 @@ type SendPlan = {
   toPhone: string;
   templateName: string;
   bodyParams: string[];
+  /** The URL button's parameter (the manage token), when the template has one. */
+  buttonParam?: string;
   token: string;
   claimedAtMs: number;
 };
@@ -210,6 +211,7 @@ async function processOwed(
   }
   const result = await sendPlatformTemplate({
     toPhone: plan.toPhone, templateName: plan.templateName, languageCode: "he", bodyParams: plan.bodyParams,
+    ...(plan.buttonParam ? { urlButtonParam: plan.buttonParam } : {}),
     callbackData: fence.callback(businessId, id, plan.token), signal: AbortSignal.timeout(deadline),
   }, transport).catch((): TransportResult => ({ kind: "uncertain", code: "transport_threw" }));
   await tenantTx(businessId, (tx) => recordResult(tx, businessId, plan, result, now, report));
@@ -340,27 +342,26 @@ async function claimAndDecide(
     return hold(end, null);
   }
 
-  const bodyParamsBase = template.params.includes("link") ? null : buildTemplateParams(template, values);
-  if (!template.params.includes("link") && !bodyParamsBase) return finish("FAILED", "template_params");
+  const bodyParams = buildTemplateParams(template, values);
+  if (!bodyParams) return finish("FAILED", "template_params");
 
-  // The manage link is minted LAST — after every reason not to send now — so a deferred or refused message never
-  // leaves a token behind.
-  if (apptForLink && template.params.includes("link")) {
-    const base = normalizeAppBaseUrl((transport.env ?? process.env).APP_BASE_URL?.trim() ?? "");
-    if (!base) return finish("FAILED", "no_link_base");
+  // The manage link (a dynamic URL button, Meta-compliant — whatsapp-templates.ts) is minted LAST — after every reason
+  // not to send now — so a deferred or refused message never leaves a token behind.
+  let buttonParam: string | undefined;
+  if (template.urlButton) {
+    if (!apptForLink) return finish("FAILED", "no_link_target");
     if (platformConfig(transport.env ?? process.env).mode === "live") {
       // A fresh link for this message (only its hash is stored); the customer's earlier links stay valid.
-      const token = newManageToken();
+      const manageToken = newManageToken();
       await tx.appointmentManageToken.create({
-        data: { businessId, appointmentId: apptForLink.id, tokenHash: sha256Hex(token), expiresAt: manageLinkExpiry(now, apptForLink.startsAt!), createdAt: now },
+        data: { businessId, appointmentId: apptForLink.id, tokenHash: sha256Hex(manageToken), expiresAt: manageLinkExpiry(now, apptForLink.startsAt!), createdAt: now },
       });
-      values.link = `${base}/book/manage#${token}`;
+      buttonParam = buttonUrlParam(template, manageToken) ?? undefined;
     } else {
-      values.link = `${base}/book/manage`; // simulate: no token is minted for a message that is never sent
+      buttonParam = "sim"; // simulate: no token is minted for a message that is never sent
     }
+    if (!buttonParam) return finish("FAILED", "template_params");
   }
-  const bodyParams = bodyParamsBase ?? buildTemplateParams(template, values);
-  if (!bodyParams) return finish("FAILED", "template_params");
 
   // ── (a) the fence: this attempt's token, stamped in the same transaction as the claim ──────────────────────────────
   const token = fence.newToken();
@@ -368,7 +369,7 @@ async function claimAndDecide(
     where: { id, businessId, status: "PENDING", leaseUntil: lease },
     data: { error: fence.inflight(token), attemptedAt: now },
   });
-  return { lease, id, attempts: row.attempts, expiry, toPhone: row.recipientPhone, templateName: template.name, bodyParams, token, claimedAtMs };
+  return { lease, id, attempts: row.attempts, expiry, toPhone: row.recipientPhone, templateName: template.name, bodyParams, buttonParam, token, claimedAtMs };
 }
 
 async function recordResult(tx: Tx, businessId: number, plan: SendPlan, result: TransportResult, now: Date, report: WhatsAppReport): Promise<void> {

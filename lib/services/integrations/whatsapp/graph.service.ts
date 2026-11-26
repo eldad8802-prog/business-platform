@@ -363,8 +363,8 @@ export async function sendWhatsAppTemplate(input: {
   templateName: string;
   languageCode: string;
   bodyParams: readonly string[];
-  /** AUTHENTICATION templates: the code for the copy-code button (Meta requires it as the button's URL parameter). */
-  otpButtonCode?: string;
+  /** The URL button's one parameter (index 0): the customer's manage token, or the code of an AUTHENTICATION copy-code button. */
+  urlButtonParam?: string;
   /** Echoed by Meta in the status webhooks of this message (max 512 characters). */
   callbackData?: string;
   /** Aborts the request (the worker's lease deadline). Default: TEMPLATE_SEND_TIMEOUT_MS. */
@@ -382,7 +382,7 @@ export async function sendWhatsAppTemplate(input: {
   const doFetch = input.fetchImpl ?? fetch;
   const components: unknown[] = [];
   if (input.bodyParams.length > 0) components.push({ type: "body", parameters: input.bodyParams.map((text) => ({ type: "text", text })) });
-  if (input.otpButtonCode) components.push({ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: input.otpButtonCode }] });
+  if (input.urlButtonParam) components.push({ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: input.urlButtonParam }] });
   try {
     const res = await doFetch(url.toString(), {
       method: "POST",
