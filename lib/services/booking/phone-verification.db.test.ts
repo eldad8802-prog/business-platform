@@ -241,7 +241,7 @@ async function main() {
   ok("G2 even directly, the database's guard refuses verifying an expired code (DZA05)", !direct.ok && /DZA05|BOOKING_CHALLENGE_GUARD/.test(JSON.stringify(direct)), direct);
 
   /* ── H. caps ─────────────────────────────────────────────────────────────────────────────────────── */
-  console.log("H. caps (proposed values)");
+  console.log("H. caps (PILOT values — owner D7: business 9 pilot only)");
   const p5 = newPhone();
   const tH = new Date();
   const h = [];
@@ -377,6 +377,18 @@ async function main() {
   ok("M10 the business horizon (5 days) closes day 10 and narrows the service's 60 days", far.ok && far.v!.slots.length === 0
     && prof.ok && (prof.v as { services: { maxAdvanceDays: number }[] }).services[0].maxAdvanceDays === 5, far);
   await owner.bookingSettings.update({ where: { businessId: A }, data: { bookingHorizonDays: 60 } });
+  // D12: a service with a LONGER own horizon (90) keeps it while the business holds the default 60.
+  await owner.serviceBookingPolicy.updateMany({ where: { businessId: A, businessServiceId: sA.serviceId }, data: { maxAdvanceDays: 90 } });
+  const day75 = addCalendarDays(jerusalemDayKey(new Date()), 75);
+  const long = await settle(pb.getPublicSlots(sA.publicId, { serviceId: sA.serviceId, fromDay: day75, toDay: day75 }));
+  const prof90 = await settle(pb.getPublicProfile(sA.publicId));
+  await owner.bookingSettings.update({ where: { businessId: A }, data: { bookingHorizonDays: 70 } });
+  const capped = await settle(pb.getPublicSlots(sA.publicId, { serviceId: sA.serviceId, fromDay: day75, toDay: day75 }));
+  ok("M10b D12: business at the default 60 + a 90-day service → day 75 offered and the profile says 90; a chosen 70 closes day 75",
+    long.ok && long.v!.slots.length > 0 && prof90.ok && (prof90.v as { services: { maxAdvanceDays: number }[] }).services[0].maxAdvanceDays === 90
+    && capped.ok && capped.v!.slots.length === 0, { long: long.ok ? long.v!.slots.length : long.code, capped: capped.ok ? capped.v!.slots.length : capped.code });
+  await owner.bookingSettings.update({ where: { businessId: A }, data: { bookingHorizonDays: 60 } });
+  await owner.serviceBookingPolicy.updateMany({ where: { businessId: A, businessServiceId: sA.serviceId }, data: { maxAdvanceDays: 60 } });
   const late = new Date(appt1b.endsAt!.getTime() + 7 * DAY + MIN);
   view = await settle(pb.viewByToken(manageToken, late));
   ok("M11 a minute after end + 7 days the manage link no longer opens (404)", !view.ok && view.code === "NOT_FOUND", view);

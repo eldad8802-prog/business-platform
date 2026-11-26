@@ -127,9 +127,10 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
     ],
   },
   // Phone verification on the link (G2, appointments completion). Asking for a WhatsApp code costs money, so the IP
-  // ceiling sits in front of the platform-wide / per-business send caps counted in the database (OTP_SEND_CAPS in
-  // lib/services/booking/phone-verification.core.ts). Checking a code: the challenge itself allows 5 attempts; this
-  // stops one address from cycling through many phones. PROPOSED values, pending owner approval.
+  // ceiling sits in front of the platform-wide / per-business send caps counted in the database (PILOT_OTP_SEND_CAPS in
+  // lib/services/booking/phone-verification.core.ts, PILOT_OTP_SEND_CAPS). Checking a code: the challenge itself allows
+  // 5 attempts; this stops one address from cycling through many phones. PILOT values — owner decision D7: approved for
+  // the business 9 pilot only, not the final commercial quotas.
   PUBLIC_BOOKING_OTP_SEND: {
     failMode: "closed",
     rules: [

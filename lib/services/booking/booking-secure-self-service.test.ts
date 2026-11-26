@@ -2,7 +2,7 @@
  * Appointments completion, workstream G (G2 / G3 / G15 / G24) — the pure rules. No DB, no network (fetch throws), no
  * real clock. Run: npx tsx lib/services/booking/booking-secure-self-service.test.ts
  *
- *   A. OTP policy      5-minute lifetime, 5 attempts, 60 s cooldown, 6 random digits; the proposed send caps
+ *   A. OTP policy      5-minute lifetime, 5 attempts, 60 s cooldown, 6 random digits; the PILOT send caps (owner D7: business 9 pilot only)
  *   B. secrets         keyed hashes (domain separated, never the phone / code), constant-time compare, key rotation,
  *                      the browser's verification token bound to business + challenge + moment
  *   C. delivery path   simulate (the default) is NOT a path that can deliver a code; live needs every credential; the
@@ -25,7 +25,7 @@ import {
   newOtpCode,
   OTP_CODE,
   OTP_POLICY,
-  OTP_SEND_CAPS,
+  PILOT_OTP_SEND_CAPS,
   otpKeysFromEnv,
   phoneHashesOf,
   phoneHashOf,
@@ -60,9 +60,9 @@ check("A5 codes are random (2000 draws, ≥ 1990 distinct; every first digit 0�
 const zero: OtpCounts = { phoneHour: 0, phoneDay: 0, ipHour: 0, ipDay: 0, businessHour: 0, businessDay: 0, phoneBusinessHour: 0 };
 check("A6 caps: nothing sent yet → allowed", capExceeded(zero) === null);
 check("A7 caps: 3 codes to one phone at one business in an hour → refused (phone)", capExceeded({ ...zero, phoneBusinessHour: 3 }) === "phone" && capExceeded({ ...zero, phoneBusinessHour: 2 }) === null);
-check("A8 caps: the phone across businesses (hour / day)", capExceeded({ ...zero, phoneHour: OTP_SEND_CAPS.perPhonePerHour }) === "phone" && capExceeded({ ...zero, phoneDay: OTP_SEND_CAPS.perPhonePerDay }) === "phone");
-check("A9 caps: one IP (hour / day)", capExceeded({ ...zero, ipHour: OTP_SEND_CAPS.perIpPerHour }) === "ip" && capExceeded({ ...zero, ipDay: OTP_SEND_CAPS.perIpPerDay }) === "ip");
-check("A10 caps: one business (hour / day)", capExceeded({ ...zero, businessHour: OTP_SEND_CAPS.perBusinessPerHour }) === "business" && capExceeded({ ...zero, businessDay: OTP_SEND_CAPS.perBusinessPerDay }) === "business");
+check("A8 caps: the phone across businesses (hour / day)", capExceeded({ ...zero, phoneHour: PILOT_OTP_SEND_CAPS.perPhonePerHour }) === "phone" && capExceeded({ ...zero, phoneDay: PILOT_OTP_SEND_CAPS.perPhonePerDay }) === "phone");
+check("A9 caps: one IP (hour / day)", capExceeded({ ...zero, ipHour: PILOT_OTP_SEND_CAPS.perIpPerHour }) === "ip" && capExceeded({ ...zero, ipDay: PILOT_OTP_SEND_CAPS.perIpPerDay }) === "ip");
+check("A10 caps: one business (hour / day)", capExceeded({ ...zero, businessHour: PILOT_OTP_SEND_CAPS.perBusinessPerHour }) === "business" && capExceeded({ ...zero, businessDay: PILOT_OTP_SEND_CAPS.perBusinessPerDay }) === "business");
 const t0 = new Date("2026-12-01T10:00:00.000Z");
 check("A11 cooldown: 60 s after a code → 60; after 59.5 s → 1; after 60 s → 0; none before → 0",
   cooldownLeftSeconds(t0, t0) === 60 && cooldownLeftSeconds(t0, new Date(t0.getTime() + 59_500)) === 1
@@ -118,7 +118,9 @@ check("E1 self-reschedule OFF → never", selfReschedule({ enabled: false, windo
 check("E2 ON, 24 h window: 25 h before → allowed until start − 24 h", (() => { const r = selfReschedule({ enabled: true, windowHours: 24 }, start, new Date(start.getTime() - 25 * H)); return r.allowed && r.until?.getTime() === start.getTime() - 24 * H; })());
 check("E3 …23 h before → closed", selfReschedule({ enabled: true, windowHours: 24 }, start, new Date(start.getTime() - 23 * H)).allowed === false);
 check("E4 window 0 → until the start itself", selfReschedule({ enabled: true, windowHours: 0 }, start, new Date(start.getTime() - MIN)).allowed && !selfReschedule({ enabled: true, windowHours: 0 }, start, new Date(start.getTime() + MIN)).allowed);
-check("E5 the business horizon narrows a service's own, never widens it", effectiveHorizonDays(90, 60) === 60 && effectiveHorizonDays(30, 60) === 30 && effectiveHorizonDays(30, null) === 30 && effectiveHorizonDays(400, 500) === 365);
+check("E5 the business horizon narrows a service's own, never widens it", effectiveHorizonDays(90, 30) === 30 && effectiveHorizonDays(30, 45) === 30 && effectiveHorizonDays(30, null) === 30 && effectiveHorizonDays(400, 500) === 365);
+check("E5b D12: the default 60 keeps a service's longer horizon (90 stays 90, 365 stays 365); below 60 it is the service's own", effectiveHorizonDays(90, 60) === 90 && effectiveHorizonDays(365, 60) === 365 && effectiveHorizonDays(30, 60) === 30 && effectiveHorizonDays(60, 60) === 60);
+check("E5c D12: any other business value narrows (61 caps a 90-day service at 61)", effectiveHorizonDays(90, 61) === 61 && effectiveHorizonDays(90, 59) === 59);
 const end = new Date(start.getTime() + 45 * MIN);
 const issued = new Date("2026-12-01T10:00:00.000Z");
 check("E6 a manage link lives until 7 days after the appointment ENDS", MANAGE_LINK_GRACE_DAYS === 7 && manageLinkExpiry(issued, start, end).getTime() === end.getTime() + 7 * 24 * H);

@@ -230,9 +230,20 @@ export function selfReschedule(policy: { enabled: boolean; windowHours: number }
   return selfCancel(policy, startsAt, now);
 }
 
-/** The business's booking horizon (bookingHorizonDays, 1..365) narrows a service's own maxAdvanceDays — never widens. */
+/** BookingSettings.bookingHorizonDays' column default (migration 20261230090000): every existing row holds it. */
+export const DEFAULT_BOOKING_HORIZON_DAYS = 60;
+
+/**
+ * The business's booking horizon (bookingHorizonDays, 1..365) narrows a service's own maxAdvanceDays — never widens.
+ * Owner decision D12 (2026-11-26): the column DEFAULT (60) never shortens a service whose own horizon is longer — every
+ * existing business holds 60 without having chosen it, and its services keep exactly the horizon they have today. Any
+ * other value is the owner's choice and narrows. (Consequence, documented: choosing exactly 60 does not cap a service
+ * set to 90; the owner lowers the service's own horizon for that.)
+ */
 export function effectiveHorizonDays(serviceMaxAdvanceDays: number, businessHorizonDays: number | null | undefined): number {
-  const biz = Number.isInteger(businessHorizonDays) && (businessHorizonDays as number) >= 1 ? Math.min(businessHorizonDays as number, 365) : serviceMaxAdvanceDays;
+  if (!Number.isInteger(businessHorizonDays) || (businessHorizonDays as number) < 1) return serviceMaxAdvanceDays;
+  const biz = Math.min(businessHorizonDays as number, 365);
+  if (biz === DEFAULT_BOOKING_HORIZON_DAYS && serviceMaxAdvanceDays > biz) return serviceMaxAdvanceDays;
   return Math.min(serviceMaxAdvanceDays, biz);
 }
 

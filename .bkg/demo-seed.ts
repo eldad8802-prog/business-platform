@@ -37,7 +37,13 @@ async function main() {
   await owner.businessFeatureAccess.createMany({ data: [
     { businessId: biz, featureKey: "appointments", state: "ENABLED", reason: "local demo" },
     { businessId: biz, featureKey: "public_booking", state: "ENABLED", reason: "local demo" },
-  ] });
+    // The kill switch the verification code needs (workstream F's gate).
+    { businessId: biz, featureKey: "notifications_engine", state: "ENABLED", reason: "local demo" },
+  ], skipDuplicates: true });
+  // Appointments completion G2 (owner requirement 8): the shared lab adapter declares the WhatsApp path available and
+  // writes, as the owner, the verification each demo request carries.
+  const { bookingVerificationAdapter } = await import("./verify-adapter");
+  const verified = await bookingVerificationAdapter(owner);
   const svc = async (name: string, durationMinutes: number, price: number) => (await owner.businessService.create({ data: { businessId: biz, name, type: "SERVICE", durationMinutes, priceMode: "FIXED", priceAmount: price } })).id;
   const haircut = await svc("תספורת", 45, 120), color = await svc("צבע", 90, 280), consult = await svc("ייעוץ", 30, 0);
   await owner.customer.create({ data: { businessId: biz, name: "נועה לוי", phone: "972521111111" } });
@@ -69,7 +75,7 @@ async function main() {
   let d1 = day(2); while ([5, 6].includes(new Date(`${d1}T12:00:00Z`).getUTCDay())) d1 = addCalendarDays(d1, 1);
   let d2 = addCalendarDays(d1, 1); while ([5, 6].includes(new Date(`${d2}T12:00:00Z`).getUTCDay())) d2 = addCalendarDays(d2, 1);
   const at = (d: string, h: number, m = 0) => jerusalemInstantAt(d, h, m).toISOString();
-  const submit = async (body: Record<string, unknown>) => json(await r.submit.POST(req(`/api/public/booking/${publicId}/requests`, { method: "POST", key: uuidV7(new Date()), body, token: null }), p({ publicId })));
+  const submit = async (body: Record<string, unknown>) => json(await r.submit.POST(req(`/api/public/booking/${publicId}/requests`, { method: "POST", key: uuidV7(new Date()), body: { ...body, verificationToken: await verified.forBusiness(biz, body.phone) }, token: null }), p({ publicId })));
   await submit({ serviceId: haircut, startsAt: at(d1, 10), name: "רון אברהם", phone: "054-444-4444", note: "פעם ראשונה אצלכם" });
   await submit({ serviceId: haircut, staffId: avi.id, startsAt: at(d1, 12), name: "נועה לוי", phone: "052-111-1111" });
   await submit({ serviceId: haircut, startsAt: at(d2, 9, 30), name: "מאיה פרץ", phone: "053-333-3333" });

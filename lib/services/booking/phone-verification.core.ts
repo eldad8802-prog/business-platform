@@ -36,12 +36,14 @@ export const OTP_POLICY = {
 } as const;
 
 /**
- * Send caps — PROPOSED VALUES, pending owner approval (no number here is an owner decision yet). Counted from the
+ * Send caps — PILOT values. Owner decision D7 (2026-11-26): approved for the business 9 PILOT ONLY; they are NOT the
+ * final commercial quotas (those are a later owner decision, per plan — do not reuse these numbers as product limits).
+ * Counted from the
  * BookingPhoneChallenge rows themselves (one row = one code sent): per phone and per IP across ALL businesses through
  * booking_otp_send_counts() (counts only), per business and per (business, phone) inside the tenant's own rows. The
  * IP rate-limiter buckets PUBLIC_BOOKING_OTP_SEND / _VERIFY sit in front of them (lib/security/rate-limiter/buckets.ts).
  */
-export const OTP_SEND_CAPS = {
+export const PILOT_OTP_SEND_CAPS = {
   /** The design's "up to 3 sends": codes to one phone for one business in an hour. */
   perPhonePerBusinessPerHour: 3,
   /** One phone, all businesses. */
@@ -66,7 +68,7 @@ export type OtpCounts = {
 };
 
 /** Which cap a new send would break, or null. The answer names no phone and no business. */
-export function capExceeded(c: OtpCounts, caps: typeof OTP_SEND_CAPS = OTP_SEND_CAPS): "phone" | "ip" | "business" | null {
+export function capExceeded(c: OtpCounts, caps: typeof PILOT_OTP_SEND_CAPS = PILOT_OTP_SEND_CAPS): "phone" | "ip" | "business" | null {
   if (c.phoneBusinessHour >= caps.perPhonePerBusinessPerHour || c.phoneHour >= caps.perPhonePerHour || c.phoneDay >= caps.perPhonePerDay) return "phone";
   if (c.ipHour >= caps.perIpPerHour || c.ipDay >= caps.perIpPerDay) return "ip";
   if (c.businessHour >= caps.perBusinessPerHour || c.businessDay >= caps.perBusinessPerDay) return "business";

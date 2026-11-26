@@ -251,6 +251,9 @@ export function BookingFlow({ publicId }: { publicId: string }) {
   /** G2: check the code, then send the request with the verification token. */
   const confirmCode = useCallback(async () => {
     if (inFlight.current) return;
+    // Already verified on this visit (the request failed after it — busy, network, a time taken): send again with the
+    // same verification. A code is single use, so it is never checked twice.
+    if (vToken && vToken.phone === phone.trim()) { await submit(vToken.token); return; }
     if (code.length !== 6) { setCodeErr("צריך להקליד את 6 הספרות שקיבלת."); return; }
     inFlight.current = true;
     setSending(true);
@@ -267,7 +270,7 @@ export function BookingFlow({ publicId }: { publicId: string }) {
     }
     setVToken({ phone: phone.trim(), token: a.data.verificationToken });
     await submit(a.data.verificationToken);
-  }, [code, phone, publicId, submit]);
+  }, [code, phone, publicId, submit, vToken]);
 
   // ── whole-page states ──
   if (profile.state === "loading") {
@@ -315,7 +318,8 @@ export function BookingFlow({ publicId }: { publicId: string }) {
           : true;
   const chosenStaff = staffId !== null ? service?.staff?.find((x) => x.id === staffId)?.name ?? null : null;
   // G2: a code is needed unless this visit already verified this very phone.
-  const needsCode = steps.includes("verify") && !(vToken && vToken.phone === phone.trim());
+  const verifiedNow = !!vToken && vToken.phone === phone.trim();
+  const needsCode = steps.includes("verify") && !verifiedNow;
   // The service's own horizon: no paging into weeks it is never offered in.
   const lastDay = lastBookableDay(today, service);
 
@@ -468,7 +472,10 @@ export function BookingFlow({ publicId }: { publicId: string }) {
 
         {step === "verify" && service && startsAt ? (
           <form className={s.list} noValidate onSubmit={(e) => { e.preventDefault(); void confirmCode(); }} id="bk-code-form">
-            <p className={s.hint}>למספר <bdi dir="ltr">{phoneShown(phone)}</bdi> · <button type="button" className={s.linkBtn} onClick={() => { setCodeErr(null); go("details"); }}>שינוי</button></p>
+            {/* D1 (owner, 2026-11-26): the WhatsApp code is an AUTHENTICATION template — Meta's fixed text, no business
+                name — so the business is named HERE, next to where the code is typed. */}
+            <p className={s.summary}>קוד אימות לתור ב־<strong><bdi>{p.business.name}</bdi></strong> נשלח ב-WhatsApp למספר <bdi dir="ltr">{phoneShown(phone)}</bdi> · <button type="button" className={s.linkBtn} onClick={() => { setCodeErr(null); go("details"); }}>שינוי</button></p>
+            <p className={s.hint}>ההודעה מגיעה מהמספר של דוביז, שמזמינה עבור העסק את התור.</p>
             <div className={s.field}>
               <label className={s.label} htmlFor="bk-code">קוד אימות (6 ספרות)</label>
               <input id="bk-code" className={`${s.input} ${s.code} ${codeErr ? s.inputBad : ""}`} value={code} onChange={(e) => { setCode(codeDigits(e.target.value)); setCodeErr(null); }}
@@ -481,6 +488,7 @@ export function BookingFlow({ publicId }: { publicId: string }) {
                 : <>לא הגיע? <button type="button" className={s.linkBtn} disabled={sending} onClick={() => void requestCode()}>שליחה חוזרת</button></>}
             </p>
             <p className={s.note}>השעה שבחרת לא נתפסת עד לאימות. {service.approval === "AUTO" ? "אחרי האימות התור נקבע מיד ויישלח אליך אישור ב-WhatsApp." : "אחרי האימות הבקשה תישלח לעסק, והתשובה תגיע אליך ב-WhatsApp."}</p>
+            {formError ? <div className={s.banner} role="alert">{formError}</div> : null}
           </form>
         ) : null}
       </div>
@@ -494,7 +502,9 @@ export function BookingFlow({ publicId }: { publicId: string }) {
           {/* Distinct keys: React must never turn the "continue" button into the submit button while it is being
               clicked — the browser would then complete that click as a form submission. */}
           {step === "verify" ? (
-            <button key="verify" type="submit" form="bk-code-form" className={s.btn} disabled={sending || code.length !== 6} aria-busy={sending}>{sending ? "בודק…" : service?.approval === "AUTO" ? "אימות וקביעת התור" : "אימות ושליחת הבקשה"}</button>
+            <button key="verify" type="submit" form="bk-code-form" className={s.btn} disabled={sending || (!verifiedNow && code.length !== 6)} aria-busy={sending}>
+              {sending ? "שולח…" : verifiedNow ? (service?.approval === "AUTO" ? "קביעת התור" : "שליחת בקשה לתור") : service?.approval === "AUTO" ? "אימות וקביעת התור" : "אימות ושליחת הבקשה"}
+            </button>
           ) : step === "details" ? (
             <button key="send" type="submit" form="bk-form" className={s.btn} disabled={sending} aria-busy={sending}>{sending ? "שולח…" : needsCode ? "שליחת קוד ב-WhatsApp" : service?.approval === "AUTO" ? "קביעת התור" : "שליחת בקשה לתור"}</button>
           ) : (

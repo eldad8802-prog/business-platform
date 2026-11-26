@@ -255,7 +255,7 @@ export function BookingSettingsScreen() {
                 </div>
               ) : null}
               <div className={s.setRow}>
-                <label htmlFor="bk-horizon">אפשר להזמין עד<small>שירות עם טווח קצר יותר נשאר בטווח שלו.</small></label>
+                <label htmlFor="bk-horizon">אפשר להזמין עד<small>{st.bookingHorizonDays === 60 ? "ב־60 יום (ברירת המחדל) כל שירות שומר על הטווח שהוגדר לו." : "שירות עם טווח קצר יותר נשאר בטווח שלו."}</small></label>
                 <select id="bk-horizon" className={s.filterSelect} value={st.bookingHorizonDays} disabled={busy} onChange={(e) => void save({ bookingHorizonDays: Number(e.target.value) })}>
                   {[...new Set([...HORIZONS, st.bookingHorizonDays])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{horizonLabel(d)}</option>)}
                 </select>

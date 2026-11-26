@@ -122,6 +122,11 @@ jobs:
       # `next start` runs in production mode, whose rate limiter is Redis; this lab has none, so the public booking doors
       # would fail closed (503) by design. The lab uses the in-memory limiter (as oauth-identity-lab / auth-account-recovery).
       RATE_LIMIT_BACKEND: memory
+      # Appointments completion G2 (owner requirement 8): the public link opens only while a WhatsApp path can deliver the
+      # verification code. This lab has no live WhatsApp (simulate, the default), so the lab-only switch declares the
+      # simulated path usable here; it is refused outright on Vercel production (VERCEL_ENV=production). The browser e2e
+      # answers the two code calls itself and the server verifies the token for real (.bkg/public-ui-e2e.mts).
+      BOOKING_OTP_ALLOW_SIMULATED: "1"
       OUT: /tmp/appt-ui
       SEED_OUT: /tmp/appt-ui-seed.json
       OPEN_OUT: /tmp/appt-ui-open.json

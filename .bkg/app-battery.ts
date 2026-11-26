@@ -58,36 +58,13 @@ async function main() {
   const { signAuthToken } = await import("@/lib/auth-token");
   const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
   const { runBookingSweep } = await import("@/lib/services/booking/booking-sweep.service");
-  const { isQuietHours, parsePublicPhone, sha256Hex } = await import("@/lib/services/booking/booking.core");
+  const { isQuietHours, sha256Hex } = await import("@/lib/services/booking/booking.core");
   // Appointments completion G2 (owner requirement 8): every public request needs a verified phone, and the door is open
-  // only while a WhatsApp path can deliver the code. This battery is about everything else, so the delivery path is
-  // declared available and each request gets a verification written as the owner (a verified challenge + its token —
-  // exactly what a customer who typed the right code holds). The verification flow itself: lib/services/booking/
-  // phone-verification.db.test.ts on the appointments-completion lab.
-  const { phoneHashOf, verificationTokenOf, otpKeysFromEnv } = await import("@/lib/services/booking/phone-verification.core");
-  const { toE164 } = await import("@/lib/notifications/customer/appointment-messages");
-  const { __setOtpTestHooks } = await import("@/lib/services/booking/phone-verification.service");
-  __setOtpTestHooks({ deliveryAvailable: () => true });
-  const bizOfPublic = new Map<string, number>();
-  const verifiedFor = async (pid: string, rawPhone: unknown): Promise<string | undefined> => {
-    const digits = parsePublicPhone(rawPhone);
-    const e164 = digits ? toE164(digits) : null;
-    if (!e164) return undefined;
-    let biz = bizOfPublic.get(pid);
-    if (biz === undefined) {
-      const row = await owner.bookingSettings.findFirst({ where: { publicId: pid }, select: { businessId: true } });
-      if (!row) return undefined;
-      biz = row.businessId;
-      bizOfPublic.set(pid, biz);
-    }
-    const keys = otpKeysFromEnv();
-    const t0 = new Date();
-    const c = await owner.bookingPhoneChallenge.create({
-      data: { businessId: biz, phoneHash: phoneHashOf(keys.current, e164), codeHash: "0".repeat(64), attempts: 1, sends: 1, createdAt: t0, expiresAt: new Date(t0.getTime() + 300_000), verifiedAt: t0 },
-      select: { id: true, verifiedAt: true },
-    });
-    return verificationTokenOf(keys.current, biz, c.id, c.verifiedAt as Date);
-  };
+  // only while a WhatsApp path can deliver the code. This battery is about everything else: the shared lab adapter
+  // declares the delivery path available and writes, as the owner, the verification each request carries.
+  const { bookingVerificationAdapter } = await import("./verify-adapter");
+  const verification = await bookingVerificationAdapter(owner);
+  const verifiedFor = verification.forLink;
   const routes = {
     profile: await import("@/app/api/public/booking/[publicId]/route"),
     slots: await import("@/app/api/public/booking/[publicId]/slots/route"),

@@ -39,6 +39,11 @@ async function main() {
   const schedule = await import("@/lib/services/appointment/appointment-schedule.service");
   const admin = await import("@/lib/services/booking/booking-admin.service");
   const pub = await import("@/lib/services/booking/public-booking.service");
+  // Appointments completion G2 (owner requirement 8): the link opens only while a WhatsApp path can deliver a code, and
+  // every public request carries a verified phone — the shared lab adapter (.bkg/verify-adapter.ts) declares the path
+  // available and writes, as the owner, the verification a customer who typed the code would hold.
+  const { bookingVerificationAdapter } = await import("../.bkg/verify-adapter");
+  const verified = await bookingVerificationAdapter(owner);
   const { addCalendarDays, jerusalemDayKey } = await import("@/lib/utils/jerusalem-day");
   const reads = await import("@/lib/notifications/notification-read.service");
   const sweep = await import("@/lib/services/booking/booking-sweep.service");
@@ -47,7 +52,8 @@ async function main() {
   const mk = async (name: string) => {
     const businessId = (await owner.business.create({ data: { name } })).id;
     const userId = (await owner.user.create({ data: { email: `${tag}-${businessId}@lab.test`, password: "x", businessId } })).id;
-    for (const featureKey of ["appointments", "public_booking"]) await owner.businessFeatureAccess.create({ data: { businessId, featureKey, state: "ENABLED", reason: "lab battery" } });
+    // notifications_engine: the kill switch the verification code needs (workstream F's gate), ON explicitly.
+    for (const featureKey of ["appointments", "public_booking", "notifications_engine"]) await owner.businessFeatureAccess.create({ data: { businessId, featureKey, state: "ENABLED", reason: "lab battery" } });
     return { businessId, principal: { kind: "OWNER" as const, businessId, userId } };
   };
   const X = await mk("Studio X — battery");
@@ -64,7 +70,9 @@ async function main() {
 
   // ── S1 ──
   const profile = await pub.getPublicProfile(publicId) as { business: Record<string, unknown>; staffChoice: string; selfCancel: Record<string, unknown>; services: Array<Record<string, unknown>> };
-  ok("S1 the profile keeps its top-level keys", JSON.stringify(Object.keys(profile).sort()) === JSON.stringify(["business", "selfCancel", "services", "staffChoice"]));
+  // G2 / G15 add two top-level keys (verification: always required; selfReschedule: the business's policy); every
+  // earlier key is still there.
+  ok("S1 the profile keeps its top-level keys (+ verification, selfReschedule)", JSON.stringify(Object.keys(profile).sort()) === JSON.stringify(["business", "selfCancel", "selfReschedule", "services", "staffChoice", "verification"]));
   const keys = new Set(profile.services.flatMap((x) => Object.keys(x)));
   ok("S1 every existing service key is still there", ["id", "name", "durationMinutes", "approval"].every((k) => keys.has(k)));
   ok("S1 the only new key is maxAdvanceDays, the service's own horizon", [...keys].filter((k) => !["id", "name", "durationMinutes", "approval", "price", "staff"].includes(k)).join() === "maxAdvanceDays"
@@ -72,8 +80,8 @@ async function main() {
 
   const day = addCalendarDays(jerusalemDayKey(new Date()), 2);
   const slot = async (serviceId: number, i: number) => (await pub.getPublicSlots(publicId, { serviceId, fromDay: day, toDay: day })).slots[i].startsAt;
-  const submit = (serviceId: number, startsAt: string, name: string, phone: string) =>
-    pub.submitPublicRequest(publicId, { serviceId, startsAt, name, phone }, uuidV7(new Date()));
+  const submit = async (serviceId: number, startsAt: string, name: string, phone: string) =>
+    pub.submitPublicRequest(publicId, { serviceId, startsAt, name, phone, verificationToken: await verified.forBusiness(X.businessId, phone) }, uuidV7(new Date()));
 
   const pending = await submit(manual, await slot(manual, 0), "Dana Cohen", "050-111-2233");
   const confirmed = await submit(auto, await slot(auto, 4), "נועה לוי", "050-444-5566");
