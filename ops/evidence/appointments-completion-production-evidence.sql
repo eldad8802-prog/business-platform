@@ -2,7 +2,7 @@
 -- appointments-completion-production-evidence.sql
 --
 -- Read-only PROOF, after migration
---   20261226090000_appointments_completion
+--   20261230090000_appointments_completion
 -- was applied: the reviewed file (sha256 pinned below) is the one recorded, its objects exist exactly as reviewed,
 -- and nothing was turned on or written by it.
 --
@@ -66,11 +66,11 @@ WITH f AS (
    WHERE s.nspname = 'public' AND p.proname IN ('notification_whatsapp_due', 'notification_delivery_by_provider_message', 'booking_otp_send_counts',
                                                 'booking_phone_challenge_purge', 'notification_customer_phone_purge')
 ), released AS (
-  SELECT min(finished_at) AS at FROM "_prisma_migrations" WHERE migration_name = '20261226090000_appointments_completion'
+  SELECT min(finished_at) AS at FROM "_prisma_migrations" WHERE migration_name = '20261230090000_appointments_completion'
 ), c(n, observed, want, info) AS (
-            SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261226090000_appointments_completion'
+            SELECT 1, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261230090000_appointments_completion'
       AND finished_at IS NOT NULL AND rolled_back_at IS NULL AND checksum = '8d8a7d17304bd6283ab20abedb5617e75b15fef07e2c1b9c594a2ee605d4de29'), 1::bigint, false
-  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261226090000_appointments_completion'), 1, false
+  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261230090000_appointments_completion'), 1, false
   UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL), 0, false
   UNION ALL SELECT 4, (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname IN ('AppointmentSeries', 'BookingPhoneChallenge')
       AND relrowsecurity AND relforcerowsecurity), 2, false

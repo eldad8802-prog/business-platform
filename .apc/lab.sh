@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Appointments completion / migration 20261226090000_appointments_completion — Production-topology lab.
+# Appointments completion / migration 20261230090000_appointments_completion — Production-topology lab.
 #
 #   .apc/lab.sh <db-name> [--with-apc | --broken-apc | --deploy-only]
 #
@@ -33,13 +33,29 @@
 set -euo pipefail
 DB="$1"; MODE="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APC="20261226090000_appointments_completion"
+APC="20261230090000_appointments_completion"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
+
+# Production's ledger: every migration of this checkout that sorts before this one is recorded and finished. Also run
+# on a clone, so a migration main merged after the template was built is recorded like the rest (idempotent).
+complete_ledger() {
+LEDGER="$(mktemp)"
+for d in "$ROOT"/prisma/migrations/*/; do
+  name="$(basename "$d")"
+  [[ "$name" < "$APC" ]] || continue
+  sum="$(sha256sum "$d/migration.sql" | cut -d' ' -f1)"
+  echo "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count)
+        SELECT gen_random_uuid()::text, '$sum', now(), '$name', 1
+        WHERE NOT EXISTS (SELECT 1 FROM \"_prisma_migrations\" WHERE migration_name = '$name');" >> "$LEDGER"
+done
+psql_owner -f "$LEDGER"; rm -f "$LEDGER"
+}
 
 if [ "$MODE" != "--deploy-only" ] && [ -n "${APC_TEMPLATE:-}" ] && [ "${APC_TEMPLATE}" != "$DB" ]; then
   PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q -U "$SUPER" -d postgres \
     -c "DROP DATABASE IF EXISTS \"$DB\"" -c "CREATE DATABASE \"$DB\" TEMPLATE \"$APC_TEMPLATE\" OWNER lab_owner"
+  complete_ledger
   if [ -n "${APC_SEED:-}" ]; then psql_owner -f "$APC_SEED"; fi
   CLONED=1
 fi
@@ -98,17 +114,7 @@ SQL
 
 NTE_ONTO=1 bash "$CHAIN/.nte/lab.sh" "$DB" --with-nte >/dev/null || { echo "the notification engine step (.nte) failed" >&2; exit 1; }
 
-# Production's ledger: every migration of this checkout that sorts before this one is recorded and finished.
-LEDGER="$(mktemp)"
-for d in "$ROOT"/prisma/migrations/*/; do
-  name="$(basename "$d")"
-  [[ "$name" < "$APC" ]] || continue
-  sum="$(sha256sum "$d/migration.sql" | cut -d' ' -f1)"
-  echo "INSERT INTO \"_prisma_migrations\" (id, checksum, finished_at, migration_name, applied_steps_count)
-        SELECT gen_random_uuid()::text, '$sum', now(), '$name', 1
-        WHERE NOT EXISTS (SELECT 1 FROM \"_prisma_migrations\" WHERE migration_name = '$name');" >> "$LEDGER"
-done
-psql_owner -f "$LEDGER"; rm -f "$LEDGER"
+complete_ledger
 if [ -n "${APC_SEED:-}" ]; then psql_owner -f "$APC_SEED"; fi
 # Lab-only snapshot of the existing tables this migration touches, taken BEFORE it: grants (relacl), policy count and
 # storage (relfilenode). The battery proves no grant or policy changed (R2) and the timing run proves no table was

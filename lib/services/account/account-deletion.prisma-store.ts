@@ -470,7 +470,7 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             where: { businessId, revokedAt: null },
             data: { revokedAt: new Date() },
           });
-          // Appointments completion (migration 20261226090000). A recurring rule loses its free text and its
+          // Appointments completion (migration 20261230090000). A recurring rule loses its free text and its
           // customer pointer (the rule itself is the business's history); every phone-verification challenge loses
           // its three keyed hashes (the guard trigger allows exactly this transition); every customer WhatsApp
           // delivery loses the customer's phone (the row, its status and provider id stay — metering and audit).

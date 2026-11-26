@@ -18,7 +18,7 @@
 set -euo pipefail
 DB="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APC="20261226090000_appointments_completion"
+APC="20261230090000_appointments_completion"
 OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${PGPORT}/${DB}"
 po() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 now_ms() { node -e 'process.stdout.write(String(Date.now()))'; }

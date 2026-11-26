@@ -1,4 +1,4 @@
-# Appointments completion / migration 20261226090000_appointments_completion — proof on PostgreSQL BEFORE it reaches
+# Appointments completion / migration 20261230090000_appointments_completion — proof on PostgreSQL BEFORE it reaches
 # Production (ephemeral PG17). The ONE migration package of the appointments completion program (series, journal
 # labels, booking settings, phone verification, customer WhatsApp deliveries); the code that uses it is stacked on it.
 #
@@ -29,7 +29,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "prisma/migrations/20261226090000_appointments_completion/**"
+      - "prisma/migrations/20261230090000_appointments_completion/**"
       - "ops/evidence/appointments-completion-*.sql"
       - ".apc/**"
       - ".github/workflows/appointments-completion-lab.yml"
@@ -67,7 +67,7 @@ jobs:
       LAB_PASSWORD: apc_ci_synthetic_role_pw
       PREFLIGHT: ops/evidence/appointments-completion-preflight.sql
       PROOF: ops/evidence/appointments-completion-production-evidence.sql
-      MIGRATION: prisma/migrations/20261226090000_appointments_completion/migration.sql
+      MIGRATION: prisma/migrations/20261230090000_appointments_completion/migration.sql
       # The pending chain is built once (step 1) and every other lab database is cloned from it.
       APC_TEMPLATE: apc_tpl
 

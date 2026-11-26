@@ -497,7 +497,7 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     cancelReason: { disposition: "STRUCTURAL" },
     version: { disposition: "STRUCTURAL" },
     erasedAt: { disposition: "STRUCTURAL" },
-    // Migration 20261226090000: the occurrence's recurring rule and its place in it — an id and a counter; the rule's
+    // Migration 20261230090000: the occurrence's recurring rule and its place in it — an id and a counter; the rule's
     // own text and customer pointer are erased with it (AppointmentSeries in the manifest).
     seriesId: { disposition: "STRUCTURAL" },
     seriesIndex: { disposition: "STRUCTURAL" },
@@ -545,7 +545,7 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
       dependsOn: { model: "User", fields: ["email", "name", "password"] },
     },
     erasedAt: { disposition: "STRUCTURAL" },
-    // Migration 20261226090000: when the requester proved the phone — a time, nothing about the person.
+    // Migration 20261230090000: when the requester proved the phone — a time, nothing about the person.
     phoneVerifiedAt: { disposition: "STRUCTURAL" },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },

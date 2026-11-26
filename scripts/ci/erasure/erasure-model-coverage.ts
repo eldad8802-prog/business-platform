@@ -142,7 +142,7 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   AvailabilityException: { disposition: "ERASURE_MANAGED" },
   BookingRequest: { disposition: "ERASURE_MANAGED" },
   AppointmentManageToken: { disposition: "ERASURE_MANAGED" },
-  // Appointments completion (migration 20261226090000): erased in place by the adapter — a series' title and customer,
+  // Appointments completion (migration 20261230090000): erased in place by the adapter — a series' title and customer,
   // a challenge's three keyed hashes, a customer delivery's phone (account-erasure-manifest.ts).
   AppointmentSeries: { disposition: "ERASURE_MANAGED" },
   BookingPhoneChallenge: { disposition: "ERASURE_MANAGED" },

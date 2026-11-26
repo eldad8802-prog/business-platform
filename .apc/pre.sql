@@ -1,4 +1,4 @@
--- Rows that exist BEFORE migration 20261226090000 (run as the owner on a lab built by `.apc/lab.sh <db>`, i.e. with
+-- Rows that exist BEFORE migration 20261230090000 (run as the owner on a lab built by `.apc/lab.sh <db>`, i.e. with
 -- the migration pending; `.apc/lab.sh <db> --deploy-only` then applies it): a business with booking settings of its
 -- own (MANUAL, no verification — the old defaults), an appointment with a journal event, and a notification with a
 -- push delivery, so the battery can show every existing row keeps its values and takes the safe defaults.

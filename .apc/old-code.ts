@@ -2,7 +2,7 @@
  * Owner requirement R10 — the PREVIOUS application keeps working on the NEW schema.
  *
  * Runs the Prisma Client generated from main's schema.prisma (before this package: no new models, columns or enum
- * labels) against a lab where migration 20261226090000 is applied, as the runtime role in a tenant transaction, through
+ * labels) against a lab where migration 20261230090000 is applied, as the runtime role in a tenant transaction, through
  * every model the migration touches: BookingSettings, Appointment, AppointmentEvent, BookingRequest, Notification,
  * NotificationDelivery. Prisma lists columns explicitly, so this is exactly what the deployed code does today.
  *
@@ -37,7 +37,7 @@ async function tenant<T>(businessId: number, fn: (tx: any) => Promise<T>): Promi
 }
 
 async function main() {
-  const applied = await owner.$queryRawUnsafe(`SELECT count(*)::int AS n FROM "_prisma_migrations" WHERE migration_name = '20261226090000_appointments_completion' AND finished_at IS NOT NULL`);
+  const applied = await owner.$queryRawUnsafe(`SELECT count(*)::int AS n FROM "_prisma_migrations" WHERE migration_name = '20261230090000_appointments_completion' AND finished_at IS NOT NULL`);
   ok("0.1 the lab carries the new schema (migration applied)", Number(applied[0].n) === 1);
   const biz = await owner.business.create({ data: { name: "apc-old-code" } });
   const user = await owner.user.create({ data: { email: `old-${Date.now()}@apc.lab`, password: "x", businessId: biz.id } });

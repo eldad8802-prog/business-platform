@@ -135,7 +135,7 @@ export const EVENT_LABEL: Record<AppointmentEventType, string> = {
   APPOINTMENT_CANCELED: "בוטל",
   APPOINTMENT_RESCHEDULED: "הוזז",
   APPOINTMENT_DETAILS_CHANGED: "הפרטים עודכנו",
-  // Migration 20261226090000 (appointments completion): the journal's new event types. Nothing writes them until the
+  // Migration 20261230090000 (appointments completion): the journal's new event types. Nothing writes them until the
   // stacked code (recurring + arrival, self-service) ships; the labels keep this map total over the enum.
   ARRIVED: "הלקוח הגיע",
   STATUS_CORRECTED: "הסטטוס תוקן",

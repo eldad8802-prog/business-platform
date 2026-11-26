@@ -185,7 +185,7 @@ export const ANONYMIZE_MODELS = [
     fields: { contactName: "blank", contactPhone: "null", contactEmail: "null", customerNote: "null", erasedAt: "now" },
   },
   { model: "appointmentManageToken", fields: { revokedAt: "now" } },
-  // Appointments completion (migration 20261226090000): a recurring rule's free text and customer pointer; the
+  // Appointments completion (migration 20261230090000): a recurring rule's free text and customer pointer; the
   // phone-verification challenge's keyed hashes (phone, code, IP); a customer WhatsApp delivery's phone. Erased in
   // place — the runtime holds no DELETE on any of them. Retention sweeps (7 / 30 days) remove them earlier.
   { model: "appointmentSeries", fields: { title: "null", customerId: "null", erasedAt: "now" } },

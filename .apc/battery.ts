@@ -1,5 +1,5 @@
 /**
- * Appointments completion — migration 20261226090000_appointments_completion, AS the real roles (.apc/lab.sh):
+ * Appointments completion — migration 20261230090000_appointments_completion, AS the real roles (.apc/lab.sh):
  *   owner   (lab_owner: the migration role — owner of every table and function, BYPASSRLS like Production's),
  *   runtime (app_runtime_prod: NOSUPERUSER NOBYPASSRLS, member of app_runtime — the tenant plane).
  *
@@ -23,7 +23,7 @@
  */
 import { PrismaClient, type Prisma } from "@prisma/client";
 
-const MIGRATION = "20261226090000_appointments_completion";
+const MIGRATION = "20261230090000_appointments_completion";
 const withPool = (url: string) => `${url}${url.includes("?") ? "&" : "?"}connection_limit=8&pool_timeout=30`;
 const owner = new PrismaClient({ datasourceUrl: process.env.OWNER_URL! });
 const runtime = new PrismaClient({ datasourceUrl: withPool(process.env.RUNTIME_URL!) });

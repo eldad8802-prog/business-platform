@@ -1947,7 +1947,7 @@ model Appointment {
   cancelReason         AppointmentCancelReason?
   version              Int                      @default(1)
   erasedAt             DateTime?
-  /// Migration 20261226090000 (G5): the occurrence's series and its 0-based place in it — both or neither
+  /// Migration 20261230090000 (G5): the occurrence's series and its 0-based place in it — both or neither
   /// (Appointment_series_shape); one row per (businessId, seriesId, seriesIndex) (partial unique index in the
   /// migration — the materializer's idempotency anchor). Every row written before it is in no series.
   seriesId             Int?
@@ -2090,7 +2090,7 @@ model BookingSettings {
   showBusinessDetails     Boolean               @default(false)
   showPrices              Boolean               @default(false)
   showStaffNames          Boolean               @default(true)
-  /// Migration 20261226090000 (D4, G15, G16): customer self-reschedule (off) and its window (0..720 h), the reminder
+  /// Migration 20261230090000 (D4, G15, G16): customer self-reschedule (off) and its window (0..720 h), the reminder
   /// offsets before the start (0..3 values, each 30..10080 minutes; '{}' = none), how far ahead the public page books
   /// (1..365 days) and whether it shows the business's logo. The same migration changes the defaults of
   /// defaultApprovalMode (AUTO) and requireVerification (true) for NEW rows only — existing rows keep their values.
@@ -2120,7 +2120,7 @@ model BookingRequest {
   decidedAt       DateTime?
   decidedByUserId Int?
   erasedAt        DateTime?
-  /// Migration 20261226090000 (G2): when the requester proved the phone (a BookingPhoneChallenge verified). NULL =
+  /// Migration 20261230090000 (G2): when the requester proved the phone (a BookingPhoneChallenge verified). NULL =
   /// not verified (every request written before it).
   phoneVerifiedAt DateTime?
   createdAt       DateTime             @default(now())
@@ -2167,7 +2167,7 @@ model AppointmentEvent {
   @@index([businessId, occurredAt])
 }
 
-/// A recurring appointment rule (G5, migration 20261226090000). Weeks between two occurrences = interval for WEEKLY
+/// A recurring appointment rule (G5, migration 20261230090000). Weeks between two occurrences = interval for WEEKLY
 /// (1..4), 2 for BIWEEKLY (interval stays 1). weekday 0 = Sunday … 6 = Saturday; startMinute / durationMinutes are
 /// wall-clock minutes of the business's time zone. Ends on endsOn (at most 730 days after startsOn) OR after
 /// occurrenceCount occurrences (1..104) — exactly one of the two (owner decision: no open-ended series). Cancelled (cancelledAt), never deleted. FORCE RLS, SELECT / INSERT / UPDATE for the runtime.
@@ -2203,7 +2203,7 @@ model AppointmentSeries {
   @@index([businessId, cancelledAt])
 }
 
-/// A one-time code sent to a phone for one business's public booking (G2, migration 20261226090000). Keyed sha256
+/// A one-time code sent to a phone for one business's public booking (G2, migration 20261230090000). Keyed sha256
 /// hashes only (phoneHash, codeHash, ipHash) — never the number, the code or the IP. Lifetime 5 minutes by default, 10
 /// at most; attempts 0..5; sends 1..3. Single use (BookingPhoneChallenge_guard trigger): verified once while live,
 /// consumed once after that; a new code requires superseding the open one (one open challenge per business + phone,
@@ -4267,7 +4267,7 @@ enum AppointmentEventType {
   APPOINTMENT_CANCELED
   APPOINTMENT_RESCHEDULED
   APPOINTMENT_DETAILS_CHANGED
-  /// Migration 20261226090000 (G5, G6, G12). The closed-payload CHECK is unchanged: tokens, ids and numbers only.
+  /// Migration 20261230090000 (G5, G6, G12). The closed-payload CHECK is unchanged: tokens, ids and numbers only.
   ARRIVED
   STATUS_CORRECTED
   CUSTOMER_CHANGED
@@ -4277,7 +4277,7 @@ enum AppointmentEventType {
   SELF_RESCHEDULED
 }
 
-/// Migration 20261226090000 (G5): how often a series repeats.
+/// Migration 20261230090000 (G5): how often a series repeats.
 enum AppointmentSeriesFrequency {
   WEEKLY
   BIWEEKLY
@@ -5000,7 +5000,7 @@ model NotificationDelivery {
   expiresAt      DateTime?
   completedAt    DateTime?
 
-  /// Migration 20261226090000 — customer WhatsApp through the engine (G1, G13). recipientKind 'USER' (every row
+  /// Migration 20261230090000 — customer WhatsApp through the engine (G1, G13). recipientKind 'USER' (every row
   /// before it, and every push / in-app delivery) or 'CUSTOMER' (channel WHATSAPP, and only then). PRIVACY:
   /// recipientPhone (E.164) exists only on a CUSTOMER row (CHECK); NULL there = erased. A CUSTOMER row names its
   /// templateKey ([a-z0-9_]) and messageClass ('OPERATIONAL' | 'VERIFICATION'); a USER row carries none of these
@@ -5046,7 +5046,7 @@ model NotificationDelivery {
 enum NotificationChannel {
   IN_APP
   PUSH
-  /// Migration 20261226090000 (G1, G13): a template message to a CUSTOMER from the platform's official WhatsApp
+  /// Migration 20261230090000 (G1, G13): a template message to a CUSTOMER from the platform's official WhatsApp
   /// number. Only CUSTOMER deliveries use it, and CUSTOMER deliveries use nothing else (CHECK).
   WHATSAPP
 }

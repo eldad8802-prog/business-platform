@@ -1,7 +1,7 @@
 -- ============================================================================
 -- appointments-completion-preflight.sql
 --
--- Read-only Production preflight BEFORE release-migrate of 20261226090000_appointments_completion (series, journal
+-- Read-only Production preflight BEFORE release-migrate of 20261230090000_appointments_completion (series, journal
 -- labels, booking settings, phone verification, customer WhatsApp deliveries). Catalog, ledger and counts only:
 --   * the migration is not recorded yet, the ledger is clean, and the migrations it builds on are recorded
 --     (appointments foundation, public booking foundation, notification engine foundation, the newest on main);
@@ -17,7 +17,7 @@
 
 \echo '== appointments completion preflight: legend (n -> check) =='
 \echo ' 1 the evidence role is a superuser or has BYPASSRLS (info; t expected)'
-\echo ' 2 20261226090000_appointments_completion is not recorded yet (observed = rows, want 0)'
+\echo ' 2 20261230090000_appointments_completion is not recorded yet (observed = rows, want 0)'
 \echo ' 3 ledger rows unfinished or rolled back (want 0)'
 \echo ' 4 the migrations it builds on are recorded and finished (observed = of 4)'
 \echo ' 5 AppointmentSeries and BookingPhoneChallenge are still absent (observed = found, want 0)'
@@ -37,6 +37,7 @@
 \echo '19 public_booking: OFF globally (want 0 policies globally ON)'
 \echo '20 BookingSettings rows with requireVerification = false (info: compare with proof line 26 — the release keeps them)'
 \echo '21 BookingSettings rows with defaultApprovalMode = MANUAL (info: compare with proof line 27)'
+\echo '22 ledger rows that sort AFTER 20261230090000_appointments_completion (want 0: the name must sort after every migration at release)'
 
 SET statement_timeout = '30s';
 SET default_transaction_read_only = on;
@@ -47,7 +48,7 @@ SET LOCAL row_security = off;
 
 WITH c(n, observed, want, info) AS (
             SELECT 1, (SELECT count(*) FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolbypassrls)), 1::bigint, true
-  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261226090000_appointments_completion'), 0, false
+  UNION ALL SELECT 2, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name = '20261230090000_appointments_completion'), 0, false
   UNION ALL SELECT 3, (SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL), 0, false
   UNION ALL SELECT 4, (SELECT count(DISTINCT migration_name) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
       AND migration_name IN ('20261029090000_appointments_foundation', '20261106090000_public_booking_foundation',
@@ -80,6 +81,7 @@ WITH c(n, observed, want, info) AS (
   UNION ALL SELECT 19, (SELECT count(*) FROM "PlatformFeaturePolicy" WHERE "featureKey" = 'public_booking' AND "globalEnabled"), 0, false
   UNION ALL SELECT 20, (SELECT count(*) FROM "BookingSettings" WHERE NOT "requireVerification"), NULL, true
   UNION ALL SELECT 21, (SELECT count(*) FROM "BookingSettings" WHERE "defaultApprovalMode"::text = 'MANUAL'), NULL, true
+  UNION ALL SELECT 22, (SELECT count(*) FROM "_prisma_migrations" WHERE migration_name > '20261230090000_appointments_completion'), 0, false
 )
 SELECT n, CASE WHEN info OR observed = want THEN 'PASS' ELSE 'FAIL' END AS result, observed AS observed_count FROM c ORDER BY n;
 
