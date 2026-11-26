@@ -6,10 +6,12 @@
  *   - lapsed (12 hours, or the appointment's start, whichever came first): the appointment PROPOSED → CANCELED
  *     (reason EXPIRED, actor SYSTEM, journalled), the request EXPIRED, its notification resolved — the time is free
  *     again and no reminder follows;
- *   - still waiting: the next reminder (two hours after the last notice) is CLAIMED on the request's notification —
- *     one winner among concurrent runs — and pushed after commit to the business's live subscriptions. In the
- *     business's quiet hours (22:00–08:00, its time zone) no reminder is claimed; the first run from 08:00 sends one per
- *     request still waiting, and the rhythm resumes from it.
+ *   - still waiting: the next reminder (two hours after the last notice) is CLAIMED on the request's notification
+ *     through the notification engine (booking-notify.ts remindPendingRequest — one winner among concurrent runs),
+ *     which owes ONE push; after commit the engine's worker is run for exactly those owed rows (as the task
+ *     reminders do), and the cron worker retries what it could not deliver. In the business's quiet hours
+ *     (22:00–08:00, its time zone) no reminder is claimed; the first run from 08:00 sends one per request still
+ *     waiting, and the rhythm resumes from it. Each user's own preferences and quiet hours apply on top (the engine).
  * Expiry runs whatever the flags say (a held time must always be released); reminders only while `appointments` is
  * ON for the business. The submit and approve paths also expire lazily, so a late sweep never lets a lapsed request
  * be approved or keep a time from a new request.
@@ -17,14 +19,16 @@
 import { prisma } from "@/lib/prisma";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 
+import { runPushWorker } from "@/lib/notifications/engine/push-worker";
 import { appointmentsEnabled } from "@/lib/services/appointment/appointments-http";
 import { lockBusinessAppointments } from "@/lib/services/appointment/appointment-request";
 
 import { hoursWaiting, isQuietHours, reminderDue, safeTimeZone } from "./booking.core";
-import { claimReminder, pushReminder, requestNoticeState, type ReminderClaim } from "./booking-notify";
+import { remindPendingRequest, requestNoticeState } from "./booking-notify";
 import { expireDueRequests } from "./public-booking.service";
 
 export type DueRequest = { businessId: number; requestId: number; createdAt: Date; expiresAt: Date };
+/** `pushed` / `pushFailed`: devices the engine's worker reached / failed for this run's reminders. */
 export type SweepReport = { due: number; expired: number; reminded: number; pushed: number; pushFailed: number; errors: number };
 
 const toUtc = (d: Date) => d.toISOString().replace("T", " ").replace("Z", "");
@@ -39,12 +43,21 @@ export async function duePendingRequests(now: Date, limit = 200): Promise<DueReq
 const whenLabel = (d: Date, timeZone: string) =>
   new Intl.DateTimeFormat("he-IL", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone }).format(d);
 
+/** Test seam: the engine's worker run for the owed reminder rows (default: runPushWorker for exactly those rows). */
+export type ReminderKick = (businessId: number, deliveryIds: number[], now: Date) => Promise<{ pushed: number; failed: number }>;
+
+const kickEngine: ReminderKick = async (businessId, deliveryIds, now) => {
+  const r = await runPushWorker(now, { businessId, deliveryIds, quiet: true });
+  return { pushed: r.devicesSent, failed: r.devicesFailed };
+};
+
 /** One business's due requests: expire what lapsed, claim the reminders that are due. */
-async function sweepBusiness(businessId: number, due: DueRequest[], now: Date, remindersOn: boolean) {
+async function sweepBusiness(businessId: number, due: DueRequest[], now: Date, remindersOn: boolean, kick: ReminderKick) {
   const out = await tenantTx(businessId, async (tx) => {
     await lockBusinessAppointments(tx, businessId);
     const expired = await expireDueRequests(tx, businessId, now);
-    const claims: ReminderClaim[] = [];
+    const owed: number[] = [];
+    let reminded = 0;
     const settings = remindersOn ? await tx.bookingSettings.findFirst({ where: { businessId }, select: { timeZone: true } }) : null;
     const timeZone = safeTimeZone(settings?.timeZone);
     if (remindersOn && !isQuietHours(now, timeZone)) {
@@ -58,30 +71,34 @@ async function sweepBusiness(businessId: number, due: DueRequest[], now: Date, r
         if (!reminderDue({ lastNotifiedAt: seen ?? r.createdAt, expiresAt: r.expiresAt, now, timeZone })) continue;
         const appt = await tx.appointment.findFirst({ where: { id: r.appointmentId, businessId }, select: { startsAt: true, title: true, businessServiceId: true } });
         const service = appt?.businessServiceId ? await tx.businessService.findFirst({ where: { id: appt.businessServiceId, businessId }, select: { name: true } }) : null;
-        const claim = await claimReminder(tx, businessId, {
+        const owedId = await remindPendingRequest(tx, businessId, {
           requestId: r.id, contactName: r.contactName, serviceName: service?.name ?? appt?.title ?? "תור", when: appt?.startsAt ? whenLabel(appt.startsAt, timeZone) : "",
-        }, seen, hoursWaiting(r.createdAt, now), now);
-        if (claim) claims.push(claim);
+        }, hoursWaiting(r.createdAt, now), r.expiresAt, now);
+        if (owedId !== null) {
+          reminded += 1;
+          owed.push(owedId);
+        }
       }
     }
-    return { expired: expired.length, claims };
+    return { expired: expired.length, reminded, owed };
   }, { timeoutMs: 20_000 });
   let pushed = 0, pushFailed = 0;
-  for (const c of out.claims) {
-    const p = await pushReminder(businessId, c, now).catch(() => ({ pushed: 0, failed: c.subscriptions.length }));
+  if (out.owed.length > 0) {
+    // After commit. A failure here loses nothing: the owed rows stay PENDING for the cron worker.
+    const p = await kick(businessId, out.owed, now).catch(() => ({ pushed: 0, failed: 0 }));
     pushed += p.pushed; pushFailed += p.failed;
   }
-  return { expired: out.expired, reminded: out.claims.length, pushed, pushFailed };
+  return { expired: out.expired, reminded: out.reminded, pushed, pushFailed };
 }
 
-export async function runBookingSweep(now: Date = new Date()): Promise<SweepReport> {
+export async function runBookingSweep(now: Date = new Date(), opts: { kick?: ReminderKick } = {}): Promise<SweepReport> {
   const due = await duePendingRequests(now);
   const byBusiness = new Map<number, DueRequest[]>();
   for (const d of due) byBusiness.set(d.businessId, [...(byBusiness.get(d.businessId) ?? []), d]);
   const report: SweepReport = { due: due.length, expired: 0, reminded: 0, pushed: 0, pushFailed: 0, errors: 0 };
   for (const [businessId, list] of byBusiness) {
     try {
-      const r = await sweepBusiness(businessId, list, now, await appointmentsEnabled(businessId));
+      const r = await sweepBusiness(businessId, list, now, await appointmentsEnabled(businessId), opts.kick ?? kickEngine);
       report.expired += r.expired; report.reminded += r.reminded; report.pushed += r.pushed; report.pushFailed += r.pushFailed;
     } catch {
       report.errors += 1; // one business never blocks the others; its requests stay due for the next run

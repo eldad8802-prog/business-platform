@@ -21,6 +21,8 @@ import {
   buildStatusReceipt,
   whatsAppIntakeAdapter,
 } from "@/lib/intake/whatsapp/whatsapp-intake";
+import { platformPhoneNumberId } from "@/lib/notifications/customer/platform-transport";
+import { applyPlatformStatuses, platformStatusesFromBody } from "@/lib/notifications/customer/whatsapp-status";
 
 export const runtime = "nodejs";
 
@@ -139,8 +141,26 @@ export async function POST(req: NextRequest) {
     receiptsByBusiness.set(businessId, list);
   };
 
+  // G14 — the PLATFORM number (Dubiz's central WhatsApp number, customer messages): its events never reach a
+  // business's routing, receipts or Inbox. Its statuses update the customer deliveries (idempotent, monotonic, never a
+  // Conversation / Message); a message to it is not accepted anywhere. Without WHATSAPP_PLATFORM_PHONE_NUMBER_ID the
+  // branch does not exist and every event takes exactly the path it took before.
+  const platformId = platformPhoneNumberId();
+  const isPlatform = (phoneNumberId: string | null) => platformId !== null && phoneNumberId === platformId;
+
   try {
+    if (platformId !== null) {
+      // Read from the signed body itself (with Meta's echoed biz_opaque_callback_data — the attempt fence that
+      // resolves an uncertain send without resending it); the shared parser is left exactly as it is.
+      const platformStatuses = platformStatusesFromBody(body, platformId);
+      if (platformStatuses.length > 0) {
+        const r = await applyPlatformStatuses(platformStatuses);
+        console.info("[whatsapp-webhook-platform]", r);
+      }
+    }
+
     for (const message of parsed.messages) {
+      if (isPlatform(message.phoneNumberId)) continue;
       const decision = await routeInboundWhatsAppMessage(message);
       console.info("[whatsapp-webhook-routing]", routingDecisionLogFields(decision));
 
@@ -162,6 +182,7 @@ export async function POST(req: NextRequest) {
     // resolved to the same tenant by the same signed phone_number_id, and they
     // never enter the customer-message dispatch above.
     for (const status of parsed.statuses) {
+      if (isPlatform(status.phoneNumberId)) continue;
       const business = await resolveBusinessFromPhoneNumberId(status.phoneNumberId);
       if (!business.ok) continue;
       const receipt = buildStatusReceipt(status, business.phoneNumberId);

@@ -331,3 +331,90 @@ export async function sendWhatsAppText(input: {
     return { ok: false, kind: "other", code: "send_network", message: "Network error sending message" };
   }
 }
+
+export type SendTemplateResult =
+  | { ok: true; providerMessageId: string }
+  | { ok: false; kind: "auth" | "transient" | "permanent" | "uncertain"; code: string; message: string };
+
+/** The longest a template send may take (the worker also bounds it by its lease — see whatsapp-worker.ts). */
+export const TEMPLATE_SEND_TIMEOUT_MS = 15_000;
+
+/**
+ * Sends an approved TEMPLATE message (customer messages from the central Dubiz number — G1, appointments completion
+ * program). `POST /{phone-number-id}/messages` with `type: "template"`, the template's name and language, its body
+ * parameters as text, an optional copy-code OTP button (AUTHENTICATION templates) and an optional
+ * `biz_opaque_callback_data` — Meta echoes it in every status webhook of this message, which is how an UNCERTAIN send
+ * is later resolved without ever sending it again. The caller (lib/notifications/customer/platform-transport.ts)
+ * decides whether a real send happens at all; this function only performs it.
+ *
+ * Classification — only an answer that PROVES the message was not accepted may be retried:
+ *   - `auth`      → 401/403 or OAuth code 190 (Meta answered: not accepted);
+ *   - `transient` → 429 or a throughput / rate code (4, 80007, 130429, 131048, 131056) with a 4xx answer: not accepted,
+ *                   safe to retry later;
+ *   - `permanent` → any other 4xx answer (unknown template, invalid number, parameter mismatch …);
+ *   - `uncertain` → a 5xx answer, a 2xx without a message id, a timeout / abort or a network error: Meta MAY have
+ *                   accepted it. Never retried blindly (the caller waits for the status webhook — duplicate-proof).
+ * The access token, the recipient, the parameters and the request body are never logged.
+ */
+export async function sendWhatsAppTemplate(input: {
+  phoneNumberId: string;
+  accessToken: string;
+  toPhone: string;
+  templateName: string;
+  languageCode: string;
+  bodyParams: readonly string[];
+  /** The URL button's one parameter (index 0): the customer's manage token, or the code of an AUTHENTICATION copy-code button. */
+  urlButtonParam?: string;
+  /** Echoed by Meta in the status webhooks of this message (max 512 characters). */
+  callbackData?: string;
+  /** Aborts the request (the worker's lease deadline). Default: TEMPLATE_SEND_TIMEOUT_MS. */
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}): Promise<SendTemplateResult> {
+  const to = input.toPhone.replace(/\D/g, "");
+  if (!input.phoneNumberId || !input.accessToken || !to || !input.templateName || !input.languageCode) {
+    return { ok: false, kind: "permanent", code: "send_config_missing", message: "Missing send inputs" };
+  }
+  if (input.callbackData !== undefined && input.callbackData.length > 512) {
+    return { ok: false, kind: "permanent", code: "callback_too_long", message: "Callback data too long" };
+  }
+  const url = new URL(`${GRAPH_BASE}/${graphVersion()}/${encodeURIComponent(input.phoneNumberId)}/messages`);
+  const doFetch = input.fetchImpl ?? fetch;
+  const components: unknown[] = [];
+  if (input.bodyParams.length > 0) components.push({ type: "body", parameters: input.bodyParams.map((text) => ({ type: "text", text })) });
+  if (input.urlButtonParam) components.push({ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: input.urlButtonParam }] });
+  try {
+    const res = await doFetch(url.toString(), {
+      method: "POST",
+      cache: "no-store",
+      signal: input.signal ?? AbortSignal.timeout(TEMPLATE_SEND_TIMEOUT_MS),
+      headers: { Authorization: `Bearer ${input.accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "template",
+        ...(input.callbackData ? { biz_opaque_callback_data: input.callbackData } : {}),
+        template: { name: input.templateName, language: { code: input.languageCode }, components },
+      }),
+    });
+    const data = (await res.json().catch(() => null)) as
+      | { messages?: Array<{ id?: unknown }>; error?: { code?: unknown; message?: unknown } }
+      | null;
+    const providerId = data?.messages?.[0]?.id;
+    if (res.ok && typeof providerId === "string" && providerId.length > 0) {
+      return { ok: true, providerMessageId: providerId };
+    }
+    const rawCode = data?.error?.code;
+    const errCode = typeof rawCode === "number" ? rawCode : typeof rawCode === "string" ? Number(rawCode) : NaN;
+    const safe = safeError(data, `template_${res.status}`);
+    if (res.ok || res.status >= 500) return { ok: false, kind: "uncertain", ...safe };
+    if (res.status === 401 || res.status === 403 || errCode === 190) return { ok: false, kind: "auth", ...safe };
+    if (res.status === 429 || [4, 80007, 130429, 131048, 131056].includes(errCode)) return { ok: false, kind: "transient", ...safe };
+    return { ok: false, kind: "permanent", ...safe };
+  } catch (err) {
+    return isTimeout(err)
+      ? { ok: false, kind: "uncertain", code: "template_timeout", message: "Template send timed out or was aborted" }
+      : { ok: false, kind: "uncertain", code: "template_network", message: "Network error sending template" };
+  }
+}

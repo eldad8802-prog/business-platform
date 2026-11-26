@@ -43,6 +43,11 @@ export type NotifyEvent = {
    * notBefore must not be in the past (the producer passes max(moment, now)); expiresAt must be after notBefore.
    */
   push?: { notBefore: Date; expiresAt: Date };
+  /**
+   * In the bell only: the in-app delivery is written, no push is owed for THIS notice (G13: a new booking request is
+   * not a push at once — D3 — its two-hourly reminder is). Absent / false: the category decides, as before.
+   */
+  inAppOnly?: boolean;
 };
 
 export type NotifyOutcome = {
@@ -82,7 +87,7 @@ export async function notify(tx: Tx, event: NotifyEvent): Promise<NotifyOutcome>
   const userId = event.userId ?? null;
   const dedupeKey = event.dedupeKey ?? defaultDedupeKey(event);
   const cooldownHours = event.cooldownHours ?? cat.cooldownHours;
-  const mayPush = categoryMayPush(cat);
+  const mayPush = categoryMayPush(cat) && event.inAppOnly !== true;
   const channels = mayPush ? ["IN_APP", "PUSH"] : ["IN_APP"];
   const title = event.title.slice(0, 200);
   const summary = event.summary == null ? null : event.summary.slice(0, 500);

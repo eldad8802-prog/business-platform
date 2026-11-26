@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { cutoverDryRun } from "@/lib/notifications/engine/cutover-dry-run";
 import { runPushWorker, workerHealth } from "@/lib/notifications/engine/push-worker";
+import { platformConfig } from "@/lib/notifications/customer/platform-transport";
+import { purgeCustomerPhones } from "@/lib/notifications/customer/retention";
+import { runWhatsAppWorker } from "@/lib/notifications/customer/whatsapp-worker";
 import { decideCronAuth } from "@/lib/services/billing/settlement/settlement-recovery-auth";
 
 /**
@@ -20,6 +23,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+async function runCustomerLane(now: Date) {
+  try {
+    const lane = await runWhatsAppWorker(now);
+    const phonesErased = await purgeCustomerPhones(now);
+    return { ...lane, phonesErased, mode: platformConfig().mode };
+  } catch (error) {
+    console.error("[notifications] whatsapp lane failed", { error: error instanceof Error ? error.name : "unknown" });
+    return { error: "whatsapp_lane_failed" };
+  }
+}
+
 async function handle(req: NextRequest) {
   const decision = decideCronAuth(req.headers.get("authorization"));
   if (decision === "NOT_CONFIGURED") return NextResponse.json({ error: "worker_not_configured" }, { status: 503 });
@@ -32,7 +46,11 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true, dryRun: "cutover", ...dry }, { headers: { "Cache-Control": "no-store" } });
     }
     const out = await runPushWorker(new Date());
-    return NextResponse.json({ ok: true, ...out, health: workerHealth(out) }, { headers: { "Cache-Control": "no-store" } });
+    // G1 — the WHATSAPP lane (customer messages; simulated unless WHATSAPP_PLATFORM_SEND_MODE=live + credentials) and
+    // the customer-phone retention sweep. AFTER the push lane and isolated from it: a lane failure never changes the
+    // push answer above (`whatsapp: { error }` instead).
+    const whatsapp = await runCustomerLane(new Date());
+    return NextResponse.json({ ok: true, ...out, health: workerHealth(out), whatsapp }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[notifications] worker failed", { error: error instanceof Error ? error.name : "unknown" });
     return NextResponse.json({ error: "worker_failed" }, { status: 500 });

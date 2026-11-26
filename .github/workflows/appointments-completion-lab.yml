@@ -20,6 +20,8 @@
 #   6. R9: realistic row counts — lock_timeout behind a held lock (atomic, recoverable), release time, no rewrite.
 #   7. Rollback floor: the client of this package reads every touched table beside rows of every new kind (8/8); old
 #      main's failing reads are listed — the evidence for "no code rollback below this release" (rollback.md).
+#   8. Customer WhatsApp (workstream F): the application battery on the released lab, as the runtime, simulated
+#      transport only (lib/notifications/customer/customer-whatsapp.db.test.ts).
 #
 # There is no rollback step: the release's rollback is a CODE rollback with the additive schema left in place (enum
 # labels cannot be dropped in place). See the PR body.
@@ -35,6 +37,12 @@ on:
       - "ops/evidence/appointments-completion-*.sql"
       - ".apc/**"
       - ".github/workflows/appointments-completion-lab.yml"
+      - "lib/notifications/customer/**"
+      - "lib/services/appointment/appointment-journal.ts"
+      - "lib/services/booking/booking-notify.ts"
+      - "lib/services/booking/booking-sweep.service.ts"
+      - "app/api/integrations/whatsapp/webhook/**"
+      - "app/api/notifications/worker/**"
   workflow_dispatch:
 
 permissions:
@@ -174,3 +182,13 @@ jobs:
           set -euo pipefail
           bash .apc/rollback-floor.sh apc_mig | tee /tmp/floor.out
           grep -q "^floor: 8 readable, 0 failing" /tmp/floor.out
+
+      - name: 8. Customer WhatsApp (workstream F, G1/G13/G14) — the application on the released schema, as the runtime
+        run: |
+          set -euo pipefail
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          # Simulated transport only (no WHATSAPP_PLATFORM_SEND_MODE, the test also forbids fetch): ZERO network.
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/apc_proof?$TZQ" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/apc_proof?$TZQ" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/apc_proof?$TZQ" \
+            npx tsx lib/notifications/customer/customer-whatsapp.db.test.ts

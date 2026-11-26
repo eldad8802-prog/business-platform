@@ -3,7 +3,8 @@
  *
  * Default: lock-screen safe — the generic title ("דוביז") and the category's generic body; no customer name, no
  * amount, no document number, whatever the stored notification says. Only when the user turned lockScreenDetails
- * ON are the stored title / summary used (bounded). Categories whose stored text the engine writes from counts only
+ * ON are the stored title / summary used (bounded) — never for a lockScreenGenericOnly category (its stored text names
+ * a customer: the owner's booking notices, G13). Categories whose stored text the engine writes from counts only
  * (the daily digest, the test push) may show it always.
  *
  * The deep link is the stored href only if it is an internal path under the category's allowed prefixes;
@@ -33,7 +34,7 @@ export function buildPushMessage(
   let body = cat.lockScreen.body;
   if (cat.storedTextLockScreenSafe) {
     if (n.summary && n.summary.trim()) body = clip(n.summary.trim(), 160);
-  } else if (opts.lockScreenDetails) {
+  } else if (opts.lockScreenDetails && !cat.lockScreenGenericOnly) {
     if (n.title.trim()) title = clip(n.title.trim(), 80);
     if (n.summary && n.summary.trim()) body = clip(n.summary.trim(), 160);
   }
