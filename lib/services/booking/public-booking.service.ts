@@ -16,9 +16,14 @@
  *                overlap even if this layer were bypassed. Idempotent on the caller's UUIDv7 key (the journal is the
  *                ledger, as for the owner). Manual services wait as PROPOSED holding their time (D3); automatic ones
  *                are CONFIRMED at once. No customer card is linked or created here (D6).
- *   manage       the customer's link: the request's state and, within the business's policy (D9), cancellation.
+ *   manage       the customer's link: the request's state and, within the business's policy (D9), cancellation —
+ *                and (G15) moving the appointment to another free time while the business allows it.
+ *   verify       (G2, owner requirement 8) a WhatsApp code proves the phone before ANY request is accepted, for every
+ *                business, whatever its stored requireVerification says (phone-verification.service.ts). While no
+ *                WhatsApp path can deliver a code (Meta approval pending), the door itself answers 404 (G3).
  *
- * The answer never depends on whether the phone belongs to a known customer.
+ * The answer never depends on whether the phone belongs to a known customer: a request is refused for an unverified
+ * phone before anything about its earlier bookings is looked at (the per-phone cap answers only the phone's owner).
  */
 import type { Appointment, Prisma } from "@prisma/client";
 
@@ -41,6 +46,7 @@ import { computeSlots, isDayKey, MAX_SLOT_RANGE_DAYS, occupiedRange } from "@/li
 
 import {
   chooseStaff,
+  effectiveHorizonDays,
   effectiveOpenCap,
   manageLinkExpiry,
   MANAGE_TOKEN,
@@ -50,11 +56,13 @@ import {
   requestExpiry,
   requestFingerprint,
   selfCancel,
+  selfReschedule,
   sha256Hex,
   withinBusinessHours,
   type AssignmentMode,
 } from "./booking.core";
-import { notifyAutoConfirmed, notifyCustomerCancelled, notifyPending, resolveRequestNotification } from "./booking-notify";
+import { notifyAutoConfirmed, notifyCustomerCancelled, notifyCustomerRescheduled, notifyPending, resolveRequestNotification } from "./booking-notify";
+import { consumeVerifiedPhone, hasVerifiedPhone, issueBookingCode, otpDeliveryAvailable, verifyBookingCode } from "./phone-verification.service";
 
 type Tx = Prisma.TransactionClient;
 const ACTIVE: Appointment["status"][] = ["PROPOSED", "CONFIRMED"];
@@ -79,9 +87,14 @@ export async function publicBookingOpen(businessId: number): Promise<boolean> {
   }
 }
 
-/** The link id → its business, or null (unknown, malformed, disabled, deleted business, or a flag OFF). */
+/**
+ * The link id → its business, or null (unknown, malformed, disabled, deleted business, a flag OFF — or, G3, no WhatsApp
+ * path that can deliver the mandatory verification code: until Meta approves the platform number the link stays
+ * unavailable, with the same 404 as every other refusal).
+ */
 export async function resolvePublicBusiness(publicId: unknown): Promise<number | null> {
   if (typeof publicId !== "string" || !PUBLIC_ID.test(publicId)) return null;
+  if (!otpDeliveryAvailable()) return null;
   const rows = await prisma.$queryRaw<{ id: number }[]>`SELECT booking_resolve_public AS id FROM public.booking_resolve_public(${publicId})`;
   if (rows.length !== 1) return null;
   const businessId = Number(rows[0].id);
@@ -94,6 +107,32 @@ async function requireBusiness(publicId: unknown): Promise<number> {
   return businessId;
 }
 
+// ── Phone verification (G2) ────────────────────────────────────────────────────────────────────
+
+/** POST …/verify {action:"send"} — a WhatsApp code to the phone (caps, cooldown: phone-verification.service.ts). */
+export async function requestPublicCode(publicId: unknown, input: { phone?: unknown }, ctx: { ip: string; now?: Date }) {
+  const businessId = await requireBusiness(publicId);
+  return issueBookingCode(businessId, input, ctx);
+}
+
+/** POST …/verify {action:"check"} — the code typed back; a verification token for the submit. */
+export async function verifyPublicCode(publicId: unknown, input: { phone?: unknown; code?: unknown }, nowIn?: Date) {
+  const businessId = await requireBusiness(publicId);
+  return verifyBookingCode(businessId, input, nowIn);
+}
+
+/** Was this idempotency key already used for a request at this business (a replay — its verification was consumed)? */
+async function isReplay(businessId: number, key: string): Promise<boolean> {
+  if (typeof key !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(key)) return false;
+  return tenantTx(businessId, async (tx) => (await tx.appointmentEvent.count({ where: { businessId, idempotencyKey: key, eventType: "APPOINTMENT_CREATED" } })) > 0);
+}
+
+/** The business's logo for the link (showLogo): an inline PNG / JPEG / WebP data URL of reasonable size, else nothing. */
+export function publicLogo(dataUrl: string | null): string | null {
+  if (!dataUrl || dataUrl.length > 300_000) return null;
+  return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) ? dataUrl : null;
+}
+
 // ── What the public may see ─────────────────────────────────────────────────────────────────────
 
 type Settings = NonNullable<Awaited<ReturnType<typeof loadSettings>>>;
@@ -102,7 +141,7 @@ async function loadSettings(tx: Tx, businessId: number) {
 }
 
 /** The services open to the public, each with the lanes that may take it (ordered by the owner's order). */
-async function publicCatalog(tx: Tx, businessId: number) {
+export async function publicCatalog(tx: Tx, businessId: number) {
   const policies = await tx.serviceBookingPolicy.findMany({ where: { businessId, publicBookable: true } });
   if (policies.length === 0) return { services: [], staff: [], noStaff: false };
   const services = await tx.businessService.findMany({
@@ -145,16 +184,21 @@ export async function getPublicProfile(publicId: unknown) {
   return tenantTx(businessId, async (tx) => {
     const settings = (await loadSettings(tx, businessId)) as Settings;
     const business = await tx.business.findFirst({ where: { id: businessId }, select: { name: true } });
-    const profile = settings.showAddress || settings.showBusinessDetails
-      ? await tx.businessProfile.findFirst({ where: { businessId }, select: { city: true, billingAddress: true, billingPhone: true, category: true, subCategory: true } })
+    const profile = settings.showAddress || settings.showBusinessDetails || settings.showLogo
+      ? await tx.businessProfile.findFirst({ where: { businessId }, select: { city: true, billingAddress: true, billingPhone: true, category: true, subCategory: true, billingLogoDataUrl: true } })
       : null;
+    const logo = settings.showLogo ? publicLogo(profile?.billingLogoDataUrl ?? null) : null;
     const catalog = await publicCatalog(tx, businessId);
     return {
       business: {
         name: business?.name ?? "",
         ...(settings.showAddress ? { city: profile?.city ?? null, address: profile?.billingAddress ?? null } : {}),
         ...(settings.showBusinessDetails ? { category: profile?.subCategory ?? profile?.category ?? null, phone: profile?.billingPhone ?? null } : {}),
+        ...(logo ? { logo } : {}),
       },
+      // G2: every request needs the phone verified by a WhatsApp code first (owner requirement 8 — always).
+      verification: { required: true, channel: "WHATSAPP" },
+      selfReschedule: { enabled: settings.selfRescheduleEnabled, windowHours: settings.selfRescheduleWindowHours },
       staffChoice: catalog.noStaff ? "NONE" : settings.staffChoiceMode,
       selfCancel: { enabled: settings.selfCancelEnabled, windowHours: settings.selfCancelWindowHours },
       services: catalog.services.map((s) => ({
@@ -164,7 +208,7 @@ export async function getPublicProfile(publicId: unknown) {
         approval: s.policy.approvalMode,
         // How far ahead the service is offered (its own policy — the slots answer already stops there): the page stops
         // paging at it instead of showing empty weeks.
-        maxAdvanceDays: s.policy.maxAdvanceDays,
+        maxAdvanceDays: effectiveHorizonDays(s.policy.maxAdvanceDays, settings.bookingHorizonDays),
         ...(settings.showPrices ? { price: price(s) } : {}),
         ...(settings.showStaffNames && !catalog.noStaff && settings.staffChoiceMode !== "NONE"
           ? { staff: s.lanes.map((l) => { const m = catalog.staff.find((x) => x.id === l.staffMemberId)!; return { id: m.id, name: m.displayName, color: m.color }; }) }
@@ -178,12 +222,17 @@ export async function getPublicProfile(publicId: unknown) {
 
 type Lane = { staffMemberId: number | null; durationMinutes: number };
 
-async function laneSlots(tx: Tx, businessId: number, lane: Lane, policy: { bufferBeforeMinutes: number; bufferAfterMinutes: number; slotStepMinutes: number; minLeadMinutes: number; maxAdvanceDays: number }, fromDay: JerusalemDayKey, toDay: JerusalemDayKey, now: Date) {
+type SlotPolicy = { bufferBeforeMinutes: number; bufferAfterMinutes: number; slotStepMinutes: number; minLeadMinutes: number; maxAdvanceDays: number };
+
+/** The service's policy with the business's booking horizon applied (it may only narrow the service's own). */
+const withHorizon = (policy: SlotPolicy, settings: Settings): SlotPolicy => ({ ...policy, maxAdvanceDays: effectiveHorizonDays(policy.maxAdvanceDays, settings.bookingHorizonDays) });
+
+async function laneSlots(tx: Tx, businessId: number, lane: Lane, policy: SlotPolicy, fromDay: JerusalemDayKey, toDay: JerusalemDayKey, now: Date, excludeAppointmentId?: number) {
   const { rules, exceptions } = await laneAvailability(tx, businessId, lane.staffMemberId, fromDay, toDay);
   // A lane with no hours at all is never offered to the public (the owner's calendar may still book it).
   if (rules.length === 0 && exceptions.every((e) => e.kind !== "OPEN_HOURS")) return [];
   const range = { start: new Date(`${addCalendarDays(fromDay, -1)}T00:00:00.000Z`), end: new Date(`${addCalendarDays(toDay, 2)}T00:00:00.000Z`) };
-  const busy = (await laneOccupants(tx, businessId, lane.staffMemberId, range)).map((o) =>
+  const busy = (await laneOccupants(tx, businessId, lane.staffMemberId, range, excludeAppointmentId)).map((o) =>
     occupiedRange(o.startsAt, o.endsAt, o.bufferBeforeMinutes, o.bufferAfterMinutes));
   const slots = computeSlots({
     fromDay, toDay, durationMinutes: lane.durationMinutes,
@@ -233,7 +282,7 @@ export async function getPublicSlots(publicId: unknown, input: { serviceId?: unk
     const lanes = pickLanes(svc, settings, catalog.noStaff, input.staffId);
     const starts = new Set<string>();
     for (const lane of lanes) {
-      for (const s of await laneSlots(tx, businessId, lane, svc.policy, fromDay, toDay, now)) starts.add(s.startsAt.toISOString());
+      for (const s of await laneSlots(tx, businessId, lane, withHorizon(svc.policy, settings), fromDay, toDay, now)) starts.add(s.startsAt.toISOString());
     }
     return { durationMinutes: svc.durationMinutes, slots: [...starts].sort().map((startsAt) => ({ startsAt })) };
   });
@@ -241,7 +290,7 @@ export async function getPublicSlots(publicId: unknown, input: { serviceId?: unk
 
 // ── Submit ─────────────────────────────────────────────────────────────────────────────────────
 
-export type SubmitInput = { serviceId?: unknown; staffId?: unknown; startsAt?: unknown; name?: unknown; phone?: unknown; note?: unknown; website?: unknown };
+export type SubmitInput = { serviceId?: unknown; staffId?: unknown; startsAt?: unknown; name?: unknown; phone?: unknown; note?: unknown; website?: unknown; verificationToken?: unknown };
 export type SubmitResult = {
   status: "PENDING" | "CONFIRMED";
   replayed: boolean;
@@ -308,12 +357,12 @@ async function dayLoad(tx: Tx, businessId: number, staffMemberId: number, day: J
   return rows.filter((r) => r.startsAt && jerusalemDayKey(r.startsAt) === day).length;
 }
 
-async function issueManageToken(tx: Tx, businessId: number, appointmentId: number, startsAt: Date, now: Date): Promise<string> {
+async function issueManageToken(tx: Tx, businessId: number, appointmentId: number, startsAt: Date, now: Date, endsAt: Date | null): Promise<string> {
   // A replay (or a second issue) supersedes the earlier link of this appointment.
   await tx.appointmentManageToken.updateMany({ where: { businessId, appointmentId, revokedAt: null }, data: { revokedAt: now } });
   const token = newManageToken();
   await tx.appointmentManageToken.create({
-    data: { businessId, appointmentId, tokenHash: sha256Hex(token), expiresAt: manageLinkExpiry(now, startsAt), createdAt: now },
+    data: { businessId, appointmentId, tokenHash: sha256Hex(token), expiresAt: manageLinkExpiry(now, startsAt, endsAt), createdAt: now },
   });
   return token;
 }
@@ -347,8 +396,6 @@ export async function submitPublicRequest(
   opts: { beforeWrite?: (businessId: number) => Promise<void> } = {},
 ): Promise<SubmitResult> {
   const businessId = await requireBusiness(publicId);
-  // The per-business ceiling (D11) — known only once the link has resolved.
-  await opts.beforeWrite?.(businessId);
   const now = nowIn ?? new Date();
   // A filled honeypot is refused like any malformed request (no hint that it was noticed).
   if (input.website !== undefined && input.website !== null && input.website !== "") throw invalid("request");
@@ -359,6 +406,14 @@ export async function submitPublicRequest(
   const startsAt = new Date(input.startsAt);
   if (Number.isNaN(startsAt.getTime())) throw invalid("startsAt");
   if (typeof key !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(key)) throw new AppointmentServiceError("IDEMPOTENCY_KEY_INVALID");
+  // G2 (owner requirement 8): no verified phone, no request — checked BEFORE the business's own ceiling is spent, so
+  // unverified traffic cannot use up a business's hourly allowance. A replay of an accepted request (same key — its
+  // verification was consumed by the original) is answered by the replay path below without a second verification.
+  if (!(await hasVerifiedPhone(businessId, contact.phone, input.verificationToken, now)) && !(await isReplay(businessId, key))) {
+    throw new AppointmentServiceError("PHONE_NOT_VERIFIED");
+  }
+  // The per-business ceiling (D11) — known only once the link has resolved.
+  await opts.beforeWrite?.(businessId);
 
   const body = { serviceId: input.serviceId ?? null, staffId: input.staffId ?? null, startsAt: startsAt.toISOString(), name: contact.name, phone: contact.phone, note: contact.note };
   const keys = digestKeysFromEnv();
@@ -371,11 +426,14 @@ export async function submitPublicRequest(
     const prior = await findPrior(tx, businessId, prepared);
     if (prior !== null) {
       const appt = await tx.appointment.findFirst({ where: { id: prior, businessId } });
-      const token = await issueManageToken(tx, businessId, prior, appt?.startsAt ?? now, now);
+      const token = await issueManageToken(tx, businessId, prior, appt?.startsAt ?? now, now, appt?.endsAt ?? null);
       return describe(tx, businessId, prior, settings, now, token, true);
     }
     const verdict = checkIdempotencyKey(key, now);
     if (!verdict.ok) throw new AppointmentServiceError(verdict.code);
+
+    // G2: the phone's verification is consumed with the request (single use; a refused request rolls it back).
+    const phoneVerifiedAt = await consumeVerifiedPhone(tx, businessId, contact.phone, input.verificationToken, now);
 
     // Lapsed requests release their time before anything is checked (the sweeper may not have run yet).
     await expireDueRequests(tx, businessId, now);
@@ -390,7 +448,7 @@ export async function submitPublicRequest(
     const day = jerusalemDayKey(startsAt);
     const free: Lane[] = [];
     for (const lane of lanes) {
-      const slots = await laneSlots(tx, businessId, lane, svc.policy, day, day, now);
+      const slots = await laneSlots(tx, businessId, lane, withHorizon(svc.policy, settings), day, day, now);
       if (slots.some((s) => s.startsAt.getTime() === startsAt.getTime())) free.push(lane);
     }
     if (free.length === 0) throw new AppointmentServiceError("SLOT_UNAVAILABLE");
@@ -424,7 +482,7 @@ export async function submitPublicRequest(
         businessId, appointmentId: appt.id, status: auto ? "APPROVED" : "PENDING",
         contactName: contact.name, contactPhone: contact.phone, customerNote: contact.note,
         fingerprint: requestFingerprint(businessId, key), expiresAt,
-        decidedAt: auto ? now : null,
+        decidedAt: auto ? now : null, phoneVerifiedAt,
       },
     });
     const signal = await recordOfferingDemand(tx, {
@@ -439,7 +497,7 @@ export async function submitPublicRequest(
     const facts = { requestId: request.id, contactName: contact.name, serviceName: svc.name, when: whenLabel(startsAt) };
     if (auto) await notifyAutoConfirmed(tx, businessId, facts, now);
     else await notifyPending(tx, businessId, facts, now);
-    const token = await issueManageToken(tx, businessId, appt.id, startsAt, now);
+    const token = await issueManageToken(tx, businessId, appt.id, startsAt, now, endsAt);
     return describe(tx, businessId, appt.id, settings, now, token, false);
   }, { timeoutMs: 15_000 });
 
@@ -482,6 +540,10 @@ export type ManageView = {
   withdrawn: boolean;
   /** Whether the business lets customers cancel through the link at all (the profile already says so). */
   selfCancelEnabled: boolean;
+  /** G15: the customer may move a confirmed appointment to another free time now, and until when. */
+  canReschedule: boolean;
+  rescheduleUntil: string | null;
+  selfRescheduleEnabled: boolean;
 };
 
 async function manageView(tx: Tx, businessId: number, hash: string, now: Date) {
@@ -504,6 +566,9 @@ async function manageView(tx: Tx, businessId: number, hash: string, now: Date) {
   const cancel = appt.startsAt ? selfCancel({ enabled: settings.selfCancelEnabled, windowHours: settings.selfCancelWindowHours }, appt.startsAt, now) : { allowed: false, until: null };
   // A pending request may always be withdrawn before it is decided; a confirmed one within the business's window.
   const canCancel = live && (state === "PENDING" || cancel.allowed);
+  // G15: only a confirmed appointment moves through the link (a pending request is withdrawn and asked again).
+  const move = appt.startsAt ? selfReschedule({ enabled: settings.selfRescheduleEnabled, windowHours: settings.selfRescheduleWindowHours }, appt.startsAt, now) : { allowed: false, until: null };
+  const canReschedule = state === "CONFIRMED" && move.allowed;
   const view: ManageView = {
     state,
     startsAt: appt.startsAt?.toISOString() ?? null,
@@ -515,8 +580,11 @@ async function manageView(tx: Tx, businessId: number, hash: string, now: Date) {
     cancelUntil: state === "CONFIRMED" && cancel.until ? cancel.until.toISOString() : null,
     withdrawn: req.status === "WITHDRAWN",
     selfCancelEnabled: settings.selfCancelEnabled,
+    canReschedule,
+    rescheduleUntil: state === "CONFIRMED" && move.until ? move.until.toISOString() : null,
+    selfRescheduleEnabled: settings.selfRescheduleEnabled,
   };
-  return { view, appt, req };
+  return { view, appt, req, settings };
 }
 
 export async function viewByToken(token: unknown, nowIn?: Date): Promise<ManageView> {
@@ -544,4 +612,100 @@ export async function cancelByToken(token: unknown, nowIn?: Date): Promise<Manag
     await notifyCustomerCancelled(tx, r.businessId, { requestId: req.id, contactName: req.contactName, serviceName: view.serviceName, when: appt.startsAt ? whenLabel(appt.startsAt) : "" }, now, wasPending);
     return (await manageView(tx, r.businessId, r.hash, now)).view;
   }, { timeoutMs: 15_000 });
+}
+
+// ── Self-reschedule (G15) ──────────────────────────────────────────────────────────────────────
+
+/**
+ * The lane a customer's own appointment may move within: the same service (still open to the public), the same staff
+ * member (still offered on the link) or the business's own lane, at the appointment's own length. Null when the
+ * business has since closed that service / staff member to the link — the customer then contacts the business.
+ */
+async function rescheduleLane(tx: Tx, businessId: number, appt: Appointment): Promise<{ lane: Lane; policy: SlotPolicy } | null> {
+  if (!appt.businessServiceId || !appt.startsAt || !appt.endsAt) return null;
+  const catalog = await publicCatalog(tx, businessId);
+  const svc = catalog.services.find((x) => x.id === appt.businessServiceId);
+  if (!svc) return null;
+  const lane = svc.lanes.find((l) => l.staffMemberId === appt.staffMemberId);
+  if (!lane) return null;
+  const minutes = appt.durationMinutes ?? Math.round((appt.endsAt.getTime() - appt.startsAt.getTime()) / 60_000);
+  return { lane: { staffMemberId: lane.staffMemberId, durationMinutes: minutes }, policy: svc.policy };
+}
+
+/** Free times the customer may move to (the appointment's own time is not counted as busy). */
+export async function rescheduleSlotsByToken(token: unknown, input: { fromDay?: unknown; toDay?: unknown }, nowIn?: Date) {
+  const r = await resolveToken(token);
+  if (!r) throw notFound();
+  if (!isDayKey(input.fromDay)) throw invalid("fromDay");
+  if (!isDayKey(input.toDay)) throw invalid("toDay");
+  const fromDay = input.fromDay;
+  const toDay = input.toDay;
+  if (toDay < fromDay || addCalendarDays(fromDay, MAX_SLOT_RANGE_DAYS - 1) < toDay) throw invalid("toDay");
+  const now = nowIn ?? new Date();
+  return tenantTx(r.businessId, async (tx) => {
+    const { view, appt, settings } = await manageView(tx, r.businessId, r.hash, now);
+    if (!view.canReschedule) throw new AppointmentServiceError("SELF_RESCHEDULE_CLOSED");
+    const target = await rescheduleLane(tx, r.businessId, appt);
+    if (!target) throw new AppointmentServiceError("SELF_RESCHEDULE_CLOSED");
+    const slots = await laneSlots(tx, r.businessId, target.lane, withHorizon(target.policy, settings), fromDay, toDay, now, appt.id);
+    const current = appt.startsAt?.getTime();
+    return {
+      durationMinutes: target.lane.durationMinutes,
+      maxAdvanceDays: effectiveHorizonDays(target.policy.maxAdvanceDays, settings.bookingHorizonDays),
+      slots: slots.filter((x) => x.startsAt.getTime() !== current).map((x) => ({ startsAt: x.startsAt.toISOString() })),
+    };
+  });
+}
+
+/**
+ * The customer moves their confirmed appointment (G15). Under the business's appointment lock — the same one every
+ * owner write takes — the new start must be one of the free times computed NOW for the same lane (hours, exceptions,
+ * blocks, busy time, buffers, notice, the service's step and the business's horizon), and the business must allow it:
+ * selfRescheduleEnabled, and the CURRENT start still outside selfRescheduleWindowHours. The database's EXCLUDE
+ * constraint refuses an overlap even if this layer were bypassed. Journalled as SELF_RESCHEDULED by the CUSTOMER — the
+ * journal's hooks then owe the customer's "changed" WhatsApp and new reminders (workstream F) and re-anchor the manage
+ * link's expiry (manage-token.ts). The owner is told in the bell. Idempotent: moving to the time it already has is a
+ * no-op answer.
+ */
+export async function rescheduleByToken(token: unknown, input: { startsAt?: unknown }, nowIn?: Date): Promise<ManageView> {
+  const r = await resolveToken(token);
+  if (!r) throw notFound();
+  if (typeof input.startsAt !== "string" || input.startsAt.length > 40) throw invalid("startsAt");
+  const startsAt = new Date(input.startsAt);
+  if (Number.isNaN(startsAt.getTime())) throw invalid("startsAt");
+  const now = nowIn ?? new Date();
+  try {
+    return await tenantTx(r.businessId, async (tx) => {
+      await lockBusinessAppointments(tx, r.businessId);
+      const { view, appt, req, settings } = await manageView(tx, r.businessId, r.hash, now);
+      if (appt.startsAt && appt.startsAt.getTime() === startsAt.getTime() && view.state === "CONFIRMED") return view;
+      if (!view.canReschedule) throw new AppointmentServiceError("SELF_RESCHEDULE_CLOSED");
+      const target = await rescheduleLane(tx, r.businessId, appt);
+      if (!target) throw new AppointmentServiceError("SELF_RESCHEDULE_CLOSED");
+      const day = jerusalemDayKey(startsAt);
+      const free = await laneSlots(tx, r.businessId, target.lane, withHorizon(target.policy, settings), day, day, now, appt.id);
+      if (!free.some((x) => x.startsAt.getTime() === startsAt.getTime())) throw new AppointmentServiceError("SLOT_UNAVAILABLE");
+      const endsAt = new Date(startsAt.getTime() + target.lane.durationMinutes * 60_000);
+      const moved = await tx.appointment.updateMany({
+        where: { id: appt.id, businessId: r.businessId, version: appt.version, status: "CONFIRMED" },
+        data: { startsAt, endsAt, durationMinutes: target.lane.durationMinutes, version: { increment: 1 } },
+      });
+      if (moved.count !== 1) throw new AppointmentServiceError("VERSION_CONFLICT");
+      await appendAppointmentEvent(tx, {
+        businessId: r.businessId, appointmentId: appt.id, eventType: "SELF_RESCHEDULED", ctx: CUSTOMER,
+        idempotencyKey: `customer:reschedule:${appt.id}:v${appt.version}`,
+        payload: {
+          fromStartsAt: instantToken(appt.startsAt), toStartsAt: instantToken(startsAt),
+          fromEndsAt: instantToken(appt.endsAt), toEndsAt: instantToken(endsAt),
+          fromStaffMemberId: appt.staffMemberId, toStaffMemberId: appt.staffMemberId, channel: "PUBLIC_BOOKING", requestId: req.id,
+        },
+        occurredAt: now,
+      });
+      await notifyCustomerRescheduled(tx, r.businessId, { requestId: req.id, contactName: req.contactName, serviceName: view.serviceName, when: whenLabel(startsAt) }, now);
+      return (await manageView(tx, r.businessId, r.hash, now)).view;
+    }, { timeoutMs: 15_000 });
+  } catch (e) {
+    if (isOverlapViolation(e)) throw new AppointmentServiceError("SLOT_UNAVAILABLE", { source: "database" });
+    throw e;
+  }
 }

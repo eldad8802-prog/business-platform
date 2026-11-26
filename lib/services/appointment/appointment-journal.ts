@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import type { AppointmentEventActor, AppointmentEventType, Prisma } from "@prisma/client";
 
 import { produceAppointmentCustomerMessages } from "@/lib/notifications/customer/appointment-messages";
+import { followManageTokenExpiry } from "@/lib/services/booking/manage-token";
 
 import type { ActorContext } from "./appointment.types";
 
@@ -89,4 +90,6 @@ export async function appendAppointmentEvent(tx: Prisma.TransactionClient, e: Jo
   await produceAppointmentCustomerMessages(tx, {
     businessId: e.businessId, appointmentId: e.appointmentId, eventType: e.eventType, payload,
   });
+  // G15: a moved appointment's manage link is re-anchored to its new end (lib/services/booking/manage-token.ts).
+  await followManageTokenExpiry(tx, { businessId: e.businessId, appointmentId: e.appointmentId, eventType: e.eventType });
 }

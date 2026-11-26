@@ -22,7 +22,14 @@ export type AppointmentErrorCode =
   | "REQUEST_LIMIT"
   | "REQUEST_EXPIRED"
   | "SELF_CANCEL_CLOSED"
-  | "BOOKING_CLOSED";
+  | "BOOKING_CLOSED"
+  | "BOOKING_NOT_READY"
+  | "SELF_RESCHEDULE_CLOSED"
+  | "PHONE_NOT_VERIFIED"
+  | "OTP_INVALID"
+  | "OTP_COOLDOWN"
+  | "OTP_LIMIT"
+  | "OTP_UNAVAILABLE";
 
 const STATUS: Record<AppointmentErrorCode, number> = {
   IDEMPOTENCY_KEY_INVALID: 400,
@@ -48,6 +55,21 @@ const STATUS: Record<AppointmentErrorCode, number> = {
   SELF_CANCEL_CLOSED: 409,
   // The platform has not opened public booking for the business: its link cannot be turned on or replaced yet.
   BOOKING_CLOSED: 409,
+  // G3: the link cannot be turned on before the business is ready (eligible, hours, services, a WhatsApp path that can
+  // deliver the mandatory verification code). details.missing names what is missing.
+  BOOKING_NOT_READY: 409,
+  // G15: the business does not let customers move their appointment through the link, or its window has closed.
+  SELF_RESCHEDULE_CLOSED: 409,
+  // G2 (owner requirement 8): a public request without a verified, unused phone verification is refused.
+  PHONE_NOT_VERIFIED: 403,
+  // G2: the code is wrong, expired, used, replaced or out of attempts — ONE answer for all of them (no oracle).
+  OTP_INVALID: 422,
+  // G2: a new code for this phone is not sent yet (details.retryAfterSeconds); the previous one still works.
+  OTP_COOLDOWN: 429,
+  // G2: a send cap was reached (per phone / IP / business — not said which).
+  OTP_LIMIT: 429,
+  // G2: no WhatsApp path can deliver a code now (the link answers as unavailable).
+  OTP_UNAVAILABLE: 503,
 };
 
 export class AppointmentServiceError extends Error {

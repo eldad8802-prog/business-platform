@@ -50,12 +50,43 @@ let phoneSeq = Math.floor(Date.now() / 1000) % 10_000_000;
 const nextPhone = () => `05${String(phoneSeq++).padStart(8, "0")}`;
 
 async function ctx(browser: Browser, v: Vp): Promise<BrowserContext> {
-  return browser.newContext({
+  const c = await browser.newContext({
     baseURL: BASE, locale: "he-IL", timezoneId: "Asia/Jerusalem",
     viewport: { width: v.width, height: v.height }, ...(v.mobile ? { deviceScaleFactor: 2, isMobile: true, hasTouch: true } : {}),
     // Each context is its own visitor for the per-IP limits (5 submits a minute).
     extraHTTPHeaders: { "x-forwarded-for": `10.77.${Math.floor(ipSeq / 250)}.${(ipSeq++ % 250) + 1}` },
   });
+  await verificationRoutes(c);
+  return c;
+}
+
+/**
+ * Appointments completion G2 (owner requirement 8): every request needs the phone verified by a WhatsApp code first.
+ * The app under test runs with the lab switch BOOKING_OTP_ALLOW_SIMULATED=1 (a simulated send reaches no one, so no
+ * code can be read back), so the browser's two code calls are answered here: "send" says sent; "check" writes, as the
+ * owner, a VERIFIED challenge for the typed phone and returns its real token. The request itself then goes to the real
+ * server, which checks and consumes that token exactly as in Production. The code flow itself is proven by
+ * lib/services/booking/phone-verification.db.test.ts.
+ */
+async function verificationRoutes(c: BrowserContext): Promise<void> {
+  await c.route("**/api/public/booking/*/code", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ sent: true, expiresInSeconds: 300, resendInSeconds: 60 }) }));
+  await c.route("**/api/public/booking/*/verify", async (r) => {
+    const { phone } = JSON.parse(r.request().postData() ?? "{}") as { phone?: string };
+    const token = await verified.forBusiness(BUSINESS_ID, phone);
+    if (!token) return r.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "INVALID_INPUT", details: { field: "phone" } }) });
+    await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ verified: true, verificationToken: token, validForSeconds: 1800 }) });
+  });
+}
+let verified: { forBusiness: (businessId: number, rawPhone: unknown) => Promise<string | undefined> };
+
+/** From the filled details form to the request: the WhatsApp code step (the code typed), then the step's own button. */
+async function verifyAndSend(p: Page, opts: { dbl?: boolean } = {}) {
+  await p.getByRole("button", { name: "שליחת קוד ב-WhatsApp" }).click();
+  await p.locator("#bk-code").waitFor({ timeout: 20_000 });
+  must(await p.getByText(/קוד אימות לתור ב/).isVisible(), "the code step does not name the business");
+  await p.locator("#bk-code").fill("123456");
+  const btn = p.getByRole("button", { name: /^אימות/ });
+  if (opts.dbl) await btn.dblclick(); else await btn.click();
 }
 const shot = (p: Page, n: string) => p.screenshot({ path: join(OUT, `${n}.png`) });
 const noHScroll = async (p: Page, where: string) => must(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `horizontal scroll at ${where}`);
@@ -135,6 +166,8 @@ async function prepare() {
 
 async function main() {
   must(BUSINESS_ID, "BUSINESS_ID is required");
+  const { bookingVerificationAdapter } = await import("./verify-adapter");
+  verified = await bookingVerificationAdapter(owner);
   await prepare();
   must(PUBLIC_ID, "the business has no booking link");
   const browser = await chromium.launch();
@@ -150,7 +183,7 @@ async function main() {
         await noHScroll(p, "details");
         await shot(p, `${v.name}-details`);
         await fill(p, "נועה בדיקה", nextPhone(), "פעם ראשונה");
-        await p.getByRole("button", { name: "שליחת בקשה לתור" }).click();
+        await verifyAndSend(p);
         await p.getByRole("heading", { name: /הבקשה נשלחה/ }).waitFor({ timeout: 30_000 });
         must((await focusedHeading(p)).includes("הבקשה נשלחה"), "focus is not on the answer");
         must(await p.getByText("ממתינה לאישור העסק").first().isVisible(), "no pending badge");
@@ -171,7 +204,7 @@ async function main() {
       await check("auto-approved service → \"התור נקבע\" with the staff member", async () => {
         await toDetails(p, "צבע", "שירה");
         await fill(p, "רון בדיקה", nextPhone());
-        await p.getByRole("button", { name: "קביעת התור" }).click();
+        await verifyAndSend(p);
         await p.getByRole("heading", { name: /התור נקבע/ }).waitFor({ timeout: 30_000 });
         must(await p.getByText("שירה").first().isVisible(), "staff name missing");
         await shot(p, "phone390-answer-confirmed");
@@ -213,12 +246,12 @@ async function main() {
       p.on("request", (r) => { if (r.method() === "POST" && r.url().includes("/requests")) posts.push({ key: r.headers()["idempotency-key"] ?? null }); });
       await check("empty or invalid details stop before anything is sent", async () => {
         await toDetails(p, "תספורת", "אבי");
-        await p.getByRole("button", { name: "שליחת בקשה לתור" }).click();
+        await p.getByRole("button", { name: "שליחת קוד ב-WhatsApp" }).click();
         await p.getByText("צריך שם מלא (לפחות שתי אותיות).").waitFor();
         must(await p.getByText("צריך מספר טלפון.").isVisible(), "no phone error");
         must((await p.getByLabel("שם מלא").getAttribute("aria-invalid")) === "true", "aria-invalid missing");
         await fill(p, "דנה", "052-abc");
-        await p.getByRole("button", { name: "שליחת בקשה לתור" }).click();
+        await p.getByRole("button", { name: "שליחת קוד ב-WhatsApp" }).click();
         await p.getByText("מספר הטלפון לא נראה תקין.").waitFor();
         must(posts.length === 0, `sent ${posts.length}`);
         await shot(p, "phone390-details-errors");
@@ -226,8 +259,8 @@ async function main() {
       await check("a double tap sends one request and books once", async () => {
         const phone = nextPhone();
         await fill(p, "דנה בדיקה", phone);
-        const btn = p.getByRole("button", { name: "שליחת בקשה לתור" });
-        await btn.dblclick();
+        // The double tap lands on the code step's own button (verify + send): one verification, one request.
+        await verifyAndSend(p, { dbl: true });
         await p.getByRole("heading", { name: /הבקשה נשלחה/ }).waitFor({ timeout: 30_000 });
         must(posts.length >= 1 && new Set(posts.map((x) => x.key)).size === 1, `posts ${JSON.stringify(posts)}`);
         const n = Number((await owner.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "BookingRequest" WHERE "businessId" = ${BUSINESS_ID} AND "contactPhone" LIKE '%${phone.slice(1)}'`))[0].n);
@@ -242,7 +275,7 @@ async function main() {
         await toDetails(p, "תספורת", "כל איש צוות פנוי");
         await fill(p, "גל בדיקה", nextPhone());
         await p.route("**/api/public/booking/*/requests", (r) => r.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "SLOT_UNAVAILABLE", message: "השעה הזו כבר לא פנויה. אפשר לבחור שעה אחרת." }) }));
-        await p.getByRole("button", { name: "שליחת בקשה לתור" }).click();
+        await verifyAndSend(p);
         await p.getByRole("heading", { name: "מתי?" }).waitFor({ timeout: 20_000 });
         const alert = p.getByRole("alert").filter({ hasText: "נתפסה" });
         await alert.waitFor();

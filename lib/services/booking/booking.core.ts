@@ -18,6 +18,8 @@ import { insideAvailability, windowsAsIntervals, windowsForDay, type DayExceptio
 import { normalizeCustomerPhone } from "@/lib/services/integrations/whatsapp/phone";
 import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
+import { nameTextProblem, noteTextProblem, phoneTextProblem, stripPhoneBidi } from "./public-text";
+
 const HOUR_MS = 60 * 60_000;
 
 /** The platform's security ceilings (D11). A business may lower the per-phone cap; nobody raises these. */
@@ -32,7 +34,7 @@ export const PLATFORM_LIMITS = {
 export const REMINDER_INTERVAL_HOURS = 2;
 /** D3: a pending request lasts 12 hours at most (BookingSettings.pendingTtlMinutes, 720). */
 export const DEFAULT_PENDING_TTL_MINUTES = 720;
-/** How long a customer's manage link lives after the appointment starts (to see what happened). */
+/** How long a customer's manage link lives after the appointment ends (to see what happened). */
 export const MANAGE_LINK_GRACE_DAYS = 7;
 
 export const PUBLIC_ID = /^[A-Za-z0-9_-]{22,64}$/;
@@ -162,19 +164,33 @@ export type ContactInput = { name?: unknown; phone?: unknown; note?: unknown };
 export type Contact = { name: string; phone: string; note: string | null };
 export const CONTACT_LIMITS = { nameMin: 2, nameMax: 80, phoneMax: 30, noteMax: 500 } as const;
 
-/** D4: a full name and a phone, an optional note. The phone is stored normalized (972…), as Customer.phone is. */
+/**
+ * D4: a full name and a phone, an optional note. The phone is stored normalized (972…), as Customer.phone is.
+ * G24: a name or a note carrying a Unicode bidi control or a control character is refused; a phone has its bidi marks
+ * stripped first (a number pasted from WhatsApp arrives wrapped in them) — public-text.ts.
+ */
 export function parseContact(input: ContactInput): { ok: true; contact: Contact } | { ok: false; field: "name" | "phone" | "note" } {
+  if (typeof input.name === "string" && nameTextProblem(input.name)) return { ok: false, field: "name" };
   const name = typeof input.name === "string" ? input.name.replace(/\s+/g, " ").trim() : "";
   if (name.length < CONTACT_LIMITS.nameMin || name.length > CONTACT_LIMITS.nameMax || /[<>]/.test(name)) return { ok: false, field: "name" };
-  if (typeof input.phone !== "string" || input.phone.length > CONTACT_LIMITS.phoneMax || !/^[\d\s()+.-]+$/.test(input.phone)) return { ok: false, field: "phone" };
-  const phone = normalizeCustomerPhone(input.phone);
-  if (!phone || phone.length > 15) return { ok: false, field: "phone" };
+  const phone = parsePublicPhone(input.phone);
+  if (!phone) return { ok: false, field: "phone" };
   let note: string | null = null;
   if (input.note !== undefined && input.note !== null) {
-    if (typeof input.note !== "string" || input.note.length > CONTACT_LIMITS.noteMax) return { ok: false, field: "note" };
+    if (typeof input.note !== "string" || input.note.length > CONTACT_LIMITS.noteMax || noteTextProblem(input.note)) return { ok: false, field: "note" };
     note = input.note.trim() || null;
   }
   return { ok: true, contact: { name, phone, note } };
+}
+
+/** A phone from a public form → its normalized digits (972…), or null. The one parser for submit and verification. */
+export function parsePublicPhone(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const stripped = stripPhoneBidi(raw);
+  if (stripped.length > CONTACT_LIMITS.phoneMax || phoneTextProblem(stripped) || !/^[\d\s()+.-]+$/.test(stripped)) return null;
+  const phone = normalizeCustomerPhone(stripped);
+  if (!phone || phone.length > 15) return null;
+  return phone;
 }
 
 /** An opaque booking link id: 24 url-safe characters (18 random bytes) — never derived from the business. */
@@ -196,11 +212,39 @@ export function requestFingerprint(businessId: number, idempotencyKey: string): 
   return sha256Hex(`booking:${businessId}:${idempotencyKey}`);
 }
 
-/** How long a manage link lives: a week past the start (to see the outcome), within the table's 400-day bound. */
-export function manageLinkExpiry(now: Date, startsAt: Date): Date {
-  const want = startsAt.getTime() + MANAGE_LINK_GRACE_DAYS * 24 * HOUR_MS;
-  const max = now.getTime() + 399 * 24 * HOUR_MS;
+/**
+ * How long a manage link lives (G15): until MANAGE_LINK_GRACE_DAYS after the appointment ENDS (to see the outcome),
+ * never less than an hour from now, and within the table's 400-day bound from the moment it was issued. A move of the
+ * appointment (by the owner or the customer) re-anchors it (manage-token.ts, followed from the journal); a new link for
+ * the same appointment revokes the earlier one; the link stops at once when the business's public booking closes.
+ */
+export function manageLinkExpiry(now: Date, startsAt: Date, endsAt?: Date | null, issuedAt: Date = now): Date {
+  const anchor = endsAt && endsAt.getTime() > startsAt.getTime() ? endsAt : startsAt;
+  const want = anchor.getTime() + MANAGE_LINK_GRACE_DAYS * 24 * HOUR_MS;
+  const max = issuedAt.getTime() + 399 * 24 * HOUR_MS;
   return new Date(Math.max(now.getTime() + HOUR_MS, Math.min(want, max)));
+}
+
+/** G15: whether the customer may still move the appointment through the link, and until when. */
+export function selfReschedule(policy: { enabled: boolean; windowHours: number }, startsAt: Date, now: Date): { allowed: boolean; until: Date | null } {
+  return selfCancel(policy, startsAt, now);
+}
+
+/** BookingSettings.bookingHorizonDays' column default (migration 20261230090000): every existing row holds it. */
+export const DEFAULT_BOOKING_HORIZON_DAYS = 60;
+
+/**
+ * The business's booking horizon (bookingHorizonDays, 1..365) narrows a service's own maxAdvanceDays — never widens.
+ * Owner decision D12 (2026-11-26): the column DEFAULT (60) never shortens a service whose own horizon is longer — every
+ * existing business holds 60 without having chosen it, and its services keep exactly the horizon they have today. Any
+ * other value is the owner's choice and narrows. (Consequence, documented: choosing exactly 60 does not cap a service
+ * set to 90; the owner lowers the service's own horizon for that.)
+ */
+export function effectiveHorizonDays(serviceMaxAdvanceDays: number, businessHorizonDays: number | null | undefined): number {
+  if (!Number.isInteger(businessHorizonDays) || (businessHorizonDays as number) < 1) return serviceMaxAdvanceDays;
+  const biz = Math.min(businessHorizonDays as number, 365);
+  if (biz === DEFAULT_BOOKING_HORIZON_DAYS && serviceMaxAdvanceDays > biz) return serviceMaxAdvanceDays;
+  return Math.min(serviceMaxAdvanceDays, biz);
 }
 
 /**

@@ -274,8 +274,16 @@ export type BookingSettingsWire = {
   showBusinessDetails: boolean;
   showPrices: boolean;
   showStaffNames: boolean;
+  /** G15 / D4 (appointments completion). */
+  selfRescheduleEnabled: boolean;
+  selfRescheduleWindowHours: number;
+  reminderOffsetsMinutes: number[];
+  bookingHorizonDays: number;
+  showLogo: boolean;
   version: number | null;
 };
+/** G3: what turning the link on still needs. Phone verification by WhatsApp is always required (owner requirement 8). */
+export type BookingReadinessWire = { ready: boolean; missing: Array<"eligible" | "hours" | "services" | "whatsapp">; verification: "required" };
 export type BookingServiceWire = { id: number; name: string; durationMinutes: number | null; hasPrice: boolean; publicBookable: boolean; approvalMode: "MANUAL" | "AUTO"; policyVersion: number | null };
 export type BookingStaffWire = { id: number; displayName: string; color: string | null; active: boolean; sortOrder: number; publicBookable: boolean; version: number; serviceIds: number[] };
 export type BookingAdminWire = {
@@ -283,6 +291,7 @@ export type BookingAdminWire = {
   platform: { open: boolean; limits: { maxOpenRequestsPerPhone: number; submitPerIpPerMinute: number; submitPerIpPerHour: number; submitPerBusinessPerHour: number } };
   services: BookingServiceWire[];
   staff: BookingStaffWire[];
+  readiness?: BookingReadinessWire;
 };
 
 export const getBookingAdmin = () => call<BookingAdminWire>("GET", "/api/appointments/booking/settings");

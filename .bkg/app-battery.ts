@@ -59,6 +59,12 @@ async function main() {
   const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
   const { runBookingSweep } = await import("@/lib/services/booking/booking-sweep.service");
   const { isQuietHours, sha256Hex } = await import("@/lib/services/booking/booking.core");
+  // Appointments completion G2 (owner requirement 8): every public request needs a verified phone, and the door is open
+  // only while a WhatsApp path can deliver the code. This battery is about everything else: the shared lab adapter
+  // declares the delivery path available and writes, as the owner, the verification each request carries.
+  const { bookingVerificationAdapter } = await import("./verify-adapter");
+  const verification = await bookingVerificationAdapter(owner);
+  const verifiedFor = verification.forLink;
   const routes = {
     profile: await import("@/app/api/public/booking/[publicId]/route"),
     slots: await import("@/app/api/public/booking/[publicId]/slots/route"),
@@ -220,8 +226,10 @@ async function main() {
   console.log("C. submit");
   let phoneSeq = 1000000;
   const phone = () => `05${(phoneSeq++).toString().padStart(8, "0")}`;
-  const submit = (b: Record<string, unknown>, k: string = key(), init: Init = {}, id = publicId) =>
-    routes.submit.POST(req(`/api/public/booking/${id}/requests`, { method: "POST", key: k, body: b, ...init }), p({ publicId: id }));
+  const submit = async (b: Record<string, unknown>, k: string = key(), init: Init = {}, id = publicId) => {
+    const signed = "verificationToken" in b ? b : { ...b, verificationToken: await verifiedFor(id, b.phone) };
+    return routes.submit.POST(req(`/api/public/booking/${id}/requests`, { method: "POST", key: k, body: signed, ...init }), p({ publicId: id }));
+  };
   const k1 = key();
   const p1 = phone();
   const b1 = { serviceId: haircut, startsAt: at("10:00"), name: "נועה לוי", phone: p1, note: "פעם ראשונה" };
@@ -249,6 +257,14 @@ async function main() {
   ok("C9 …and the earlier link stopped working", (await view(s1.manageToken)).status === 404 && (await view(s1b.manageToken)).status === 200);
   r = await submit({ ...b1, startsAt: at("10:30") }, k1);
   ok("C10 the same key with another body → 409 IDEMPOTENCY_KEY_REUSED", r.status === 409 && (await body(r))?.error === "IDEMPOTENCY_KEY_REUSED");
+  {
+    const before = await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA}`);
+    const res = await submit({ serviceId: haircut, startsAt: at("13:00"), name: "בלי אימות", phone: phone(), verificationToken: undefined });
+    const res2 = await submit({ serviceId: haircut, startsAt: at("13:00"), name: "אימות מזויף", phone: phone(), verificationToken: "A".repeat(43) });
+    ok("C9b G2: no verification, or a forged token → 403 PHONE_NOT_VERIFIED, nothing written (owner requirement 8)",
+      res.status === 403 && (await body(res))?.error === "PHONE_NOT_VERIFIED" && res2.status === 403
+      && (await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA}`)) === before);
+  }
   const refused = async (label: string, b: Record<string, unknown>, status: number, code: string) => {
     const before = await n(`SELECT count(*)::int AS n FROM "Appointment" WHERE "businessId" = ${bizA}`);
     const res = await submit({ name: "ניסיון עקיפה", phone: phone(), ...b });
@@ -715,15 +731,19 @@ async function main() {
   ok("P17 a declined request and an owner-approved booking are not counted; two AUTO, then 429",
     pzDecline.status === 200 && pzApprove.status === 200 && z1.status === 201 && z2.status === 201 && z3.status === 429, `${pzDecline.status} ${pzApprove.status} ${z1.status} ${z2.status} ${z3.status}`);
   const pv = phone();
-  const burstAuto = await Promise.all(["11:00", "12:00", "13:00", "14:00", "15:00", "16:00"].map((t) => autoAt(t, 2, pv)));
-  ok("P18 six AUTO bookings from one phone at once (six free times) → exactly two 201, four 429 REQUEST_LIMIT", burstAuto.filter((x) => x.status === 201).length === 2
-    && burstAuto.filter((x) => x.status === 429).length === 4
+  // G2: every request needs its own verification, and through the API one phone holds at most ONE verified, unused
+  // challenge per business at a time (a new code retires the earlier one). To stress the per-phone cap under the lock,
+  // this burst is given one verification per request, written as the owner — five, the most the submit's lookup takes
+  // for one phone (consumeVerifiedPhone reads the newest five; a sixth is a state the API can never produce).
+  const burstAuto = await Promise.all(["11:00", "12:00", "13:00", "14:00", "15:00"].map((t) => autoAt(t, 2, pv)));
+  ok("P18 five AUTO bookings from one phone at once (five free times, each verified) → exactly two 201, three 429 REQUEST_LIMIT", burstAuto.filter((x) => x.status === 201).length === 2
+    && burstAuto.filter((x) => x.status === 429).length === 3
     && (await n(`SELECT count(*)::int AS n FROM "BookingRequest" WHERE "businessId" = ${bizC} AND "contactPhone" = '972${pv.slice(1)}'`)) === 2, burstAuto.map((x) => x.status).join(","));
   // Isolation: px is at its cap in C; in business A (straight through the service, past the route's per-business
   // ceiling that the sections above used up) the same phone books freely.
   const { submitPublicRequest } = await import("@/lib/services/booking/public-booking.service");
   const atCapInC = await autoAt("16:00", 4, px);
-  const inA = await submitPublicRequest(newId, { serviceId: color, startsAt: at("09:00", W(0)), name: "בעסק אחר", phone: px }, key()).then((x) => x.status, (e) => (e as { code?: string }).code);
+  const inA = await submitPublicRequest(newId, { serviceId: color, startsAt: at("09:00", W(0)), name: "בעסק אחר", phone: px, verificationToken: await verifiedFor(newId, px) }, key()).then((x) => x.status, (e) => (e as { code?: string }).code);
   ok("P19 isolation: the phone at its cap in C (429 there) books in business A (CONFIRMED)", atCapInC.status === 429 && inA === "CONFIRMED", `${atCapInC.status} ${inA}`);
 
   console.log(`\n${pass} passed, ${failures.length} failed`);

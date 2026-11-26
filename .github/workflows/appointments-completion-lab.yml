@@ -43,6 +43,9 @@ on:
       - "lib/services/booking/booking-sweep.service.ts"
       - "app/api/integrations/whatsapp/webhook/**"
       - "app/api/notifications/worker/**"
+      - "lib/services/booking/**"
+      - "app/api/public/booking/**"
+      - "app/api/appointments/booking/**"
   workflow_dispatch:
 
 permissions:
@@ -192,3 +195,13 @@ jobs:
           DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/apc_proof?$TZQ" \
           OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/apc_proof?$TZQ" \
             npx tsx lib/notifications/customer/customer-whatsapp.db.test.ts
+
+      - name: 9. Secure self-service (workstream G, G2/G3/G15/G16/G24) — phone verification, readiness, self-reschedule, as the runtime
+        run: |
+          set -euo pipefail
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          # Simulated transport only; the delivery path is declared available by the test's own seam: ZERO network.
+          DATABASE_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/apc_proof?$TZQ" \
+          DIRECT_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/apc_proof?$TZQ" \
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/apc_proof?$TZQ" \
+            npx tsx lib/services/booking/phone-verification.db.test.ts

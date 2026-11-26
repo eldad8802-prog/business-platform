@@ -17,6 +17,14 @@
  *   מה מוצג         address, business details, prices, staff names.
  *   מגבלות          open requests per phone (pending requests + future bookings confirmed automatically from the link),
  *                  never above the platform's ceiling; the platform's own limits are stated.
+ *
+ * Appointments completion (workstream G, approved design d — additions to this screen, no new screen):
+ *   readiness      what turning the link on still needs (G3: hours, an open service, the WhatsApp path), and that every
+ *                  customer verifies the phone by a WhatsApp code (owner requirement 8 — always, not a setting);
+ *   horizon        how far ahead the link may be booked (bookingHorizonDays — narrows each service's own horizon);
+ *   self-reschedule  the customer may move a confirmed appointment through their link, until a window before it (G15);
+ *   reminders      up to three WhatsApp reminder times (reminderOffsetsMinutes, sent by the central engine);
+ *   logo           whether the link shows the business's logo.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -46,6 +54,17 @@ import s from "./calendar.module.css";
 
 const WINDOWS = [0, 2, 6, 12, 24, 48, 72];
 const windowLabel = (h: number) => (h === 0 ? "עד תחילת התור" : `עד ${h} שעות לפני`);
+const HORIZONS = [7, 14, 30, 60, 90, 180, 365];
+const horizonLabel = (d: number) => `${d} יום מראש`;
+/** D4: up to three reminder times (minutes before the appointment). */
+const REMINDERS: Array<[number, string]> = [[1440, "יום לפני"], [180, "3 שעות לפני"], [60, "שעה לפני"]];
+const reminderLabel = (m: number) => REMINDERS.find(([v]) => v === m)?.[1] ?? (m % 60 === 0 ? `${m / 60} שעות לפני` : `${m} דק׳ לפני`);
+const MISSING_TEXT: Record<string, string> = {
+  eligible: "ההזמנה בקישור עוד לא פתוחה לעסק שלך.",
+  hours: "צריך להגדיר שעות פעילות לעסק.",
+  services: "צריך לפתוח להזמנה לפחות שירות אחד (עם משך).",
+  whatsapp: "שליחת קוד האימות ב-WhatsApp עוד לא זמינה. דוביז תפעיל אותה אחרי אישור המספר המרכזי.",
+};
 
 export function BookingSettingsScreen() {
   const on = useFeatureState("appointments");
@@ -141,6 +160,7 @@ export function BookingSettingsScreen() {
   const activeStaff = data?.staff.filter((m) => m.active) ?? [];
   const state = data ? bookingState(data) : null;
   const deadEnd = st ? bookingDeadEnd(st, activeStaff.length > 0) : null;
+  const readiness = data?.readiness;
 
   return (
     <main className={s.screen} data-page-intent="content">
@@ -162,12 +182,21 @@ export function BookingSettingsScreen() {
 
             <section className={s.section} aria-labelledby="bk-link">
               <h2 id="bk-link">הקישור</h2>
+              {readiness && !readiness.ready && data.platform.open ? (
+                <div className={`${s.banner} ${s.bannerWarn}`} role="status">
+                  <IconAlert size={20} />
+                  <span className={s.bannerText}>
+                    <strong>כדי להפעיל את הקישור חסר:</strong>
+                    {readiness.missing.map((m) => <span key={m}>• {MISSING_TEXT[m] ?? m}</span>)}
+                  </span>
+                </div>
+              ) : null}
               <div className={s.setRow}>
                 <label htmlFor="bk-enabled">
                   לקוחות יכולים לבקש תור
                   <small>{!data.platform.open ? "ייפתח אחרי שדוביז תפתח את ההזמנה בקישור." : st.enabled ? "כיבוי עוצר בקשות חדשות מיד. תורים קיימים נשארים." : "כבוי — הקישור לא מקבל בקשות."}</small>
                 </label>
-                <Switch id="bk-enabled" label="לקוחות יכולים לבקש תור" checked={st.enabled} disabled={busy || (!data.platform.open && !st.enabled)} onChange={(v) => void save({ enabled: v }, v ? "הקישור הופעל" : "בקשות חדשות נעצרו")} />
+                <Switch id="bk-enabled" label="לקוחות יכולים לבקש תור" checked={st.enabled} disabled={busy || (!st.enabled && (!data.platform.open || (readiness !== undefined && !readiness.ready)))} onChange={(v) => void save({ enabled: v }, v ? "הקישור הופעל" : "בקשות חדשות נעצרו")} />
               </div>
               {link ? (
                 <div className={s.linkCode}>
@@ -177,6 +206,7 @@ export function BookingSettingsScreen() {
                   }}>{copied ? "הועתק" : "העתקה"}</button>
                 </div>
               ) : <p className={s.note}>{data.platform.open ? "הקישור ייווצר בפעם הראשונה שמפעילים את ההזמנות." : "הקישור יופיע כאן אחרי שההזמנה תיפתח."}</p>}
+              <p className={s.hint}>כל לקוח מאמת את מספר הטלפון בקוד שנשלח אליו ב-WhatsApp לפני שהתור נקבע. זה חובה בכל עסק, כדי למנוע הזמנות מזויפות.</p>
               {link ? (
                 confirmRotate ? (
                   <div className={s.confirm} role="alertdialog" aria-labelledby="bk-rotate-q">
@@ -212,6 +242,41 @@ export function BookingSettingsScreen() {
                   </select>
                 </div>
               ) : null}
+              <div className={s.setRow}>
+                <label htmlFor="bk-resched">הלקוח יכול לשנות מועד בעצמו<small>תור שנקבע אפשר להזיז לשעה פנויה אחרת דרך הקישור האישי.</small></label>
+                <Switch id="bk-resched" label="הלקוח יכול לשנות מועד בעצמו" checked={st.selfRescheduleEnabled} disabled={busy} onChange={(v) => void save({ selfRescheduleEnabled: v })} />
+              </div>
+              {st.selfRescheduleEnabled ? (
+                <div className={s.setRow}>
+                  <label htmlFor="bk-resched-window">שינוי מועד אפשרי</label>
+                  <select id="bk-resched-window" className={s.filterSelect} value={st.selfRescheduleWindowHours} disabled={busy} onChange={(e) => void save({ selfRescheduleWindowHours: Number(e.target.value) })}>
+                    {[...new Set([...WINDOWS, st.selfRescheduleWindowHours])].sort((a, b) => a - b).map((h) => <option key={h} value={h}>{windowLabel(h)}</option>)}
+                  </select>
+                </div>
+              ) : null}
+              <div className={s.setRow}>
+                <label htmlFor="bk-horizon">אפשר להזמין עד<small>{st.bookingHorizonDays === 60 ? "ב־60 יום (ברירת המחדל) כל שירות שומר על הטווח שהוגדר לו." : "שירות עם טווח קצר יותר נשאר בטווח שלו."}</small></label>
+                <select id="bk-horizon" className={s.filterSelect} value={st.bookingHorizonDays} disabled={busy} onChange={(e) => void save({ bookingHorizonDays: Number(e.target.value) })}>
+                  {[...new Set([...HORIZONS, st.bookingHorizonDays])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{horizonLabel(d)}</option>)}
+                </select>
+              </div>
+            </section>
+
+            <section className={s.section} aria-labelledby="bk-reminders">
+              <h2 id="bk-reminders">תזכורות ב-WhatsApp <span className={s.tag}>מתקדם</span></h2>
+              <div className={s.chips} role="group" aria-label="מועדי תזכורת">
+                {[...new Set([...REMINDERS.map(([m]) => m), ...st.reminderOffsetsMinutes])].map((m) => {
+                  const on = st.reminderOffsetsMinutes.includes(m);
+                  const full = !on && st.reminderOffsetsMinutes.length >= 3;
+                  return (
+                    <button key={m} type="button" className={s.chip} aria-pressed={on} disabled={busy || full}
+                      onClick={() => void save({ reminderOffsetsMinutes: on ? st.reminderOffsetsMinutes.filter((x) => x !== m) : [...st.reminderOffsetsMinutes, m] })}>
+                      {reminderLabel(m)}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className={s.hint}>{st.reminderOffsetsMinutes.length === 0 ? "לא יישלחו תזכורות." : "עד שלוש תזכורות לפני כל תור שנקבע. ההודעות נשלחות מהמספר המרכזי של דוביז ושם העסק מופיע בהן."}</p>
             </section>
 
             <section className={s.section} aria-labelledby="bk-services">
@@ -278,6 +343,7 @@ export function BookingSettingsScreen() {
                 ["showBusinessDetails", "סוג העסק וטלפון העסק"],
                 ["showPrices", "מחירי השירותים"],
                 ["showStaffNames", "שמות העובדים"],
+                ["showLogo", "לוגו העסק"],
               ] as const).map(([k, label]) => (
                 <div key={k} className={s.setRow}>
                   <label htmlFor={`bk-${k}`}>{label}</label>

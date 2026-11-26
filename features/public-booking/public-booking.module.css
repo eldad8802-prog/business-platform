@@ -177,6 +177,11 @@
 .input:focus-visible { outline: var(--dz-focus-ring-width, 2px) solid var(--dz-focus-ring-color, var(--dz-brand)); outline-offset: 1px; border-color: var(--dz-brand); }
 .inputBad { border-color: var(--dz-danger-border, var(--dz-danger)); }
 .textarea { min-height: 84px; resize: vertical; }
+/* G2: the WhatsApp code — six digits, left to right, large and evenly spaced. */
+.code { direction: ltr; text-align: center; font-size: 26px; font-weight: 700; letter-spacing: 0.5em; font-variant-numeric: tabular-nums; min-height: 56px; }
+.linkBtn { font: inherit; background: none; border: 0; padding: 0; color: var(--dz-brand); text-decoration: underline; cursor: pointer; min-height: 24px; }
+.linkBtn:disabled { color: var(--dz-text-secondary); cursor: default; }
+.logoImg { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
 .ltr { direction: ltr; text-align: right; }
 .fieldErr { color: var(--dz-danger); font-size: 13px; }
 .trap { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; inset-inline-start: -10000px; }

@@ -65,6 +65,11 @@ export function notifyCustomerCancelled(tx: Tx, businessId: number, f: RequestFa
   return inBell(tx, businessId, f, cancelNoticeTitle(f.contactName, wasPending), `${f.serviceName} · ${f.when}`, now);
 }
 
+/** G15: the customer moved their confirmed appointment through their link (in the bell; the name isolated FSI … PDI). */
+export function notifyCustomerRescheduled(tx: Tx, businessId: number, f: RequestFacts, now: Date) {
+  return inBell(tx, businessId, f, `⁨${f.contactName}⁩ שינה/תה את מועד התור`, `${f.serviceName} · ${f.when}`, now);
+}
+
 /** The request is no longer waiting (decided, expired, withdrawn): no further reminder, out of the open list. */
 export async function resolveRequestNotification(tx: Tx, businessId: number, requestId: number, now: Date): Promise<void> {
   await tx.notification.updateMany({

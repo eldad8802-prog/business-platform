@@ -4,7 +4,7 @@
  */
 import type { JerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
-import type { ManageWire, ProfileWire, SlotsWire, SubmitWire } from "./public-booking-model";
+import type { CodeSentWire, ManageWire, ProfileWire, RescheduleSlotsWire, SlotsWire, SubmitWire, VerifiedWire } from "./public-booking-model";
 
 export type Answer<T> = { ok: true; status: number; data: T } | { ok: false; status: number; code?: string; message?: string; details?: unknown };
 
@@ -40,7 +40,14 @@ export function getSlots(publicId: string, q: { serviceId: number; staffId: numb
   return call<SlotsWire>(`${base(publicId)}/slots?${p.toString()}`);
 }
 
-export type SubmitBody = { serviceId: number; staffId?: number; startsAt: string; name: string; phone: string; note?: string; website: string };
+export type SubmitBody = { serviceId: number; staffId?: number; startsAt: string; name: string; phone: string; note?: string; website: string; verificationToken?: string };
+
+const post = (body: unknown): RequestInit => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+/** G2: send a WhatsApp code to the phone. */
+export const sendCode = (publicId: string, phone: string) => call<CodeSentWire>(`${base(publicId)}/code`, post({ phone }));
+/** G2: check the code; the answer carries the token the request must present. */
+export const verifyCode = (publicId: string, phone: string, code: string) => call<VerifiedWire>(`${base(publicId)}/verify`, post({ phone, code }));
 
 export function submitRequest(publicId: string, key: string, body: SubmitBody) {
   return call<SubmitWire>(`${base(publicId)}/requests`, {
@@ -49,6 +56,11 @@ export function submitRequest(publicId: string, key: string, body: SubmitBody) {
     body: JSON.stringify(body),
   });
 }
+
+/** G15: free times a confirmed appointment may move to, and the move itself. */
+export const rescheduleSlots = (token: string, fromDay: JerusalemDayKey, toDay: JerusalemDayKey) =>
+  call<RescheduleSlotsWire>("/api/public/booking/manage", post({ token, action: "slots", fromDay, toDay }));
+export const reschedule = (token: string, startsAt: string) => call<ManageWire>("/api/public/booking/manage", post({ token, action: "reschedule", startsAt }));
 
 export function manage(token: string, action: "view" | "cancel") {
   return call<ManageWire>("/api/public/booking/manage", {

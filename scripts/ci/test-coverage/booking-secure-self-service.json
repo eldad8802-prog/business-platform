@@ -1,0 +1,16 @@
+{
+  "note": "Appointments completion, workstream G (G2 / G3 / G15 / G16 / G24): WhatsApp phone verification on the public booking link (mandatory for every business — owner requirement 8), eligibility and self-activation of the link, self-reschedule and manage-link expiry, bidi / control character rules for public inputs. Needs migration 20261230090000_appointments_completion (Draft, not applied) and workstream F's verification send API.",
+  "tests": {
+    "lib/services/booking/booking-secure-self-service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (fetch forbidden, no DB, no real clock): the OTP policy (5-minute lifetime, 5 attempts, 60 s cooldown, 6 CSPRNG digits) and the PILOT send caps (owner D7: business 9 pilot only); keyed, domain-separated hashes that never contain the phone or the code, constant-time compare, key rotation, the verification token bound to business + challenge + moment; simulate is never a delivery path and the lab switch never works on Vercel production; bidi / control characters refused in names and notes and stripped from pasted phones (server and page agree); the self-reschedule window, the business horizon narrowing only, the manage link's expiry at end + 7 days within the table bound; the page's verify step, code digits, countdown and error kinds; run by security-gate (lab pure)"
+    },
+    "lib/services/booking/phone-verification.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "appointments-completion-lab.yml",
+      "reason": "AS the restricted runtime on the released appointments-completion lab (simulated transport, fetch forbidden): the link is unavailable (404) without a delivery path; a code stores hashes only with a 5-minute lifetime and one VERIFICATION delivery; cooldown; mandatory verification for a business whose stored requireVerification is FALSE (no / forged / other-phone token refused, nothing written, the stored value untouched); single use (verify once, book once, phoneVerifiedAt set in the request's transaction); supersede; five attempts lock even for the right code and parallel guesses never pass 5; an expired code refused by the service and by the database guard; per phone per business, per phone platform-wide, per IP and per business caps; isolation between businesses (code, token, rows, writes) and a counts-only definer; identical answers for phones with and without bookings; a bidi override in a name refused without spending the verification; BOOKING_NOT_READY until eligibility, hours, services and the WhatsApp path; self-reschedule window, free times excluding the appointment itself, SELF_RESCHEDULED by the customer with F's changed message owed, occupied time refused, the business horizon, the manage link expiring at end + 7 days and re-anchored by any move; an unanswered request expiring with the owner's list and F's customer message; run on pull_request by appointments-completion-lab.yml"
+    }
+  }
+}

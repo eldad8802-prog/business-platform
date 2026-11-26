@@ -4,15 +4,19 @@
  * Mirrors what the server decides, never replaces it: every value here is checked again by the server under the
  * business's appointment lock. Hebrew only (owner rule for new screens), Asia/Jerusalem throughout.
  */
+import { nameTextProblem, noteTextProblem, stripPhoneBidi } from "@/lib/services/booking/public-text";
 import { addCalendarDays, dayKeyToStableInstant, jerusalemDayKey, ISRAEL_TIME_ZONE, type JerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 export type PriceWire = { mode: "FIXED" | "FROM" | "RANGE" | "QUOTE_REQUIRED" | "NO_PUBLIC_PRICE"; amount: number; max: number | null; currency: string } | null;
 export type StaffWire = { id: number; name: string; color: string | null };
 export type ServiceWire = { id: number; name: string; durationMinutes: number; approval: "MANUAL" | "AUTO"; price?: PriceWire; staff?: StaffWire[]; maxAdvanceDays?: number };
 export type ProfileWire = {
-  business: { name: string; city?: string | null; address?: string | null; category?: string | null; phone?: string | null };
+  business: { name: string; city?: string | null; address?: string | null; category?: string | null; phone?: string | null; logo?: string | null };
   staffChoice: "NONE" | "OPTIONAL" | "REQUIRED";
   selfCancel: { enabled: boolean; windowHours: number };
+  /** G2: the phone is verified by a WhatsApp code before the request (always, for every business). */
+  verification?: { required: boolean; channel: "WHATSAPP" };
+  selfReschedule?: { enabled: boolean; windowHours: number };
   services: ServiceWire[];
 };
 export type SlotsWire = { durationMinutes: number; slots: { startsAt: string }[] };
@@ -41,7 +45,14 @@ export type ManageWire = {
   withdrawn?: boolean;
   /** Whether the business lets customers cancel through the link at all. */
   selfCancelEnabled?: boolean;
+  /** G15: the customer may move a confirmed appointment now, and until when. */
+  canReschedule?: boolean;
+  rescheduleUntil?: string | null;
+  selfRescheduleEnabled?: boolean;
 };
+export type CodeSentWire = { sent: true; expiresInSeconds: number; resendInSeconds: number };
+export type VerifiedWire = { verified: true; verificationToken: string; validForSeconds: number };
+export type RescheduleSlotsWire = { durationMinutes: number; maxAdvanceDays: number; slots: { startsAt: string }[] };
 
 /** The same limits the server applies (booking.core CONTACT_LIMITS). */
 export const CONTACT = { nameMin: 2, nameMax: 80, phoneMax: 30, noteMax: 500 } as const;
@@ -50,7 +61,7 @@ export const WEEK = 7;
 
 // ── Steps ────────────────────────────────────────────────────────────────────────────────────
 
-export type Step = "service" | "staff" | "time" | "details";
+export type Step = "service" | "staff" | "time" | "details" | "verify";
 
 /** D7/D8: the staff step appears only when the business lets the customer choose and shows who works there. */
 export function stepsFor(profile: Pick<ProfileWire, "staffChoice">, service: Pick<ServiceWire, "staff"> | null): Step[] {
@@ -63,8 +74,28 @@ export function stepsFor(profile: Pick<ProfileWire, "staffChoice">, service: Pic
  * into "מתוך 3" on the way: the staff step is there when the business lets the customer choose and any bookable
  * service shows its staff (a service without names then offers only "כל איש צוות פנוי").
  */
-export function stepsForProfile(profile: Pick<ProfileWire, "staffChoice">, bookable: Array<Pick<ServiceWire, "staff">>): Step[] {
-  return profile.staffChoice !== "NONE" && bookable.some((x) => (x.staff?.length ?? 0) > 0) ? ["service", "staff", "time", "details"] : ["service", "time", "details"];
+export function stepsForProfile(profile: Pick<ProfileWire, "staffChoice" | "verification">, bookable: Array<Pick<ServiceWire, "staff">>): Step[] {
+  const base: Step[] = profile.staffChoice !== "NONE" && bookable.some((x) => (x.staff?.length ?? 0) > 0) ? ["service", "staff", "time", "details"] : ["service", "time", "details"];
+  // G2 (design c): the WhatsApp code step sits between "the details" and the answer.
+  return profile.verification?.required ? [...base, "verify"] : base;
+}
+
+/** The six digits typed so far (anything else dropped — a pasted "123 456" or "123-456" works). */
+export function codeDigits(raw: string): string {
+  return raw.replace(/\D/g, "").slice(0, 6);
+}
+
+/** "0:42" for a countdown of seconds. */
+export function countdown(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** The phone as the customer will recognise it on the code step: 050-123-4567 (an Israeli mobile), else as typed. */
+export function phoneShown(raw: string): string {
+  const d = stripPhoneBidi(raw).replace(/\D/g, "");
+  const local = d.startsWith("972") && d.length === 12 ? `0${d.slice(3)}` : d;
+  return /^05\d{8}$/.test(local) ? `${local.slice(0, 3)}-${local.slice(3, 6)}-${local.slice(6)}` : raw.trim();
 }
 
 /** The last day a service is offered (its own horizon; 12 weeks when the business's answer has none). */
@@ -177,23 +208,32 @@ export type ContactErrors = Partial<Record<"name" | "phone" | "note", string>>;
 export function checkContact(name: string, phone: string, note: string): ContactErrors {
   const errs: ContactErrors = {};
   const n = name.replace(/\s+/g, " ").trim();
-  if (n.length < CONTACT.nameMin) errs.name = "צריך שם מלא (לפחות שתי אותיות).";
+  if (nameTextProblem(name)) errs.name = "השם מכיל תווים שאי אפשר להשתמש בהם.";
+  else if (n.length < CONTACT.nameMin) errs.name = "צריך שם מלא (לפחות שתי אותיות).";
   else if (n.length > CONTACT.nameMax) errs.name = `השם ארוך מדי (עד ${CONTACT.nameMax} תווים).`;
   else if (/[<>]/.test(n)) errs.name = "השם מכיל תווים שאי אפשר להשתמש בהם.";
-  const digits = phone.replace(/\D/g, "");
-  if (!phone.trim()) errs.phone = "צריך מספר טלפון.";
-  else if (phone.length > CONTACT.phoneMax || !/^[\d\s()+.-]+$/.test(phone) || digits.length < 9 || digits.length > 15) errs.phone = "מספר הטלפון לא נראה תקין.";
+  // G24: bidi marks around a pasted number are dropped (the server does the same); in a name or a note they are refused.
+  const ph = stripPhoneBidi(phone);
+  const digits = ph.replace(/\D/g, "");
+  if (!ph.trim()) errs.phone = "צריך מספר טלפון.";
+  else if (ph.length > CONTACT.phoneMax || !/^[\d\s()+.-]+$/.test(ph) || digits.length < 9 || digits.length > 15) errs.phone = "מספר הטלפון לא נראה תקין.";
   if (note.length > CONTACT.noteMax) errs.note = `ההערה ארוכה מדי (עד ${CONTACT.noteMax} תווים).`;
+  else if (noteTextProblem(note)) errs.note = "ההערה מכילה תווים שאי אפשר להשתמש בהם.";
   return errs;
 }
 
 // ── Answers ──────────────────────────────────────────────────────────────────────────────────
 
-export type ErrorKind = "unavailable" | "taken" | "limit" | "busy" | "field" | "closed" | "generic";
+export type ErrorKind = "unavailable" | "taken" | "limit" | "busy" | "field" | "closed" | "generic" | "verify" | "code" | "cooldown" | "otpLimit";
 
 /** What a refusal means to the customer; the server's own Hebrew message wins when it sent one. */
 export function classify(status: number, code: string | undefined): ErrorKind {
   if (status === 404 || code === "NOT_FOUND") return "unavailable";
+  if (code === "PHONE_NOT_VERIFIED") return "verify";
+  if (code === "OTP_INVALID") return "code";
+  if (code === "OTP_COOLDOWN") return "cooldown";
+  if (code === "OTP_LIMIT") return "otpLimit";
+  if (code === "SELF_RESCHEDULE_CLOSED") return "closed";
   if (code === "SLOT_UNAVAILABLE") return "taken";
   if (code === "REQUEST_LIMIT") return "limit";
   if (status === 429 || status === 503 || code === "rate_limit_unavailable" || code === "rate_limited") return "busy";
@@ -210,7 +250,17 @@ const FALLBACK: Record<ErrorKind, string> = {
   field: "חלק מהפרטים לא תקינים. כדאי לבדוק ולנסות שוב.",
   closed: "כבר אי אפשר לבטל דרך הקישור. אפשר לפנות לעסק ישירות.",
   generic: "משהו השתבש. אפשר לנסות שוב בעוד רגע.",
+  verify: "צריך לאמת את מספר הטלפון בקוד שנשלח ב-WhatsApp לפני קביעת התור.",
+  code: "הקוד שגוי או שפג תוקפו. אפשר לבקש קוד חדש.",
+  cooldown: "קוד נשלח זה עתה. אפשר לבקש קוד חדש בעוד רגע — הקוד הקודם עדיין בתוקף.",
+  otpLimit: "נשלחו יותר מדי קודים. אפשר לנסות שוב מאוחר יותר, או לפנות לעסק ישירות.",
 };
+
+/** How long to wait before asking for a new code, from an answer's details (seconds), or null. */
+export function retryAfterOf(details: unknown): number | null {
+  const v = (details as { retryAfterSeconds?: unknown } | null)?.retryAfterSeconds;
+  return typeof v === "number" && v > 0 && v < 3600 ? v : null;
+}
 
 export function errorText(kind: ErrorKind, serverMessage?: unknown): string {
   return typeof serverMessage === "string" && serverMessage.trim() ? serverMessage : FALLBACK[kind];
