@@ -14,10 +14,11 @@
  *   booking_sweep_lag    — PENDING booking requests past their expiry by more than the grace (the sweep runs every
  *                          10 minutes; a held time must always be released). Must be 0.
  *   stale_holds          — PROPOSED appointments past holdExpiresAt by more than the grace. Must be 0.
- *   owed_delivery_lag    — the oldest owed (PENDING) push of an appointments notification, measured from the moment
- *                          it became due, older than the limit (the worker runs every 5 minutes).
- *   delivery_outage      — appointments deliveries failed in the last 24 hours while NONE was sent (a total outage,
- *                          not the normal trickle of dead devices).
+ *   owed_delivery_lag    — the oldest owed (PENDING) outbound delivery of an appointments notification, on ANY channel
+ *                          but IN_APP (push today; WhatsApp once it exists), measured from the moment it became due,
+ *                          older than the limit (the worker runs every 5 minutes).
+ *   delivery_outage      — a channel whose appointments deliveries failed in the last 24 hours while NONE was sent on
+ *                          that channel (a total outage of that channel, not the normal trickle of dead devices).
  *   scan_incomplete      — the run could not visit every live business (a business failed, or the time budget ran
  *                          out): the counts above are a lower bound, so the run is not called healthy.
  * Informational only (never failing on its own): the age of the most recent sweep evidence (the latest request the
@@ -40,6 +41,8 @@ export type AppointmentsHealthSnapshot = {
   oldestOwedDeliveryMinutes: number | null;
   failedDeliveries24h: number;
   sentDeliveries24h: number;
+  /** Outbound channels with failures and no send in the last 24 h. */
+  channelsInOutage: number;
   /** Minutes since the latest EXPIRED decision on a booking request; null = none ever. */
   lastSweepEvidenceMinutes: number | null;
 };
@@ -73,7 +76,7 @@ export function evaluateAppointmentsHealth(s: AppointmentsHealthSnapshot): Appoi
   if (s.oldestOwedDeliveryMinutes !== null && (!(typeof s.oldestOwedDeliveryMinutes === "number") || !(s.oldestOwedDeliveryMinutes <= OWED_DELIVERY_LIMIT_MINUTES))) {
     failing.push("owed_delivery_lag");
   }
-  if (!nonNegInt(s.failedDeliveries24h) || !nonNegInt(s.sentDeliveries24h) || (s.failedDeliveries24h > 0 && s.sentDeliveries24h === 0)) {
+  if (!nonNegInt(s.failedDeliveries24h) || !nonNegInt(s.sentDeliveries24h) || !nonNegInt(s.channelsInOutage) || s.channelsInOutage > 0) {
     failing.push("delivery_outage");
   }
   if (!nonNegInt(s.businessesFailed) || s.businessesFailed > 0 || s.budgetExhausted !== false) failing.push("scan_incomplete");

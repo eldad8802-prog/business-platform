@@ -12,6 +12,9 @@
  *      lane_overlaps; restored → healthy;
  *   D. an owed appointments push due 2 h ago → owed_delivery_lag; failures with no send in 24 h → delivery_outage;
  *   E. the route: 401 without the bearer, 500 naming the checks with it; the body holds no business id;
+ *   G. channel-agnostic (WhatsApp before F exists): the lab enum gains WHATSAPP (ADD VALUE IF NOT EXISTS — this throwaway
+ *      lab only; after F the value already exists) → WhatsApp failures with no WhatsApp send are an outage even while
+ *      push sends; an owed WhatsApp delivery is lag — with no code change;
  *   F. read-only: the collector changes no row.
  * Synthetic only. ZERO secrets. ZERO network.
  */
@@ -123,6 +126,25 @@ async function main() {
   await owner.$executeRawUnsafe(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "attemptedAt") VALUES ($1, $2, 'PUSH', 'SENT', ${UTC_NOW})`, bizA, notif);
   const r2 = await route.POST(new NextRequest(url, { method: "POST", headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }));
   ok("E5 one send in 24 h → healthy → 200 (POST, the watchdog's verb)", r2.status === 200, await r2.text());
+
+  console.log("G. channel-agnostic: WhatsApp (as F will add it)");
+  await owner.$executeRawUnsafe(`ALTER TYPE "NotificationChannel" ADD VALUE IF NOT EXISTS 'WHATSAPP'`);
+  await owner.$executeRawUnsafe(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "attemptedAt")
+    VALUES ($1, $2, 'WHATSAPP', 'FAILED', ${UTC_NOW} - interval '10 minutes')`, bizA, notif);
+  const g1 = await check();
+  ok("G1 WhatsApp failed, none sent (push still sends) → delivery_outage, one channel", g1.failing.join(",") === "delivery_outage" && g1.counts.channelsInOutage === 1, JSON.stringify(g1));
+  await owner.$executeRawUnsafe(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "attemptedAt") VALUES ($1, $2, 'WHATSAPP', 'SENT', ${UTC_NOW})`, bizA, notif);
+  const g2 = await check();
+  ok("G2 one WhatsApp send → no outage", g2.ok && g2.counts.channelsInOutage === 0, JSON.stringify(g2));
+  const wa = Number(await one(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "createdAt", "attemptedAt")
+    VALUES ($1, $2, 'WHATSAPP', 'PENDING', ${UTC_NOW} - interval '45 minutes', ${UTC_NOW} - interval '45 minutes') RETURNING "id"`, bizA, notif));
+  const g3 = await check();
+  ok("G3 an owed WhatsApp delivery due 45 min ago → owed_delivery_lag", g3.failing.join(",") === "owed_delivery_lag" && (g3.counts.oldestOwedDeliveryMinutes ?? 0) >= 44, JSON.stringify(g3));
+  await owner.$executeRawUnsafe(`UPDATE "NotificationDelivery" SET "status" = 'SENT' WHERE "id" = $1`, wa);
+  await owner.$executeRawUnsafe(`INSERT INTO "NotificationDelivery" ("businessId", "notificationId", "channel", "status", "createdAt", "attemptedAt")
+    VALUES ($1, $2, 'IN_APP', 'FAILED', ${UTC_NOW}, ${UTC_NOW}), ($1, $2, 'IN_APP', 'PENDING', ${UTC_NOW} - interval '3 hours', ${UTC_NOW} - interval '3 hours')`, bizA, notif);
+  const g4 = await check();
+  ok("G4 settled → healthy; IN_APP rows (a failed one, an old pending one) never count", g4.ok, JSON.stringify(g4));
 
   console.log("F. read-only");
   const fp = `SELECT md5(coalesce((SELECT string_agg(concat_ws('|', id, status, "updatedAt"), ',' ORDER BY id) FROM "Appointment"), '')

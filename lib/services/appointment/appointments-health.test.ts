@@ -31,7 +31,7 @@ function ok(name: string, cond: boolean, detail = "") {
 
 const clean = (o: Partial<AppointmentsHealthSnapshot> = {}): AppointmentsHealthSnapshot => ({
   businessesScanned: 3, businessesFailed: 0, budgetExhausted: false, overlapGuardPresent: true, laneOverlaps: 0,
-  staleBookingRequests: 0, staleHolds: 0, oldestOwedDeliveryMinutes: null, failedDeliveries24h: 0, sentDeliveries24h: 0,
+  staleBookingRequests: 0, staleHolds: 0, oldestOwedDeliveryMinutes: null, failedDeliveries24h: 0, sentDeliveries24h: 0, channelsInOutage: 0,
   lastSweepEvidenceMinutes: null, ...o,
 });
 const failing = (s: AppointmentsHealthSnapshot) => evaluateAppointmentsHealth(s).failing.join(",");
@@ -45,7 +45,8 @@ async function main() {
     ["booking_sweep_lag", { staleBookingRequests: 2 }],
     ["stale_holds", { staleHolds: 1 }],
     ["owed_delivery_lag", { oldestOwedDeliveryMinutes: OWED_DELIVERY_LIMIT_MINUTES + 1 }],
-    ["delivery_outage", { failedDeliveries24h: 4, sentDeliveries24h: 0 }],
+    ["delivery_outage", { failedDeliveries24h: 4, sentDeliveries24h: 0, channelsInOutage: 1 }],
+    ["delivery_outage", { failedDeliveries24h: 4, sentDeliveries24h: 9, channelsInOutage: 1 }],
     ["scan_incomplete", { businessesFailed: 1 }],
     ["scan_incomplete", { budgetExhausted: true }],
   ];
@@ -86,9 +87,9 @@ async function main() {
     walkBusinesses: walkAll(ids),
     businessHealth: async (id) => {
       visited.push(id);
-      if (id === 7) return { guard: true, overlaps: 1, stale_holds: 2, owed_due_since: new Date("2026-11-24T11:00:00.000Z"), failed_24h: 1, sent_24h: 0, last_expired: "2026-11-24 10:00:00" };
-      if (id === 9) return { guard: true, overlaps: 0, stale_holds: 0, owed_due_since: "2026-11-24 11:30:00", failed_24h: 0, sent_24h: 3, last_expired: new Date("2026-11-24T11:50:00.000Z") };
-      return { guard: true, overlaps: 0, stale_holds: 0, owed_due_since: null, failed_24h: 0, sent_24h: 0, last_expired: null };
+      if (id === 7) return { guard: true, overlaps: 1, stale_holds: 2, owed_due_since: new Date("2026-11-24T11:00:00.000Z"), by_channel: { PUSH: [1, 0] }, last_expired: "2026-11-24 10:00:00" };
+      if (id === 9) return { guard: true, overlaps: 0, stale_holds: 0, owed_due_since: "2026-11-24 11:30:00", by_channel: { PUSH: [0, 3] }, last_expired: new Date("2026-11-24T11:50:00.000Z") };
+      return { guard: true, overlaps: 0, stale_holds: 0, owed_due_since: null, by_channel: null, last_expired: null };
     },
     clock: () => 0,
     ...o,
@@ -97,14 +98,16 @@ async function main() {
   ok("C1 visits every business the walk yields", s1.businessesScanned === 502 && visited.length === 502 && !s1.budgetExhausted);
   ok("C2 sums counts", s1.laneOverlaps === 1 && s1.staleHolds === 2 && s1.failedDeliveries24h === 1 && s1.sentDeliveries24h === 3);
   ok("C3 oldest owed (60 min) and latest evidence (10 min), Date or text", s1.oldestOwedDeliveryMinutes === 60 && s1.lastSweepEvidenceMinutes === 10, JSON.stringify(s1));
-  const s2 = await collectAppointmentsHealth(now, deps({ businessHealth: async (id) => { if (id === 3) throw new Error("x"); return { guard: true, overlaps: 0, stale_holds: 0, owed_due_since: null, failed_24h: 0, sent_24h: 0, last_expired: null }; } }));
+  const s2 = await collectAppointmentsHealth(now, deps({ businessHealth: async (id) => { if (id === 3) throw new Error("x"); return { guard: true, overlaps: 0, stale_holds: 0, owed_due_since: null, by_channel: null, last_expired: null }; } }));
   ok("C4 a failing business is counted, the others still visited", s2.businessesFailed === 1 && s2.businessesScanned === 501 && failing(s2) === "scan_incomplete");
   let t = 0;
   const s3 = await collectAppointmentsHealth(now, deps({ clock: () => (t += 1000) }), 10_000);
   ok("C5 the time budget stops the walk and marks it incomplete", s3.budgetExhausted && s3.businessesScanned < 20 && failing(s3).split(",").includes("scan_incomplete"), JSON.stringify(s3));
+  const s9 = await collectAppointmentsHealth(now, deps({ walkBusinesses: walkAll([1, 2]), businessHealth: async (id) => ({ guard: true, overlaps: 0, stale_holds: 0, owed_due_since: null, by_channel: id === 1 ? { PUSH: [0, 5] } : { WHATSAPP: [2, 0], PUSH: [1, 0] }, last_expired: null }) }));
+  ok("C9 one channel failing completely (WHATSAPP) is an outage while another (PUSH) sends", s9.channelsInOutage === 1 && s9.failedDeliveries24h === 3 && s9.sentDeliveries24h === 5 && failing(s9) === "delivery_outage", JSON.stringify(s9));
   const s4 = await collectAppointmentsHealth(now, deps({ walkBusinesses: walkAll([]) }));
   ok("C6 no live business → healthy, nothing owed", s4.businessesScanned === 0 && failing(s4) === "" && s4.oldestOwedDeliveryMinutes === null);
-  const s5 = await collectAppointmentsHealth(now, deps({ businessHealth: async (id) => ({ guard: id !== 2, overlaps: 0, stale_holds: 0, owed_due_since: null, failed_24h: 0, sent_24h: 0, last_expired: null }) }));
+  const s5 = await collectAppointmentsHealth(now, deps({ businessHealth: async (id) => ({ guard: id !== 2, overlaps: 0, stale_holds: 0, owed_due_since: null, by_channel: null, last_expired: null }) }));
   ok("C7 the guard missing as seen from any business → overlap_guard", failing(s5) === "overlap_guard", failing(s5));
   const s6 = await collectAppointmentsHealth(now, deps({ walkBusinesses: async () => { throw new Error("door down"); } })).then(() => "ok", () => "threw");
   ok("C8 a failing walk is not swallowed (the route answers 500 health_failed)", s6 === "threw");

@@ -8,6 +8,9 @@
  *   walkLiveBusinesses(visit)         — the digest's keyset walk (notification_live_businesses, 20261210090000).
  * Everything else — including the catalog check that the no-overlap guard exists — runs inside each business's tenant
  * transaction (tenantTx: app.current_business_id, FORCE RLS), one bounded statement per business, on existing indexes.
+ * Delivery checks are CHANNEL-AGNOSTIC: every outbound channel (anything but IN_APP, compared as text so a channel the
+ * enum gains later — WHATSAPP — is covered with no code change) is measured for owed lag, and failures vs sends are
+ * judged PER CHANNEL, so one channel failing completely is an outage even while another still sends.
  * Nothing is written. Only counts and ages leave this module.
  */
 import { tenantTx } from "@/lib/tenant/tenant-tx";
@@ -28,8 +31,8 @@ type BusinessRow = {
   overlaps: number;
   stale_holds: number;
   owed_due_since: Date | string | null;
-  failed_24h: number;
-  sent_24h: number;
+  /** Outbound (not IN_APP) appointments deliveries of the last 24 h per channel name: { CHANNEL: [failed, sent] }. */
+  by_channel: Record<string, [number, number]> | null;
   last_expired: Date | string | null;
 };
 
@@ -59,19 +62,19 @@ export async function businessHealth(businessId: number, now: Date): Promise<Bus
       (SELECT min(COALESCE(d."nextAttemptAt", d."createdAt"))
          FROM "NotificationDelivery" d
          JOIN "Notification" n ON n."id" = d."notificationId" AND n."businessId" = d."businessId"
-        WHERE d."businessId" = ${businessId} AND d."status" = 'PENDING' AND d."channel" = 'PUSH'
+        WHERE d."businessId" = ${businessId} AND d."status" = 'PENDING' AND d."channel"::text <> 'IN_APP'
           AND n."domain" = 'appointments'
           AND COALESCE(d."nextAttemptAt", d."createdAt") <= ${at}::timestamp(3)) AS owed_due_since,
-      (SELECT count(*)::int
-         FROM "NotificationDelivery" d
-         JOIN "Notification" n ON n."id" = d."notificationId" AND n."businessId" = d."businessId"
-        WHERE d."businessId" = ${businessId} AND d."status" = 'FAILED' AND n."domain" = 'appointments'
-          AND d."attemptedAt" >= ${at}::timestamp(3) - interval '24 hours') AS failed_24h,
-      (SELECT count(*)::int
-         FROM "NotificationDelivery" d
-         JOIN "Notification" n ON n."id" = d."notificationId" AND n."businessId" = d."businessId"
-        WHERE d."businessId" = ${businessId} AND d."status" = 'SENT' AND n."domain" = 'appointments'
-          AND d."attemptedAt" >= ${at}::timestamp(3) - interval '24 hours') AS sent_24h,
+      (SELECT json_object_agg(x.ch, json_build_array(x.failed, x.sent))
+         FROM (SELECT d."channel"::text AS ch,
+                      count(*) FILTER (WHERE d."status" = 'FAILED')::int AS failed,
+                      count(*) FILTER (WHERE d."status" = 'SENT')::int AS sent
+                 FROM "NotificationDelivery" d
+                 JOIN "Notification" n ON n."id" = d."notificationId" AND n."businessId" = d."businessId"
+                WHERE d."businessId" = ${businessId} AND d."channel"::text <> 'IN_APP' AND n."domain" = 'appointments'
+                  AND d."status" IN ('FAILED', 'SENT')
+                  AND d."attemptedAt" >= ${at}::timestamp(3) - interval '24 hours'
+                GROUP BY 1) x) AS by_channel,
       (SELECT max("decidedAt") FROM "BookingRequest"
         WHERE "businessId" = ${businessId} AND "status" = 'EXPIRED') AS last_expired`, { timeoutMs: 10_000 });
   return rows[0];
@@ -109,10 +112,12 @@ export async function collectAppointmentsHealth(now: Date = new Date(), deps: Co
     oldestOwedDeliveryMinutes: null,
     failedDeliveries24h: 0,
     sentDeliveries24h: 0,
+    channelsInOutage: 0,
     lastSweepEvidenceMinutes: null,
   };
   let oldestOwed: Date | null = null;
   let lastExpired: Date | null = null;
+  const byChannel = new Map<string, [number, number]>();
   try {
     await deps.walkBusinesses(async (businessId) => {
       if (snap.businessesScanned + snap.businessesFailed >= MAX_BUSINESSES || deps.clock() - started > budgetMs) {
@@ -125,8 +130,10 @@ export async function collectAppointmentsHealth(now: Date = new Date(), deps: Co
         if (r.guard !== true) snap.overlapGuardPresent = false;
         snap.laneOverlaps += Number(r.overlaps);
         snap.staleHolds += Number(r.stale_holds);
-        snap.failedDeliveries24h += Number(r.failed_24h);
-        snap.sentDeliveries24h += Number(r.sent_24h);
+        for (const [ch, pair] of Object.entries(r.by_channel ?? {})) {
+          const t = byChannel.get(ch) ?? [0, 0];
+          byChannel.set(ch, [t[0] + Number(pair[0]), t[1] + Number(pair[1])]);
+        }
         if (r.owed_due_since) {
           const t = fromUtc(r.owed_due_since);
           if (!oldestOwed || t < oldestOwed) oldestOwed = t;
@@ -141,6 +148,11 @@ export async function collectAppointmentsHealth(now: Date = new Date(), deps: Co
     });
   } catch (e) {
     if (!(e instanceof StopWalk)) throw e;
+  }
+  for (const [failed, sent] of byChannel.values()) {
+    snap.failedDeliveries24h += failed;
+    snap.sentDeliveries24h += sent;
+    if (failed > 0 && sent === 0) snap.channelsInOutage += 1;
   }
   snap.oldestOwedDeliveryMinutes = oldestOwed ? minutesSince(now, oldestOwed) : null;
   snap.lastSweepEvidenceMinutes = lastExpired ? minutesSince(now, lastExpired) : null;
