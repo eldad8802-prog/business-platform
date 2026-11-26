@@ -52,6 +52,23 @@ const HANDLED: ReadonlySet<string> = new Set([
 
 export const DEFAULT_REMINDER_OFFSETS = [1440] as const;
 
+/**
+ * D2 (owner decision 2026-11-26) — WHO controls customer messages, with an EXISTING setting (no schema change):
+ * BookingSettings.reminderOffsetsMinutes, the business's own "reminder times" (0–3 values, 30..10080 minutes; the
+ * booking settings screen — Calendar → booking settings).
+ *   - An appointment the business ENTERED ITSELF (no public request): messages only when the business has booking
+ *     settings AND at least one reminder time. An empty list (or no settings at all) = no WhatsApp to the customers of
+ *     appointments the business enters — no confirmation, no change, no cancellation, no reminder.
+ *   - A booking made through the public link: the customer started it, so its received / confirmed / changed /
+ *     cancelled answers always go (the link itself is the business's choice); reminders follow the same list (empty =
+ *     none).
+ * On top of this sit the subscription entitlement and the stops (customer-entitlement.ts, platform-transport.ts).
+ */
+export function ownerControlAllows(publicRequest: boolean, settings: { reminderOffsetsMinutes: readonly number[] } | null): boolean {
+  if (publicRequest) return true;
+  return settings !== null && reminderOffsets(settings.reminderOffsetsMinutes).length > 0;
+}
+
 /** A stored phone (Customer.phone / BookingRequest.contactPhone: 972…) as E.164, or null. */
 export function toE164(raw: string | null | undefined): string | null {
   const digits = normalizeCustomerPhone(raw ?? null);
@@ -143,6 +160,11 @@ export async function produceAppointmentCustomerMessages(tx: Tx, f: AppointmentJ
     }
     entitled = phone !== null && (await customerMessagesAllowedInTx(tx, f.businessId));
   }
+  // D2 (owner 2026-11-26) — the business's own control, an EXISTING setting: BookingSettings.reminderOffsetsMinutes.
+  const settings = entitled
+    ? await tx.bookingSettings.findFirst({ where: { businessId: f.businessId }, select: { reminderOffsetsMinutes: true } })
+    : null;
+  if (entitled && !ownerControlAllows(publicRequest, settings)) entitled = false;
 
   // The messages this event owes (computed first, so the cancel step keeps exactly them).
   const owed: Array<{ category: CustomerCategoryKey; key: string; notBefore: Date | null; expiresAt: Date }> = [];
@@ -156,7 +178,6 @@ export async function produceAppointmentCustomerMessages(tx: Tx, f: AppointmentJ
       }
     }
     if (plan.reminders) {
-      const settings = await tx.bookingSettings.findFirst({ where: { businessId: f.businessId }, select: { reminderOffsetsMinutes: true } });
       for (const offset of reminderOffsets(settings?.reminderOffsetsMinutes)) {
         const at = new Date(startsAt.getTime() - offset * 60_000);
         if (at.getTime() <= now.getTime()) continue; // its moment has passed — never a late "reminder"

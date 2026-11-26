@@ -15,11 +15,11 @@
  */
 import { getCategory, getCustomerCategory, NOTIFICATION_CATEGORIES, CUSTOMER_MESSAGE_CATEGORIES } from "../catalog";
 import { buildPushMessage } from "../push/push-content";
-import { planFor, reminderKey, noticeKey, reminderOffsets, startOfKey, toE164 } from "./appointment-messages";
+import { ownerControlAllows, planFor, reminderKey, noticeKey, reminderOffsets, startOfKey, toE164 } from "./appointment-messages";
 import { customerMessagesFlagsAllow } from "./customer-entitlement";
-import { platformConfig, platformPhoneNumberId, sendPlatformTemplate } from "./platform-transport";
-import { statusInstant } from "./whatsapp-status";
-import { stillFits } from "./whatsapp-worker";
+import { platformConfig, platformPhoneNumberId, platformSendStopped, sendPlatformTemplate } from "./platform-transport";
+import { platformStatusesFromBody, statusInstant } from "./whatsapp-status";
+import { fence, sendDeadlineMs, SEND_MARGIN_MS, stillFits, WA_LEASE_MS } from "./whatsapp-worker";
 import { meteringMonth, withinQuota, customerMessageQuota } from "./usage";
 import { buildTemplateParams, renderTemplate, templateByName, templateParam, WHATSAPP_TEMPLATES } from "./whatsapp-templates";
 import { sendWhatsAppTemplate } from "@/lib/services/integrations/whatsapp/graph.service";
@@ -46,8 +46,12 @@ async function main() {
   ok("nine templates, unique names, Meta-safe names", all.length === 9 && new Set(all.map((t) => t.name)).size === 9 && all.every((t) => /^[a-z0-9_]{1,64}$/.test(t.name)));
   ok("every template is marked pending owner AND Meta approval", all.every((t) => t.approval === "pending_owner_and_meta"));
   ok("every template is Hebrew", all.every((t) => t.language === "he" && /[֐-׿]/.test(t.body)));
-  ok("every template names the business (a `business` parameter, used in the body)",
-    all.every((t) => t.params.includes("business") && t.body.includes(`{{${t.params.indexOf("business") + 1}}}`)));
+  ok("every OPERATIONAL template names the business (a `business` parameter, used in the body)",
+    all.filter((t) => t.messageClass === "OPERATIONAL").every((t) => t.namesBusiness && t.params.includes("business") && t.body.includes(`{{${t.params.indexOf("business") + 1}}}`)));
+  const code = WHATSAPP_TEMPLATES.booking_code;
+  ok("D1: the code is AUTHENTICATION — Meta's fixed text, the code its only parameter, copy-code button, 5-minute footer, no business name",
+    code.metaCategory === "AUTHENTICATION" && !code.namesBusiness && JSON.stringify(code.params) === '["code"]' && code.otpButton === "COPY_CODE" && code.codeExpirationMinutes === 5 && !code.body.includes("{{2}}"));
+  ok("D1: the code template builds without a business name (named on the verification screen)", JSON.stringify(buildTemplateParams(code, { code: "482915" })) === '["482915"]');
   ok("operational templates: the business is {{1}}", all.filter((t) => t.messageClass === "OPERATIONAL").every((t) => t.params[0] === "business"));
   ok("placeholders match the parameter count", all.every((t) => {
     const nums = [...t.body.matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1]));
@@ -90,6 +94,11 @@ async function main() {
 
   console.log("3. transport");
   ok("default: simulate", platformConfig({}).mode === "simulate");
+  ok("item 8: WHATSAPP_PLATFORM_SEND_MODE=off is the hard stop (any case), even with live credentials",
+    platformConfig({ WHATSAPP_PLATFORM_SEND_MODE: " OFF " }).mode === "off" && platformSendStopped({ WHATSAPP_PLATFORM_SEND_MODE: "off", WHATSAPP_PLATFORM_PHONE_NUMBER_ID: "123456789", WHATSAPP_PLATFORM_ACCESS_TOKEN: "t" }) && !platformSendStopped({}));
+  let offCalls = 0;
+  const off = await sendPlatformTemplate({ toPhone: "+972501234567", templateName: "x", languageCode: "he", bodyParams: [] }, { env: { WHATSAPP_PLATFORM_SEND_MODE: "off" }, send: async () => { offCalls += 1; return { ok: true, providerMessageId: "w" }; } });
+  ok("item 8: off ⇒ 'stopped', nothing attempted, nothing simulated", off.kind === "stopped" && offCalls === 0);
   ok("unknown mode: simulate", platformConfig({ WHATSAPP_PLATFORM_SEND_MODE: "LIVE!", WHATSAPP_PLATFORM_PHONE_NUMBER_ID: "123456789", WHATSAPP_PLATFORM_ACCESS_TOKEN: "t" }).mode === "simulate");
   const mis = platformConfig({ WHATSAPP_PLATFORM_SEND_MODE: "live", WHATSAPP_PLATFORM_PHONE_NUMBER_ID: "123456789" });
   ok("live without a token: still simulate (live_misconfigured)", mis.mode === "simulate" && mis.reason === "live_misconfigured");
@@ -125,9 +134,20 @@ async function main() {
   const c401 = await sendWhatsAppTemplate({ ...base, fetchImpl: fakeFetch(401, { error: { code: 190 } }) });
   const c400 = await sendWhatsAppTemplate({ ...base, fetchImpl: fakeFetch(400, { error: { code: 132001, message: "template does not exist" } }) });
   ok("graph: 429 / 5xx transient, 401 auth, unknown template permanent",
-    !c429.ok && c429.kind === "transient" && !c500.ok && c500.kind === "transient" && !c401.ok && c401.kind === "auth" && !c400.ok && c400.kind === "permanent");
+    !c429.ok && c429.kind === "transient" && !c401.ok && c401.kind === "auth" && !c400.ok && c400.kind === "permanent");
+  ok("graph (item 6): a 5xx is UNCERTAIN (Meta may have accepted it) — never retried blindly", !c500.ok && c500.kind === "uncertain");
+  const c200 = await sendWhatsAppTemplate({ ...base, fetchImpl: fakeFetch(200, {}) });
+  ok("graph (item 6): a 2xx without a message id is UNCERTAIN", !c200.ok && c200.kind === "uncertain");
   const thrown = await sendWhatsAppTemplate({ ...base, fetchImpl: (async () => { throw new Error("down"); }) as unknown as typeof fetch });
-  ok("graph: a network error is transient", !thrown.ok && thrown.kind === "transient");
+  ok("graph (item 6): a network error is UNCERTAIN", !thrown.ok && thrown.kind === "uncertain");
+  const aborted = await sendWhatsAppTemplate({ ...base, signal: AbortSignal.abort(), fetchImpl: (async (_u: string, init: RequestInit) => { init.signal?.throwIfAborted(); return {} as Response; }) as unknown as typeof fetch });
+  ok("graph (item 6): an abort (the lease deadline) is UNCERTAIN", !aborted.ok && aborted.kind === "uncertain" && aborted.code === "template_timeout");
+  calls.length = 0;
+  await sendWhatsAppTemplate({ ...base, templateName: "dubiz_booking_code", bodyParams: ["482915"], otpButtonCode: "482915", callbackData: "dz1:b1:d2:AAAAAAAAAAAAAAAAAAAAAA", fetchImpl: fakeFetch(200, { messages: [{ id: "wamid.X" }] }) });
+  const otp = calls[0]?.body as { biz_opaque_callback_data?: string; template: { components: { type: string; sub_type?: string; parameters: { text: string }[] }[] } };
+  ok("graph: the OTP button carries the code; the fence rides as biz_opaque_callback_data",
+    otp?.biz_opaque_callback_data === "dz1:b1:d2:AAAAAAAAAAAAAAAAAAAAAA" && otp.template.components[1]?.type === "button" && otp.template.components[1]?.sub_type === "url" && otp.template.components[1]?.parameters[0]?.text === "482915", otp);
+  ok("graph: callback data over 512 characters refused without a call", !(await sendWhatsAppTemplate({ ...base, callbackData: "x".repeat(513) })).ok);
   ok("graph: missing inputs refused without a call", !(await sendWhatsAppTemplate({ ...base, accessToken: "" })).ok);
 
   console.log("4. producer plan");
@@ -191,6 +211,32 @@ async function main() {
       && /\(await customerMessagesEntitlement\(input\.businessId\)\)\.allowed/.test(src("verification.ts")));
   ok("both gate entry points use the one flag rule", (src("customer-entitlement.ts").match(/return flagsAllow\(|const allowed = flagsAllow\(/g) ?? []).length === 2);
   ok("the lane closes a row of a gated-off business as not_entitled (never sent later)", /if \(!entitled\) return finish\("SUPPRESSED", "not_entitled"\)/.test(src("whatsapp-worker.ts")));
+
+  console.log("7. item 6 — the attempt fence and the lease-bounded send");
+  const tok = fence.newToken();
+  ok("a fresh 22-character token per attempt", /^[A-Za-z0-9_-]{22}$/.test(tok) && tok !== fence.newToken());
+  ok("markers round-trip their token", fence.tokenOf(fence.inflight(tok), "inflight") === tok && fence.tokenOf(fence.uncertain(tok), "uncertain") === tok && fence.tokenOf(fence.unresolved(tok), "unresolved") === tok && fence.tokenOf(fence.inflight(tok), "uncertain") === null && fence.tokenOf("transient:x", "inflight") === null);
+  const cbs = fence.callback(7, 42, tok);
+  ok("the callback names business, row and token; foreign / malformed callbacks refused",
+    JSON.stringify(fence.parseCallback(cbs)) === JSON.stringify({ businessId: 7, deliveryId: 42, token: tok }) && fence.parseCallback("dz1:b0:d1:" + tok) === null && fence.parseCallback("x") === null && fence.parseCallback(null) === null && fence.parseCallback(cbs + "x") === null);
+  ok("send deadline: 15 s right after the claim; lease − margin when less; none with under 1 s left",
+    sendDeadlineMs(0, 0) === 15_000 && sendDeadlineMs(0, WA_LEASE_MS - SEND_MARGIN_MS - 5_000) === 5_000 && sendDeadlineMs(0, WA_LEASE_MS - SEND_MARGIN_MS - 500) === null && sendDeadlineMs(0, WA_LEASE_MS) === null);
+  ok("the deadline always ends at least the margin before the lease", [0, 30_000, 60_000, 85_000, 89_000].every((t) => { const d = sendDeadlineMs(0, t); return d === null || t + d <= WA_LEASE_MS - SEND_MARGIN_MS; }));
+  const wb = { entry: [{ changes: [
+    { field: "messages", value: { metadata: { phone_number_id: "100" }, statuses: [{ id: "wamid.A", status: "DELIVERED", timestamp: "1764576000", biz_opaque_callback_data: cbs }, { id: "wamid.B", status: "read" }] } },
+    { field: "messages", value: { metadata: { phone_number_id: "999" }, statuses: [{ id: "wamid.C", status: "read" }] } },
+  ] }] };
+  const ps = platformStatusesFromBody(wb, "100");
+  ok("the platform's statuses (only its own number) with the echoed callback", ps.length === 2 && ps[0].wamid === "wamid.A" && ps[0].status === "delivered" && ps[0].callbackData === cbs && ps[1].callbackData === null, ps);
+  ok("garbage bodies yield nothing", platformStatusesFromBody(null, "100").length === 0 && platformStatusesFromBody({ entry: "x" }, "100").length === 0);
+
+  console.log("8. D2 — the owner's existing control (BookingSettings.reminderOffsetsMinutes)");
+  ok("owner-entered + settings with reminder times ⇒ allowed", ownerControlAllows(false, { reminderOffsetsMinutes: [1440] }));
+  ok("owner-entered + empty reminder list ⇒ no customer messages", !ownerControlAllows(false, { reminderOffsetsMinutes: [] }));
+  ok("owner-entered + no booking settings at all ⇒ no customer messages", !ownerControlAllows(false, null));
+  ok("owner-entered + only invalid values ⇒ none", !ownerControlAllows(false, { reminderOffsetsMinutes: [5, 99999] }));
+  ok("public-link booking ⇒ its answers always go (the customer started it)", ownerControlAllows(true, null) && ownerControlAllows(true, { reminderOffsetsMinutes: [] }));
+  ok("public booking reminders follow the same list (empty ⇒ none)", reminderOffsets([]).length === 0);
 
   globalThis.fetch = realFetch;
   console.log(`\n[customer-messages] PASS=${passed} FAIL=${failed}`);

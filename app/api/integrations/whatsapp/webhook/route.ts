@@ -22,7 +22,7 @@ import {
   whatsAppIntakeAdapter,
 } from "@/lib/intake/whatsapp/whatsapp-intake";
 import { platformPhoneNumberId } from "@/lib/notifications/customer/platform-transport";
-import { applyPlatformStatuses } from "@/lib/notifications/customer/whatsapp-status";
+import { applyPlatformStatuses, platformStatusesFromBody } from "@/lib/notifications/customer/whatsapp-status";
 
 export const runtime = "nodejs";
 
@@ -150,7 +150,9 @@ export async function POST(req: NextRequest) {
 
   try {
     if (platformId !== null) {
-      const platformStatuses = parsed.statuses.filter((s) => isPlatform(s.phoneNumberId));
+      // Read from the signed body itself (with Meta's echoed biz_opaque_callback_data — the attempt fence that
+      // resolves an uncertain send without resending it); the shared parser is left exactly as it is.
+      const platformStatuses = platformStatusesFromBody(body, platformId);
       if (platformStatuses.length > 0) {
         const r = await applyPlatformStatuses(platformStatuses);
         console.info("[whatsapp-webhook-platform]", r);

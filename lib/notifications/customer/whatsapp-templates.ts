@@ -16,11 +16,12 @@
  * new lines and long runs of spaces inside a parameter) — `templateParam` enforces it.
  *
  * Meta category per template: UTILITY for every appointment message (a transaction the customer started or is part
- * of). The verification code: Meta normally requires the AUTHENTICATION category, whose body text is FIXED by Meta
- * ("<code> is your verification code") and cannot carry the business name. The owner rule "every message names the
- * business" therefore needs a decision when submitting: (a) UTILITY with the text below (Meta may reject or
- * re-categorise it), or (b) AUTHENTICATION with Meta's fixed text and the business named in the button / footer if
- * Meta allows it. OPEN QUESTION FOR THE OWNER — recorded in the PR body.
+ * of). The verification code - OWNER DECISION D1 (2026-11-26): the AUTHENTICATION category with Meta's FIXED text
+ * ("<code> הוא קוד האימות שלך"; the security notice and the 5-minute expiry footer are Meta's own preset components)
+ * and the "copy code" OTP button. Its only parameter is the code; it does NOT name the business (Meta allows no free
+ * text in an authentication template). The business name is shown on the verification SCREEN itself, next to the
+ * code field (workstream G). namesBusiness records this per template: the owner rule "every message names the
+ * business" holds for every OPERATIONAL template, and buildTemplateParams enforces it for them.
  */
 
 export type MessageClass = "OPERATIONAL" | "VERIFICATION";
@@ -31,10 +32,16 @@ export type TemplateDefinition = {
   language: "he";
   metaCategory: "UTILITY" | "AUTHENTICATION";
   messageClass: MessageClass;
-  /** The parameters, in order ({{1}}, {{2}} …). `business` is always present. */
+  /** The parameters, in order ({{1}}, {{2}} …). `business` is present in every template that names the business. */
   params: readonly ("business" | "service" | "date" | "time" | "link" | "code")[];
   /** The Hebrew body as it will be submitted (placeholders {{n}}). */
   body: string;
+  /** Owner rule: the message names the business ({{1}}). False only for the AUTHENTICATION code (decision D1). */
+  namesBusiness: boolean;
+  /** AUTHENTICATION only: Meta's copy-code button, whose URL parameter is the code. */
+  otpButton?: "COPY_CODE";
+  /** AUTHENTICATION only: Meta's preset expiry footer, in minutes. */
+  codeExpirationMinutes?: number;
   /** Approval state — every template starts "pending". */
   approval: "pending_owner_and_meta";
 };
@@ -51,6 +58,7 @@ export const WHATSAPP_TEMPLATES = {
     language: "he",
     metaCategory: "UTILITY",
     messageClass: "OPERATIONAL",
+    namesBusiness: true,
     params: ["business", "service", "date", "time", "link"],
     body: "שלום, הבקשה שלך לתור ב{{1}} התקבלה: {{2}} ב-{{3}} בשעה {{4}}. העסק יאשר אותה בהקדם ונעדכן אותך כאן. לצפייה או ביטול: {{5}}",
     approval: "pending_owner_and_meta",
@@ -60,6 +68,7 @@ export const WHATSAPP_TEMPLATES = {
     language: "he",
     metaCategory: "UTILITY",
     messageClass: "OPERATIONAL",
+    namesBusiness: true,
     params: ["business", "service", "date", "time", "link"],
     body: "התור שלך ב{{1}} נקבע: {{2}} ב-{{3}} בשעה {{4}}. לצפייה או ביטול: {{5}}",
     approval: "pending_owner_and_meta",
@@ -69,6 +78,7 @@ export const WHATSAPP_TEMPLATES = {
     language: "he",
     metaCategory: "UTILITY",
     messageClass: "OPERATIONAL",
+    namesBusiness: true,
     params: ["business", "service", "date", "time"],
     body: "התור שלך ב{{1}} נקבע: {{2}} ב-{{3}} בשעה {{4}}. לשינוי יש לפנות לעסק.",
     approval: "pending_owner_and_meta",
@@ -78,6 +88,7 @@ export const WHATSAPP_TEMPLATES = {
     language: "he",
     metaCategory: "UTILITY",
     messageClass: "OPERATIONAL",
+    namesBusiness: true,
     params: ["business", "service", "date", "time", "link"],
     body: "התור שלך ב{{1}} עודכן: {{2}} ב-{{3}} בשעה {{4}}. לצפייה או ביטול: {{5}}",
     approval: "pending_owner_and_meta",
@@ -87,6 +98,7 @@ export const WHATSAPP_TEMPLATES = {
     language: "he",
     metaCategory: "UTILITY",
     messageClass: "OPERATIONAL",
+    namesBusiness: true,
     params: ["business", "service", "date", "time"],
     body: "התור שלך ב{{1}} עודכן: {{2}} ב-{{3}} בשעה {{4}}. לשינוי יש לפנות לעסק.",
     approval: "pending_owner_and_meta",
@@ -96,6 +108,7 @@ export const WHATSAPP_TEMPLATES = {
     language: "he",
     metaCategory: "UTILITY",
     messageClass: "OPERATIONAL",
+    namesBusiness: true,
     params: ["business", "service", "date", "time"],
     body: "התור שלך ב{{1}} בוטל: {{2}} ב-{{3}} בשעה {{4}}. לקביעת תור חדש יש לפנות לעסק.",
     approval: "pending_owner_and_meta",
@@ -105,6 +118,7 @@ export const WHATSAPP_TEMPLATES = {
     language: "he",
     metaCategory: "UTILITY",
     messageClass: "OPERATIONAL",
+    namesBusiness: true,
     params: ["business", "service", "date", "time", "link"],
     body: "תזכורת: יש לך תור ב{{1}} — {{2}} ב-{{3}} בשעה {{4}}. לצפייה או ביטול: {{5}}",
     approval: "pending_owner_and_meta",
@@ -114,6 +128,7 @@ export const WHATSAPP_TEMPLATES = {
     language: "he",
     metaCategory: "UTILITY",
     messageClass: "OPERATIONAL",
+    namesBusiness: true,
     params: ["business", "service", "date", "time"],
     body: "תזכורת: יש לך תור ב{{1}} — {{2}} ב-{{3}} בשעה {{4}}. לשינוי יש לפנות לעסק.",
     approval: "pending_owner_and_meta",
@@ -123,8 +138,13 @@ export const WHATSAPP_TEMPLATES = {
     language: "he",
     metaCategory: "AUTHENTICATION",
     messageClass: "VERIFICATION",
-    params: ["business", "code"],
-    body: "קוד האימות שלך לקביעת תור ב{{1}} הוא {{2}}. הקוד תקף ל-5 דקות. אין למסור אותו לאף אחד.",
+    namesBusiness: false,
+    otpButton: "COPY_CODE",
+    codeExpirationMinutes: 5,
+    params: ["code"],
+    // Meta's fixed AUTHENTICATION body (Hebrew locale) with its preset security notice; the footer "הקוד יפוג בעוד 5
+    // דקות" is Meta's expiry component (codeExpirationMinutes). Nothing here is free text of ours.
+    body: "{{1}} הוא קוד האימות שלך. למען אבטחתך, אין לשתף את הקוד הזה.",
     approval: "pending_owner_and_meta",
   }),
 } as const;
@@ -152,10 +172,10 @@ export type TemplateValues = Partial<Record<TemplateDefinition["params"][number]
 
 /**
  * The ordered body parameters of a template. Refuses (null) when a required value is missing — above all the
- * business name: a message that does not name the business is never sent (owner rule).
+ * business name of a template that names it (every operational one): such a message is never sent without it.
  */
 export function buildTemplateParams(t: TemplateDefinition, values: TemplateValues): string[] | null {
-  if (!values.business || !values.business.trim()) return null;
+  if (t.namesBusiness && (!values.business || !values.business.trim())) return null;
   const out: string[] = [];
   for (const p of t.params) {
     const v = values[p];

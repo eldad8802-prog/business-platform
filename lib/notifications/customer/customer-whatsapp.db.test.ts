@@ -25,6 +25,14 @@
  *   G. G13 owner     booking notices via notify(): in the bell, no push owed; the reminder owes ONE push, a second sweep
  *                    within two hours owes none; the lock screen is generic even with lockScreenDetails ON.
  *   H. retention     phones older than 30 days on finished rows are erased; a fresh one is kept.
+ *   D2 (A16–A18)     the owner's existing control — BookingSettings.reminderOffsetsMinutes: empty list / no settings ⇒ the
+ *                    customers of appointments the business enters get nothing; a public-link booking still gets its answer.
+ *   S. item 8        WHATSAPP_PLATFORM_SEND_MODE=off: nothing sent, the same row held ('send_stopped') and sent ONCE after the
+ *                    stop is lifted, never past its expiry; the verification API refuses and writes nothing.
+ *   F. item 6        a lease running out mid-send ⇒ exactly ONE provider send; an uncertain send is never resent and is
+ *                    resolved by the status webhook through the echoed fence (or closed unresolved); a crashed worker's
+ *                    attempt is marked uncertain, not resent; too little lease left ⇒ nothing sent.
+ * Every appointment write goes through the LOCKED owner API (createAppointment / changeStatus / moveAppointment — I2).
  *
  * env: DATABASE_URL / DIRECT_URL = the runtime login (app_runtime_prod), OWNER_URL = the migration role (fixtures
  * only). Synthetic data only. Run: npx tsx lib/notifications/customer/customer-whatsapp.db.test.ts
@@ -38,6 +46,8 @@ delete process.env.WHATSAPP_PLATFORM_ACCESS_TOKEN;
 process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = "100200300400";
 process.env.WHATSAPP_APP_SECRET = "lab-app-secret";
 process.env.APP_BASE_URL = "https://app.dubiz.example";
+process.env.TASK_REQUEST_HMAC_KEY = "wa-lab-synthetic-request-hmac-key-0123456789abcdef";
+process.env.TASK_REQUEST_HMAC_KEY_ID = "wa1";
 // No network, ever.
 globalThis.fetch = (async () => { throw new Error("NETWORK FORBIDDEN IN TESTS"); }) as typeof fetch;
 
@@ -53,10 +63,35 @@ function ok(name: string, cond: boolean, extra?: unknown): void {
 }
 
 async function main() {
-  const svc = await import("@/lib/services/appointment/appointment.service");
+  // I2 (integration): every appointment write goes through the LOCKED owner API (appointment-schedule.service:
+  // createAppointment / changeStatus / moveAppointment — the business's appointment lock, idempotency keys, the
+  // journal). `svc` keeps the battery's call shapes over it.
+  const schedule = await import("@/lib/services/appointment/appointment-schedule.service");
+  const { uuidV7 } = await import("@/lib/services/tasks/task-idempotency");
+  const idem = () => ({ idempotencyKey: uuidV7(new Date()) });
+  const P = (businessId: number, userId: number) => ({ kind: "OWNER" as const, businessId, userId });
+  type Who = { businessId: number; actor: { userId: number } };
+  const svc = {
+    create: async (i: Who & { links?: { customerId?: number }; details: { startsAt: Date; durationMinutes?: number; title?: string } }) => {
+      try {
+        const r = await schedule.createAppointment(P(i.businessId, i.actor.userId), idem(), {
+          status: "PROPOSED", customerId: i.links?.customerId, startsAt: i.details.startsAt.toISOString(),
+          durationMinutes: i.details.durationMinutes ?? 30, ...(i.details.title ? { title: i.details.title } : {}),
+        });
+        return { ok: true as const, appointment: r.appointment };
+      } catch (error) {
+        console.log("  create refused", error instanceof Error ? error.message : error);
+        return { ok: false as const, appointment: { id: 0 } };
+      }
+    },
+    confirm: (i: Who & { appointmentId: number }) => schedule.changeStatus(P(i.businessId, i.actor.userId), idem(), i.appointmentId, { to: "CONFIRMED" }),
+    cancel: (i: Who & { appointmentId: number }) => schedule.changeStatus(P(i.businessId, i.actor.userId), idem(), i.appointmentId, { to: "CANCELED" }),
+    reschedule: (i: Who & { appointmentId: number; startsAt: Date; durationMinutes?: number }) =>
+      schedule.moveAppointment(P(i.businessId, i.actor.userId), idem(), i.appointmentId, { startsAt: i.startsAt.toISOString(), durationMinutes: i.durationMinutes ?? 30 }),
+  };
   const { appendAppointmentEvent } = await import("@/lib/services/appointment/appointment-journal");
   const { tenantTx } = await import("@/lib/tenant/tenant-tx");
-  const { runWhatsAppWorker } = await import("./whatsapp-worker");
+  const { runWhatsAppWorker, WA_LEASE_MS } = await import("./whatsapp-worker");
   const { applyPlatformStatuses } = await import("./whatsapp-status");
   const { monthlyCustomerMessageUsage } = await import("./usage");
   const { sendBookingVerificationCode } = await import("./verification");
@@ -100,6 +135,14 @@ async function main() {
   const custNoPhone = (await owner.customer.create({ data: { businessId: A, name: "בלי טלפון" } })).id;
   const custOff = (await owner.customer.create({ data: { businessId: OFF, name: "לקוח", phone: "972501112244" } })).id;
   const actor = (userId: number) => ({ actor: "OWNER" as const, userId, sourceChannel: "MOBILE" as const });
+  for (const b of [A, B]) await owner.bookingSettings.create({ data: { businessId: b } });
+  const D2E = await biz(`עסק בלי תזכורות ${stamp}`, ["appointments", "public_booking", "notifications_engine"]);
+  await owner.bookingSettings.create({ data: { businessId: D2E, reminderOffsetsMinutes: [] } });
+  const NS = await biz(`עסק בלי הגדרות ${stamp}`, ["appointments", "public_booking", "notifications_engine"]);
+  const userD2E = (await owner.user.create({ data: { email: `wa-d2e-${stamp}@apc.lab`, password: "x", businessId: D2E } })).id;
+  const userNS = (await owner.user.create({ data: { email: `wa-ns-${stamp}@apc.lab`, password: "x", businessId: NS } })).id;
+  const custD2E = (await owner.customer.create({ data: { businessId: D2E, name: "לקוח", phone: "972501112277" } })).id;
+  const custNS = (await owner.customer.create({ data: { businessId: NS, name: "לקוח", phone: "972501112288" } })).id;
 
   // BookingSettings allows only Asia/Jerusalem (CHECK). Deterministic against the wall clock: appointments start at
   // noon (so a day-before reminder is due at noon), and the lane runs at the first moment from now that is outside quiet
@@ -181,6 +224,20 @@ async function main() {
   const vk = await sendBookingVerificationCode({ businessId: KILL, challengeId: 9100, sendIndex: 1, phone: "0501112299", code: "123456" });
   ok("A15 kill switch: the verification API refuses (not_entitled)", !vk.ok && vk.reason === "not_entitled");
 
+  // D2 — the owner's existing control (BookingSettings.reminderOffsetsMinutes).
+  const d2a = await svc.create({ businessId: D2E, actor: actor(userD2E), links: { customerId: custD2E }, details: { startsAt: dayIn(8) } });
+  if (d2a.ok) await svc.confirm({ appointmentId: d2a.appointment.id, businessId: D2E, actor: actor(userD2E) });
+  ok("A16 D2: reminder times EMPTY ⇒ the customer of an appointment the business entered gets nothing", d2a.ok && (await deliveries(D2E, d2a.appointment.id)).length === 0);
+  const d2b = await svc.create({ businessId: NS, actor: actor(userNS), links: { customerId: custNS }, details: { startsAt: dayIn(8) } });
+  if (d2b.ok) await svc.confirm({ appointmentId: d2b.appointment.id, businessId: NS, actor: actor(userNS) });
+  ok("A17 D2: no booking settings at all ⇒ nothing", d2b.ok && (await deliveries(NS, d2b.appointment.id)).length === 0);
+  const d2p = await owner.appointment.create({ data: { businessId: D2E, kind: "CUSTOMER", status: "CONFIRMED", startsAt: dayIn(9), endsAt: new Date(dayIn(9).getTime() + 30 * MIN), durationMinutes: 30, title: "תספורת", createdByActor: "CUSTOMER", sourceChannel: "PUBLIC_BOOKING" } });
+  await owner.bookingRequest.create({ data: { businessId: D2E, appointmentId: d2p.id, status: "APPROVED", decidedAt: new Date(), contactName: "מהקישור", contactPhone: "972501112278", fingerprint: createHash("sha256").update(`fp3-${stamp}`).digest("hex"), expiresAt: new Date(Date.now() + 12 * HOUR) } });
+  await tenantTx(D2E, (tx) => appendAppointmentEvent(tx, { businessId: D2E, appointmentId: d2p.id, eventType: "APPOINTMENT_CREATED", ctx: { actor: "CUSTOMER", userId: null, sourceChannel: "PUBLIC_BOOKING" }, payload: { status: "CONFIRMED" } }));
+  const d2pRows = await deliveries(D2E, d2p.id);
+  ok("A18 D2: a public-link booking still gets its answer ('confirmed') but no reminder (empty list)",
+    ofCat(d2pRows, "confirmed").length === 1 && ofCat(d2pRows, "reminder").length === 0, d2pRows);
+
   /* ── B. the lane ────────────────────────────────────────────────────────────────────────────────────── */
   console.log("B. the WhatsApp lane");
   const recv = (await deliveries(A, pubAppt.id)).map((r) => r.id);
@@ -204,7 +261,7 @@ async function main() {
   const c5 = await svc.create({ businessId: A, actor: actor(userA), links: { customerId: custA }, details: { startsAt: dayIn(9), durationMinutes: 30 } });
   const a5 = c5.ok ? c5.appointment.id : 0;
   await svc.confirm({ appointmentId: a5, businessId: A, actor: actor(userA) });
-  await owner.appointment.update({ where: { id: a5 }, data: { startsAt: dayIn(10) } }); // behind the producer's back
+  await owner.appointment.update({ where: { id: a5 }, data: { startsAt: dayIn(10), endsAt: new Date(dayIn(10).getTime() + 30 * MIN) } }); // behind the producer's back
   rep = await runWhatsAppWorker(dayNow, { businessId: A, ...q });
   ok("B6 a message whose appointment moved under it is suppressed 'stale', never sent", ofCat(await deliveries(A, a5), "confirmed")[0]?.error === "stale", await deliveries(A, a5));
 
@@ -231,11 +288,14 @@ async function main() {
   // Retries on the SAME row (fake live sender — no network).
   const liveEnv = { WHATSAPP_PLATFORM_SEND_MODE: "live", WHATSAPP_PLATFORM_PHONE_NUMBER_ID: "100200300400", WHATSAPP_PLATFORM_ACCESS_TOKEN: "lab-token", APP_BASE_URL: "https://app.dubiz.example" };
   let script: string[] = [];
-  const liveSends: { to: string; params: readonly string[]; template: string }[] = [];
-  const fakeSend = async (i: { toPhone: string; bodyParams: readonly string[]; templateName: string }) => {
+  const liveSends: { to: string; params: readonly string[]; template: string; callback: string | undefined }[] = [];
+  let midSend: (() => Promise<void>) | null = null; // runs INSIDE the provider call (a lease running out mid-send)
+  const fakeSend = async (i: { toPhone: string; bodyParams: readonly string[]; templateName: string; callbackData?: string }) => {
     const next = script.shift() ?? "ok";
-    if (next === "transient") return { ok: false as const, kind: "transient" as const, code: "template_503", message: "" };
-    liveSends.push({ to: i.toPhone, params: i.bodyParams, template: i.templateName });
+    if (next === "transient") return { ok: false as const, kind: "transient" as const, code: "template_429", message: "" };
+    if (midSend) { const h = midSend; midSend = null; await h(); }
+    liveSends.push({ to: i.toPhone, params: i.bodyParams, template: i.templateName, callback: i.callbackData });
+    if (next === "uncertain") return { ok: false as const, kind: "uncertain" as const, code: "template_timeout", message: "" }; // Meta got it, we never heard
     return { ok: true as const, providerMessageId: `wamid.LAB${stamp}${liveSends.length}` };
   };
   const live = { env: liveEnv, send: fakeSend };
@@ -308,11 +368,103 @@ async function main() {
   await owner.$executeRawUnsafe(`UPDATE "BusinessFeatureAccess" SET "state" = 'ENABLED', "updatedAt" = now() WHERE "businessId" = $1 AND "featureKey" = 'notifications_engine'`, A);
   ok("B17 kill switch flipped OFF after a message was owed: the lane sends nothing and closes it not_entitled", k11?.status === "SUPPRESSED" && k11.error === "not_entitled" && liveSends.length === sendsBeforeKill, k11);
 
+  // ── item 8: the WhatsApp emergency stop (WHATSAPP_PLATFORM_SEND_MODE=off) ────────────────────────────────────────
+  const newConfirmed = async (d: number) => {
+    const c = await svc.create({ businessId: A, actor: actor(userA), links: { customerId: custA }, details: { startsAt: dayIn(d) } });
+    await svc.confirm({ appointmentId: c.appointment.id, businessId: A, actor: actor(userA) });
+    return ofCat(await deliveries(A, c.appointment.id), "confirmed")[0];
+  };
+  const offEnv = { env: { ...liveEnv, WHATSAPP_PLATFORM_SEND_MODE: "off" }, send: fakeSend };
+  const s1 = await newConfirmed(18);
+  const sendsBeforeStop = liveSends.length;
+  const rStop = await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [s1.id], transport: offEnv, ...q });
+  const sStop = await owner.notificationDelivery.findUnique({ where: { id: s1.id } });
+  ok("S1 stop ON: nothing sent; the row is the SAME owed row, held 10 minutes with reason 'send_stopped'",
+    rStop.stopped === 1 && liveSends.length === sendsBeforeStop && sStop?.status === "PENDING" && sStop.error === "send_stopped" && sStop.providerMessageId === null
+      && sStop.nextAttemptAt?.getTime() === dayNow.getTime() + 10 * MIN, sStop);
+  await runWhatsAppWorker(new Date(dayNow.getTime() + 11 * MIN), { businessId: A, deliveryIds: [s1.id], transport: offEnv, ...q });
+  ok("S2 still stopped later: still held, still nothing sent", liveSends.length === sendsBeforeStop && (await owner.notificationDelivery.findUnique({ where: { id: s1.id } }))?.status === "PENDING");
+  await runWhatsAppWorker(new Date(dayNow.getTime() + 22 * MIN), { businessId: A, deliveryIds: [s1.id], transport: live, ...q });
+  await runWhatsAppWorker(new Date(dayNow.getTime() + 40 * MIN), { businessId: A, deliveryIds: [s1.id], transport: live, ...q });
+  const sAfter = await owner.notificationDelivery.findUnique({ where: { id: s1.id } });
+  ok("S3 stop lifted: the held message goes out ONCE (nothing lost, nothing duplicated)", liveSends.length === sendsBeforeStop + 1 && sAfter?.status === "SENT" && sAfter.error === null, sAfter);
+  const vStop = await sendBookingVerificationCode({ businessId: A, challengeId: 9200, sendIndex: 1, phone: "0501112277", code: "123456" }, { transport: offEnv });
+  ok("S4 stop ON: the verification API refuses 'send_stopped' and writes nothing",
+    !vStop.ok && vStop.reason === "send_stopped" && (await owner.notification.count({ where: { businessId: A, dedupeKey: "wa:verify:c9200:s1" } })) === 0);
+  const s5 = await newConfirmed(19);
+  await owner.notificationDelivery.update({ where: { id: s5.id }, data: { expiresAt: new Date(dayNow.getTime() + 5 * MIN) } });
+  await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [s5.id], transport: offEnv, ...q });
+  const s5a = await owner.notificationDelivery.findUnique({ where: { id: s5.id } });
+  await runWhatsAppWorker(new Date(dayNow.getTime() + 6 * MIN), { businessId: A, deliveryIds: [s5.id], transport: offEnv, ...q });
+  ok("S5 a held message is never held past its own expiry, then closed 'expired' (stale messages never sent)",
+    s5a?.nextAttemptAt?.getTime() === dayNow.getTime() + 5 * MIN && (await owner.notificationDelivery.findUnique({ where: { id: s5.id } }))?.error === "expired");
+
+  // ── item 6: a lease running out MID-SEND never produces a second provider send ─────────────────────────────────────
+  const f1 = await newConfirmed(20);
+  const before6 = liveSends.length;
+  let innerReport: Awaited<ReturnType<typeof runWhatsAppWorker>> | null = null;
+  midSend = async () => {
+    // While worker 1 is still inside the provider call, its lease runs out and worker 2 claims the same row.
+    innerReport = await runWhatsAppWorker(new Date(dayNow.getTime() + 3 * MIN), { businessId: A, deliveryIds: [f1.id], transport: live, ...q });
+  };
+  await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [f1.id], transport: live, ...q });
+  const f1r = await owner.notificationDelivery.findUnique({ where: { id: f1.id } });
+  ok("F1 lease expired mid-send: worker 2 re-claims but does NOT send (marks the attempt uncertain)",
+    innerReport !== null && (innerReport as { claimed: number; uncertain: number; sent: number }).claimed === 1 && (innerReport as { uncertain: number }).uncertain === 1 && (innerReport as { sent: number }).sent === 0, innerReport);
+  ok("F2 …worker 1's send lands: exactly ONE provider send, the row SENT with Meta's id", liveSends.length === before6 + 1 && f1r?.status === "SENT" && /^wamid\.LAB/.test(f1r.providerMessageId ?? "") && f1r.error === null, f1r);
+  for (const t of [20, 40, 120]) await runWhatsAppWorker(new Date(dayNow.getTime() + t * MIN), { businessId: A, deliveryIds: [f1.id], transport: live, ...q });
+  ok("F3 later passes never send it again", liveSends.length === before6 + 1);
+
+  const f2 = await newConfirmed(21);
+  script = ["uncertain"];
+  await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [f2.id], transport: live, ...q });
+  const f2a = await owner.notificationDelivery.findUnique({ where: { id: f2.id } });
+  const f2cb = liveSends[liveSends.length - 1].callback ?? "";
+  ok("F4 an UNCERTAIN send (Meta got it, we timed out): the row waits 15 min marked uncertain, never resent", f2a?.status === "PENDING" && /^uncertain:/.test(f2a.error ?? "") && f2a.nextAttemptAt?.getTime() === dayNow.getTime() + 15 * MIN, f2a);
+  const sendsF2 = liveSends.length;
+  await runWhatsAppWorker(new Date(dayNow.getTime() + 5 * MIN), { businessId: A, deliveryIds: [f2.id], transport: live, ...q });
+  ok("F5 …not retried while waiting", liveSends.length === sendsF2);
+  const resolvedF2 = await applyPlatformStatuses([{ wamid: `wamid.LATE${stamp}`, status: "delivered", timestamp: null, callbackData: f2cb }]);
+  const f2b = await owner.notificationDelivery.findUnique({ where: { id: f2.id } });
+  ok("F6 the status webhook resolves it by the echoed fence: SENT with Meta's id (and the status), once", resolvedF2.resolved === 1 && f2b?.status === "SENT" && f2b.providerMessageId === `wamid.LATE${stamp}` && f2b.providerStatus === "delivered", { resolvedF2, f2b });
+  const again = await applyPlatformStatuses([{ wamid: `wamid.OTHER${stamp}`, status: "read", timestamp: null, callbackData: f2cb }]);
+  ok("F7 a second, different id for the same fence changes nothing (write-once)", again.resolved === 0 && (await owner.notificationDelivery.findUnique({ where: { id: f2.id } }))?.providerMessageId === `wamid.LATE${stamp}`);
+  await runWhatsAppWorker(new Date(dayNow.getTime() + 20 * MIN), { businessId: A, deliveryIds: [f2.id], transport: live, ...q });
+  ok("F8 …and it is never sent again", liveSends.length === sendsF2);
+
+  const f3 = await newConfirmed(22);
+  script = ["uncertain"];
+  await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [f3.id], transport: live, ...q });
+  const f3cb = liveSends[liveSends.length - 1].callback ?? "";
+  const sendsF3 = liveSends.length;
+  await runWhatsAppWorker(new Date(dayNow.getTime() + 16 * MIN), { businessId: A, deliveryIds: [f3.id], transport: live, ...q });
+  const f3a = await owner.notificationDelivery.findUnique({ where: { id: f3.id } });
+  ok("F9 uncertain and never resolved: closed FAILED 'unresolved:…' — NOT resent", f3a?.status === "FAILED" && /^unresolved:/.test(f3a.error ?? "") && liveSends.length === sendsF3, f3a);
+  await applyPlatformStatuses([{ wamid: `wamid.LATE2${stamp}`, status: "read", timestamp: null, callbackData: f3cb }]);
+  ok("F10 a very late webhook still records it SENT (metering exact), still no resend", (await owner.notificationDelivery.findUnique({ where: { id: f3.id } }))?.status === "SENT" && liveSends.length === sendsF3);
+
+  const f4 = await newConfirmed(23);
+  await owner.$executeRawUnsafe(`UPDATE "NotificationDelivery" SET "error" = 'inflight:AAAAAAAAAAAAAAAAAAAAAA', "leaseUntil" = $2::timestamp(3) WHERE "id" = $1`, f4.id, new Date(dayNow.getTime() - MIN).toISOString().replace("T", " ").replace("Z", ""));
+  const sendsF4 = liveSends.length;
+  const r4 = await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [f4.id], transport: live, ...q });
+  const f4a = await owner.notificationDelivery.findUnique({ where: { id: f4.id } });
+  ok("F11 a crashed worker's attempt (inflight, lease gone): the next claim marks it uncertain, sends nothing", r4.uncertain === 1 && liveSends.length === sendsF4 && f4a?.error === "uncertain:AAAAAAAAAAAAAAAAAAAAAA", f4a);
+
+  const f5 = await newConfirmed(24);
+  let tick = 0;
+  const lateClock = () => (tick++ === 0 ? 0 : WA_LEASE_MS - 20_000); // the claim, then a clock almost at the lease's end
+  const sendsF5 = liveSends.length;
+  const r5 = await runWhatsAppWorker(dayNow, { businessId: A, deliveryIds: [f5.id], transport: live, clock: lateClock, ...q });
+  const f5a = await owner.notificationDelivery.findUnique({ where: { id: f5.id } });
+  ok("F12 too little lease left to send safely: nothing sent, the row given back as it was (due now, no marker)",
+    r5.deferred === 1 && liveSends.length === sendsF5 && f5a?.status === "PENDING" && f5a.error === null && f5a.leaseUntil === null, f5a);
+  ok("F13 every provider call carried this row's fence (biz_opaque_callback_data)", liveSends.slice(before6).every((x) => /^dz1:b\d+:d\d+:[A-Za-z0-9_-]{22}$/.test(x.callback ?? "")));
+
   /* ── C. statuses ────────────────────────────────────────────────────────────────────────────────────── */
   console.log("C. statuses (G14)");
   const wamid = r3!.providerMessageId!;
   const ts = (s: number) => String(Math.floor(Date.now() / 1000) - s);
-  const st = (status: string, ago: number, id = wamid) => ({ phoneNumberId: "100200300400", wamid: id, status, timestamp: ts(ago), errorCode: null });
+  const st = (status: string, ago: number, id = wamid) => ({ wamid: id, status, timestamp: ts(ago) });
   const read = () => owner.notificationDelivery.findUnique({ where: { id: conf8.id }, select: { providerStatus: true, providerUpdatedAt: true, status: true } });
   await applyPlatformStatuses([st("delivered", 50)]);
   const d1 = await read();
@@ -324,7 +476,7 @@ async function main() {
   ok("C2 read; the same read repeated changes nothing (time kept)", rd?.providerStatus === "read" && (await read())?.providerUpdatedAt?.getTime() === rd?.providerUpdatedAt?.getTime());
   await applyPlatformStatuses([st("failed", 20)]);
   ok("C3 'failed' after read: ignored; the delivery stays SENT", (await read())?.providerStatus === "read" && (await read())?.status === "SENT");
-  const unk = await applyPlatformStatuses([st("delivered", 10, "wamid.NOPE"), { phoneNumberId: "100200300400", wamid: "bad id!", status: "read", timestamp: null, errorCode: null }]);
+  const unk = await applyPlatformStatuses([st("delivered", 10, "wamid.NOPE"), { wamid: "bad id!", status: "read", timestamp: null }]);
   ok("C4 unknown ids and malformed input ignored", unk.unknown === 1 && unk.invalid === 1 && unk.applied === 0, unk);
 
   const counts = async () => ({
