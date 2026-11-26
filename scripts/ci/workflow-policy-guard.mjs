@@ -136,6 +136,12 @@ export const SANCTIONED = [
     message: "holds a production-capable secret but has a schedule trigger",
     reason: "by design: hourly independent watchdog of the accountant package monitor (the channel that does not depend on Vercel Cron); CRON authority bound to the `cron` environment, main-only, inert until vars.ACCOUNTANT_MONITOR_ENABLED and the route's ACCOUNTANT_MONITOR_ENABLED",
   },
+  {
+    rule: "WP-5",
+    file: "appointments-health.yml",
+    message: "holds a production-capable secret but has a schedule trigger",
+    reason: "by design (owner decision D14, 2026-11-26): 30-minute read-only appointments health watchdog (counts only); permissions contents:read, CRON authority bound to the `cron` environment, main-only, inert until vars.APPOINTMENTS_HEALTH_WATCHDOG",
+  },
 ];
 
 /** Remove exactly-sanctioned violations from `found`; a sanctioned entry with no violation is stale. */
