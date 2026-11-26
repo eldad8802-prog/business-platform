@@ -44,7 +44,8 @@ export type BucketName =
   | "GMAIL_IMPORT"
   | "CONTENT_GENERATE"
   | "LETTER_PREVIEW"
-  | "REPORTS_EXPORT_ZIP";
+  | "REPORTS_EXPORT_ZIP"
+  | "APPOINTMENTS_SEARCH";
 
 export type BucketConfig = {
   failMode: FailMode;

@@ -484,7 +484,18 @@ export async function changeStatus(principal: AppointmentPrincipal, req: OwnerRe
 
 // ── Details ─────────────────────────────────────────────────────────────────────────────────────
 
-export type UpdateDetailsInput = { title?: unknown; notes?: unknown; locationKind?: unknown; locationDetail?: unknown; customerId?: unknown; expectedVersion?: unknown };
+export type UpdateDetailsInput = {
+  title?: unknown;
+  notes?: unknown;
+  locationKind?: unknown;
+  locationDetail?: unknown;
+  customerId?: unknown;
+  /** G12: the service of a customer appointment (null = no particular service). Only an active one may be chosen. */
+  businessServiceId?: unknown;
+  /** G12: a new length, sent only when the owner confirmed it (e.g. the new service's length). Re-checked for overlap. */
+  durationMinutes?: unknown;
+  expectedVersion?: unknown;
+};
 
 export async function updateDetails(principal: AppointmentPrincipal, req: OwnerRequest, id: number, input: UpdateDetailsInput): Promise<AppointmentWriteResult> {
   authorizeAppointmentAction(principal, "appointment.edit");
@@ -494,6 +505,9 @@ export async function updateDetails(principal: AppointmentPrincipal, req: OwnerR
   const locationKind = input.locationKind === undefined ? undefined : input.locationKind === null ? null : (input.locationKind as AppointmentLocationKind);
   if (locationKind !== undefined && locationKind !== null && !LOCATIONS.includes(locationKind)) throw invalid("locationKind");
   const customerId = optionalId(input.customerId, "customerId");
+  const businessServiceId = optionalId(input.businessServiceId, "businessServiceId");
+  const durationIn = input.durationMinutes === undefined || input.durationMinutes === null ? undefined : input.durationMinutes;
+  if (durationIn !== undefined && (!isPositiveInt(durationIn) || durationIn < MIN_DURATION_MINUTES || durationIn > MAX_DURATION_MINUTES)) throw invalid("durationMinutes");
   const expectedVersion = optionalVersion(input.expectedVersion);
   const data: Prisma.AppointmentUncheckedUpdateInput = {};
   const fields: string[] = [];
@@ -501,14 +515,15 @@ export async function updateDetails(principal: AppointmentPrincipal, req: OwnerR
   if (notes !== undefined) { data.notes = notes; fields.push("notes"); }
   if (locationKind !== undefined) { data.locationKind = locationKind; fields.push("locationKind"); }
   if (locationDetail !== undefined) { data.locationDetail = locationDetail; fields.push("locationDetail"); }
-  if (fields.length === 0 && customerId === undefined) throw invalid("fields");
-  const body = { id, title, notes, locationKind, locationDetail, customerId, expectedVersion };
+  if (fields.length === 0 && customerId === undefined && businessServiceId === undefined && durationIn === undefined) throw invalid("fields");
+  const body = { id, title, notes, locationKind, locationDetail, customerId, businessServiceId, durationMinutes: durationIn, expectedVersion };
   const actor = ownerActor(principal);
 
   const out = await ownerWrite(principal, req, "PATCH /api/appointments/[id]/details", body, async (ctx) => {
     const { tx, businessId } = ctx;
     const current = await loadOwn(tx, businessId, id);
     if (expectedVersion !== undefined && current.version !== expectedVersion) throw new AppointmentServiceError("VERSION_CONFLICT", { version: current.version });
+    const payload: Record<string, string | number | null> = {};
     if (customerId !== undefined) {
       if (current.kind !== "CUSTOMER") throw invalid("customerId");
       if (customerId !== null && !(await tx.customer.findFirst({ where: { id: customerId, businessId }, select: { id: true } }))) {
@@ -516,13 +531,65 @@ export async function updateDetails(principal: AppointmentPrincipal, req: OwnerR
       }
       data.customerId = customerId;
       fields.push("customerId");
+      if (customerId !== current.customerId) {
+        payload.fromCustomerId = current.customerId;
+        payload.toCustomerId = customerId;
+        // A lead belongs to its customer (decision 11): another customer's lead is unlinked, never carried over.
+        if (current.leadId !== null) {
+          const lead = await tx.lead.findFirst({ where: { id: current.leadId, businessId }, select: { customerId: true } });
+          if (!lead || lead.customerId !== customerId) { data.leadId = null; fields.push("leadId"); }
+        }
+      }
     }
+    let warnings: string[] = [];
+    const serviceChanged = businessServiceId !== undefined && businessServiceId !== current.businessServiceId;
+    if ((businessServiceId !== undefined || durationIn !== undefined) && current.kind !== "CUSTOMER") {
+      throw invalid(businessServiceId !== undefined ? "businessServiceId" : "durationMinutes");
+    }
+    if (serviceChanged) {
+      // Only an active service may be chosen; the appointment's current one stays even after it was deactivated.
+      const next = businessServiceId !== null ? await activeService(tx, businessId, businessServiceId) : null;
+      if (next) await staffServiceDuration(tx, businessId, next.id, current.staffMemberId);
+      data.businessServiceId = next?.id ?? null;
+      fields.push("businessServiceId");
+      payload.fromServiceId = current.businessServiceId;
+      payload.toServiceId = next?.id ?? null;
+      // The title followed the old service's name (the create default): it follows the new one.
+      if (title === undefined && current.businessServiceId !== null) {
+        const prev = await tx.businessService.findFirst({ where: { id: current.businessServiceId, businessId }, select: { name: true } });
+        if (prev && current.title === prev.name) { data.title = next?.name ?? null; fields.push("title"); }
+      }
+      Object.assign(data, await bufferPolicy(tx, businessId, next?.id ?? null));
+    }
+    const buffers = {
+      bufferBeforeMinutes: (data.bufferBeforeMinutes as number | undefined) ?? current.bufferBeforeMinutes,
+      bufferAfterMinutes: (data.bufferAfterMinutes as number | undefined) ?? current.bufferAfterMinutes,
+    };
+    const buffersChanged = buffers.bufferBeforeMinutes !== current.bufferBeforeMinutes || buffers.bufferAfterMinutes !== current.bufferAfterMinutes;
+    const durationChanged = durationIn !== undefined && durationIn !== current.durationMinutes;
+    if (durationChanged && (isTerminal(current.status) || !current.startsAt)) throw new AppointmentServiceError("INVALID_TRANSITION");
+    if ((durationChanged || buffersChanged) && current.startsAt && current.endsAt && !isTerminal(current.status)) {
+      const endsAt = durationChanged ? resolveSpan(current.startsAt, null, durationIn as number).endsAt : current.endsAt;
+      // Under the per-business lock (ownerWrite): the new length, or the new service's buffers, must still be free.
+      await assertFree(tx, businessId, current.staffMemberId, occupiedRange(current.startsAt, endsAt, buffers.bufferBeforeMinutes, buffers.bufferAfterMinutes), current.id);
+      if (durationChanged) {
+        data.endsAt = endsAt;
+        data.durationMinutes = durationIn as number;
+        fields.push("durationMinutes");
+        payload.fromEndsAt = instantToken(current.endsAt);
+        payload.toEndsAt = instantToken(endsAt);
+        if (await outsideAvailability(tx, businessId, current.staffMemberId, current.startsAt, endsAt)) warnings = ["OUTSIDE_AVAILABILITY"];
+      }
+    }
+    if (fields.length === 0) throw invalid("fields");
     await tx.appointment.update({ where: { id: current.id }, data: { ...data, version: { increment: 1 } } });
+    // TODO(db/appointments-completion): CUSTOMER_CHANGED / SERVICE_CHANGED arrive with the migration package; until
+    // then a customer or service change is journalled as APPOINTMENT_DETAILS_CHANGED with its from/to ids.
     await appendAppointmentEvent(tx, {
       businessId, appointmentId: current.id, eventType: "APPOINTMENT_DETAILS_CHANGED", ctx: actor, idempotencyKey: ctx.key, digest: ctx.digest,
-      payload: { fields },
+      payload: { fields, ...payload },
     });
-    return { appointmentId: current.id };
+    return { appointmentId: current.id, warnings };
   });
   return materialize(principal.businessId, out);
 }

@@ -8,6 +8,8 @@
  *   (each asks once more and says it cannot be undone) · חסימה → שינוי מועד · סופי → קביעת תור חדש ללקוח.
  * Every change sends the version it saw; a stale one answers VERSION_CONFLICT and the panel reloads instead of
  * overwriting. Cancelling asks why (the closed reason) and may keep a short note.
+ * "עריכת פרטים" also fixes a customer appointment's customer (search / pick / create, as in the booking form) and its
+ * service (G12); a new service changes the length only when the owner ticks it, and the server re-checks the time.
  */
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -16,7 +18,8 @@ import { telHref, whatsAppChatHref } from "@/components/customers/customer-conta
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { uuidV7 } from "@/lib/tasks/tasks-client";
 
-import { CalendarApiError, changeStatus, customerName, forgetIntent, getAppointment, updateDetails, type CustomerWire } from "./calendar-client";
+import { CalendarApiError, changeStatus, customerName, forgetIntent, getAppointment, priceLabel, updateDetails, type CustomerWire, type ServiceWire } from "./calendar-client";
+import { CustomerField } from "./appointment-form";
 import {
   ACTOR_LABEL,
   actionsFor,
@@ -54,6 +57,7 @@ type Mode = "view" | "cancel" | "edit" | "complete" | "no_show";
 export function AppointmentDetails({
   id,
   names,
+  services = [],
   onChanged,
   onMove,
   onRebook,
@@ -61,6 +65,8 @@ export function AppointmentDetails({
 }: {
   id: number;
   names: Names;
+  /** The catalog's services (G12: the edit box's service choice). */
+  services?: ServiceWire[];
   /** After any change: the screen reloads the range and says `message`. */
   onChanged: (message: string) => void;
   onMove: (appt: AppointmentWire) => void;
@@ -222,6 +228,8 @@ export function AppointmentDetails({
       {mode === "edit" ? (
         <EditBox
           appt={a}
+          services={services}
+          customer={a.customerId !== null ? { id: a.customerId, name: custName ?? "", phone: customer?.phone ?? null } : null}
           onCancel={() => setMode("view")}
           onSaved={() => { setMode("view"); setStamp((x) => x + 1); onChanged("הפרטים נשמרו"); }}
           onStale={() => setStamp((x) => x + 1)}
@@ -303,6 +311,16 @@ function historyDetail(h: HistoryWire, names: Names): string {
     }
     return parts.length ? ` ${parts.join(" · ")}` : "";
   }
+  if (h.type === "APPOINTMENT_DETAILS_CHANGED") {
+    const parts: string[] = [];
+    if ("toCustomerId" in h.payload) parts.push(`לקוח: ${typeof h.payload.toCustomerId === "number" ? names.customers.get(h.payload.toCustomerId) ?? "הוחלף" : "הוסר"}`);
+    if ("toServiceId" in h.payload) parts.push(`שירות: ${typeof h.payload.toServiceId === "number" ? names.services.get(h.payload.toServiceId) ?? "הוחלף" : "ללא"}`);
+    if (typeof h.payload.toEndsAt === "string") {
+      const d = new Date(h.payload.toEndsAt);
+      if (!Number.isNaN(d.getTime())) parts.push(`עד ⁦${clockOf(d)}⁩`);
+    }
+    return parts.length ? ` · ${parts.join(" · ")}` : "";
+  }
   if (h.type === "APPOINTMENT_CANCELED" && typeof h.payload.cancelReason === "string" && h.payload.cancelReason in CANCEL_REASON_LABEL) {
     return ` · ${CANCEL_REASON_LABEL[h.payload.cancelReason as keyof typeof CANCEL_REASON_LABEL]}`;
   }
@@ -379,7 +397,18 @@ function CancelBox({ appt, busy, onCancel, onConfirm }: { appt: AppointmentWire;
   );
 }
 
-function EditBox({ appt, onCancel, onSaved, onStale }: { appt: AppointmentWire; onCancel: () => void; onSaved: () => void; onStale: () => void }) {
+function EditBox({ appt, services, customer: customerNow, onCancel, onSaved, onStale }: {
+  appt: AppointmentWire;
+  services: ServiceWire[];
+  customer: CustomerWire | null;
+  onCancel: () => void;
+  onSaved: () => void;
+  onStale: () => void;
+}) {
+  const isCustomer = appt.kind === "CUSTOMER";
+  const [customer, setCustomer] = useState<CustomerWire | null>(customerNow);
+  const [serviceId, setServiceId] = useState<number | null>(appt.businessServiceId);
+  const [takeLength, setTakeLength] = useState(false);
   const [title, setTitle] = useState(appt.title ?? "");
   const [notes, setNotes] = useState(appt.notes ?? "");
   const [locationKind, setLocationKind] = useState(appt.locationKind ?? "");
@@ -389,9 +418,20 @@ function EditBox({ appt, onCancel, onSaved, onStale }: { appt: AppointmentWire; 
   const intent = useRef(`appt:details:${appt.id}:${uuidV7()}`);
   const problem = textProblem("הכותרת", title, LIMITS.title) ?? textProblem("ההערות", notes, LIMITS.notes) ?? textProblem("פרטי המיקום", locationDetail, LIMITS.locationDetail);
 
+  // The service choice: active services, plus the current one even if it was deactivated since (it stays on this appointment).
+  const serviceChoices = services.filter((x) => x.active || x.id === appt.businessServiceId);
+  const nextService = serviceId !== null ? services.find((x) => x.id === serviceId) ?? null : null;
+  const currentLength = durationOf(appt);
+  const offerLength = isCustomer && serviceId !== appt.businessServiceId && !isTerminal(appt.status)
+    && nextService?.durationMinutes != null && nextService.durationMinutes !== currentLength;
+
   const save = async () => {
     if (problem) { setError(problem); return; }
-    const body: Record<string, string | null> = {};
+    if (isCustomer && appt.customerId !== null && !customer) { setError("צריך לבחור לקוח."); return; }
+    const body: Record<string, string | number | null> = {};
+    if (isCustomer && customer && customer.id !== appt.customerId) body.customerId = customer.id;
+    if (isCustomer && serviceId !== appt.businessServiceId) body.businessServiceId = serviceId;
+    if (offerLength && takeLength && nextService?.durationMinutes) body.durationMinutes = nextService.durationMinutes;
     if (title.trim() !== (appt.title ?? "")) body.title = title.trim() || null;
     if (notes.trim() !== (appt.notes ?? "")) body.notes = notes.trim() || null;
     if (appt.kind !== "BLOCK" && (locationKind || null) !== appt.locationKind) body.locationKind = locationKind || null;
@@ -406,7 +446,9 @@ function EditBox({ appt, onCancel, onSaved, onStale }: { appt: AppointmentWire; 
       forgetIntent(intent.current);
       intent.current = `appt:details:${appt.id}:${uuidV7()}`;
       const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "NETWORK");
-      setError(errorText(err.code, err.status));
+      setError(err.code === "SLOT_CONFLICT" && "durationMinutes" in body
+        ? "המשך החדש חופף לתור אחר באותו זמן. אפשר לשמור בלי לשנות את המשך, או להזיז את התור."
+        : errorText(err.code, err.status));
       if (err.code === "VERSION_CONFLICT") onStale();
     } finally {
       setBusy(false);
@@ -416,6 +458,27 @@ function EditBox({ appt, onCancel, onSaved, onStale }: { appt: AppointmentWire; 
   return (
     <div className={s.confirm}>
       <strong>עריכת פרטים</strong>
+      {isCustomer ? (
+        <>
+          <CustomerField value={customer} onChange={(c) => setCustomer(c)} autoFocus={false} />
+          <div className={s.field}>
+            <label className={s.label} htmlFor="edit-service">שירות</label>
+            <select id="edit-service" className={s.input} value={serviceId ?? ""} onChange={(e) => { setServiceId(e.target.value ? Number(e.target.value) : null); setTakeLength(false); }}>
+              <option value="">ללא שירות מסוים</option>
+              {serviceChoices.map((x) => {
+                const price = priceLabel(x);
+                return <option key={x.id} value={x.id}>{x.name}{x.durationMinutes ? ` · ${durationLabel(x.durationMinutes)}` : ""}{price ? ` · ${price}` : ""}{x.active ? "" : " (לא פעיל)"}</option>;
+              })}
+            </select>
+          </div>
+          {offerLength ? (
+            <label className={s.check}>
+              <input type="checkbox" checked={takeLength} onChange={(e) => setTakeLength(e.target.checked)} />
+              לעדכן את המשך ל־{durationLabel(nextService!.durationMinutes!)} (כרגע {currentLength ? durationLabel(currentLength) : "לא ידוע"})
+            </label>
+          ) : null}
+        </>
+      ) : null}
       <div className={s.field}>
         <label className={s.label} htmlFor="edit-title">כותרת</label>
         <input id="edit-title" className={s.input} value={title} maxLength={LIMITS.title + 50} onChange={(e) => setTitle(e.target.value)} />

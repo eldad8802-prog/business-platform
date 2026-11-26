@@ -772,6 +772,8 @@ async function main() {
       FCM_AUTH_CHECK: "closed",
       // Owner decision 26 (2026-11-24): abuse ceilings on the four paths that had none.
       GMAIL_IMPORT: "closed", CONTENT_GENERATE: "closed", LETTER_PREVIEW: "open", REPORTS_EXPORT_ZIP: "open",
+      // The owner's appointment search (calendar daily use G8): an owner read, fail-open like DOCUMENTS_API.
+      APPOINTMENTS_SEARCH: "open",
     };
     const actual = Object.fromEntries(Object.entries(BUCKETS).map(([k, v]) => [k, v.failMode]));
     assert.deepEqual(actual, expected);

@@ -5,8 +5,8 @@
  * reads back.
  *
  *   S. PATCH /api/business/services/[id] — the owner edits a service's name and length; another business's service,
- *      a product, a missing id → 404 and nothing changes; bad input → 400; no session → 401; the price and status are
- *      never touched (extra fields are ignored); POST still creates.
+ *      a product, a missing id → 404 and nothing changes; bad input → 400; no session → 401; a length edit leaves price
+ *      and status alone and the business / type are never touched (extra fields are ignored); POST still creates.
  *   L. GET /api/leads?customerId= — only that customer's OPEN leads, also among the "urgent" candidates the route
  *      merges in; another business's customer id → nothing; a bad id → 400; without it the list is unchanged; no lead
  *      stage changes.
@@ -77,9 +77,9 @@ async function main() {
   let r = await routes.service.PATCH(req(`/api/business/services/${svcA.id}`, { method: "PATCH", body: { durationMinutes: 50, name: "תספורת גברים" } }), p({ id: String(svcA.id) }));
   let row = await owner.businessService.findUniqueOrThrow({ where: { id: svcA.id } });
   ok("S1 the owner changes a service's length and name", r.status === 200 && row.durationMinutes === 50 && row.name === "תספורת גברים", String(r.status));
-  r = await routes.service.PATCH(req(`/api/business/services/${svcA.id}`, { method: "PATCH", body: { durationMinutes: 40, priceAmount: 1, priceMode: "QUOTE_REQUIRED", active: false, businessId: bizB } }), p({ id: String(svcA.id) }));
+  r = await routes.service.PATCH(req(`/api/business/services/${svcA.id}`, { method: "PATCH", body: { durationMinutes: 40, businessId: bizB, featuredByOwner: true, type: "PRODUCT" } }), p({ id: String(svcA.id) }));
   row = await owner.businessService.findUniqueOrThrow({ where: { id: svcA.id } });
-  ok("S2 price, status and business are never edited (extra fields ignored)", r.status === 200 && row.durationMinutes === 40 && String(row.priceAmount) === "120" && row.priceMode === "FIXED" && row.active === true && row.businessId === bizA);
+  ok("S2 a length-only edit leaves price and status as they are; business / featuring / type are never edited (extra fields ignored; price and status edits are proven in .appt/daily-use-battery.ts)", r.status === 200 && row.durationMinutes === 40 && String(row.priceAmount) === "120" && row.priceMode === "FIXED" && row.active === true && row.businessId === bizA && row.featuredByOwner === false && row.type === "SERVICE");
   r = await routes.service.PATCH(req(`/api/business/services/${svcB.id}`, { method: "PATCH", body: { durationMinutes: 5 } }), p({ id: String(svcB.id) }));
   const b = await owner.businessService.findUniqueOrThrow({ where: { id: svcB.id } });
   ok("S3 another business's service: 404, untouched", r.status === 404 && b.durationMinutes === 60, String(r.status));

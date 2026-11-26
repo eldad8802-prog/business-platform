@@ -279,4 +279,14 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "business", limit: 200, windowSeconds: 24 * 60 * 60 },
     ],
   },
+  // The owner's appointment search (GET /api/appointments/search, G8): a read typed letter by letter, so generous per
+  // user and bounded per business. Fail-OPEN like the other owner reads (DOCUMENTS_API): a limiter outage must not
+  // break the calendar.
+  APPOINTMENTS_SEARCH: {
+    failMode: "open",
+    rules: [
+      { scope: "user", limit: 60, windowSeconds: 60 },
+      { scope: "business", limit: 300, windowSeconds: 60 },
+    ],
+  },
 };

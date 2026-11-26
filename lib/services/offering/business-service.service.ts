@@ -1,5 +1,5 @@
 import { Prisma, type ServiceFulfillment } from "@prisma/client";
-import { normalizeServicePrice, type ServicePriceInput } from "./service-price";
+import { normalizeServicePrice, type ServicePriceInput, type ServicePriceValue } from "./service-price";
 import { projectProduct, projectService, type OfferingView } from "./offering-projection";
 
 const FULFILLMENT = new Set<ServiceFulfillment>([
@@ -90,15 +90,21 @@ export type UpdateBusinessServiceInput = {
   description?: string | null;
   /** Minutes; null clears it (the calendar then asks for a length per appointment). */
   durationMinutes?: number | null;
+  /** G11 (calendar daily use): the public price, normalised like a new service's (FIXED / NO_PUBLIC_PRICE / …). */
+  price?: ServicePriceInput;
+  /** G11: offered for new bookings. A deactivated service stays on the appointments that already have it. */
+  active?: boolean;
 };
 
 /** The longest a catalog service may last — the calendar's own bound for one appointment. */
 export const MAX_SERVICE_DURATION_MINUTES = 1440;
 
 /**
- * Edits a service of THIS business: its name, description and length. Price, status, featuring and fulfilment are
- * not edited here (a price is the catalog's public promise and stays where it was set). A service of another business
- * — or a product, or an id that does not exist — is "not found", never a hint that it exists.
+ * Edits a service of THIS business: its name, description, length and — from the calendar's services screen (G11,
+ * owner-approved program 2026-11-24) — its price and whether it is active. Featuring and fulfilment are not edited
+ * here. A price goes through the same normalizeServicePrice as a new service (mode + amounts, never a bare number).
+ * A service of another business — or a product, or an id that does not exist — is "not found", never a hint that it
+ * exists.
  */
 export async function updateBusinessService(input: UpdateBusinessServiceInput, tx: Tx) {
   if (!Number.isInteger(input.businessId) || input.businessId <= 0) {
@@ -107,7 +113,15 @@ export async function updateBusinessService(input: UpdateBusinessServiceInput, t
   if (!Number.isInteger(input.businessServiceId) || input.businessServiceId <= 0) {
     throw new OfferingNotFoundError();
   }
-  const data: { name?: string; description?: string | null; durationMinutes?: number | null } = {};
+  const data: {
+    name?: string;
+    description?: string | null;
+    durationMinutes?: number | null;
+    priceMode?: ServicePriceValue["priceMode"];
+    priceAmount?: ServicePriceValue["priceAmount"];
+    priceMax?: ServicePriceValue["priceMax"];
+    active?: boolean;
+  } = {};
   if (input.name !== undefined) {
     const name = cleanText(input.name, 120, "name");
     if (!name) throw new OfferingInputError("name is required");
@@ -120,6 +134,16 @@ export async function updateBusinessService(input: UpdateBusinessServiceInput, t
       throw new OfferingInputError(`durationMinutes must be at most ${MAX_SERVICE_DURATION_MINUTES}`);
     }
     data.durationMinutes = minutes;
+  }
+  if (input.price !== undefined) {
+    const price = normalizeServicePrice(input.price);
+    data.priceMode = price.priceMode;
+    data.priceAmount = price.priceAmount;
+    data.priceMax = price.priceMax;
+  }
+  if (input.active !== undefined) {
+    if (typeof input.active !== "boolean") throw new OfferingInputError("active must be true or false");
+    data.active = input.active;
   }
   if (Object.keys(data).length === 0) throw new OfferingInputError("nothing to change");
 
