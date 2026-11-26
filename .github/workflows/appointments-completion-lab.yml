@@ -18,6 +18,8 @@
 #   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
 #   5. R10: main's Prisma Client (the previous application) works on the migrated schema (.apc/old-code.sh).
 #   6. R9: realistic row counts — lock_timeout behind a held lock (atomic, recoverable), release time, no rewrite.
+#   7. Rollback floor: the client of this package reads every touched table beside rows of every new kind (8/8); old
+#      main's failing reads are listed — the evidence for "no code rollback below this release" (rollback.md).
 #
 # There is no rollback step: the release's rollback is a CODE rollback with the additive schema left in place (enum
 # labels cannot be dropped in place). See the PR body.
@@ -166,3 +168,9 @@ jobs:
           set -euo pipefail
           bash .apc/timing.sh apc_perf | tee /tmp/timing.out
           grep -q "^TIMING OK$" /tmp/timing.out
+
+      - name: 7. Rollback floor (release item 5) — this package's client reads every new kind; old main's reads are listed
+        run: |
+          set -euo pipefail
+          bash .apc/rollback-floor.sh apc_mig | tee /tmp/floor.out
+          grep -q "^floor: 8 readable, 0 failing" /tmp/floor.out
