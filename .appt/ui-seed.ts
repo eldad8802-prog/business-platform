@@ -116,12 +116,6 @@ async function main() {
 
   // Milestone C: the booking link open for business A, and one request submitted through the real public door.
   await owner.businessFeatureAccess.create({ data: { businessId: bizA, featureKey: "public_booking", state: "ENABLED", reason: "lab demo" } });
-  // notifications_engine: the kill switch the verification code needs (workstream F's gate), ON explicitly (lab).
-  await owner.businessFeatureAccess.upsert({
-    where: { businessId_featureKey: { businessId: bizA, featureKey: "notifications_engine" } },
-    create: { businessId: bizA, featureKey: "notifications_engine", state: "ENABLED", reason: "lab demo" },
-    update: { state: "ENABLED" },
-  });
   // Appointments completion G2 (owner requirement 8): the link opens only while a WhatsApp path can deliver a code, and
   // every public request carries a verified phone — the shared lab adapter (.bkg/verify-adapter.ts) declares the path
   // available and writes, as the owner, the verification a customer who typed the code would hold.

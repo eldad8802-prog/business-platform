@@ -37,9 +37,7 @@ async function main() {
   await owner.businessFeatureAccess.createMany({ data: [
     { businessId: biz, featureKey: "appointments", state: "ENABLED", reason: "local demo" },
     { businessId: biz, featureKey: "public_booking", state: "ENABLED", reason: "local demo" },
-    // The kill switch the verification code needs (workstream F's gate).
-    { businessId: biz, featureKey: "notifications_engine", state: "ENABLED", reason: "local demo" },
-  ], skipDuplicates: true });
+  ] });
   // Appointments completion G2 (owner requirement 8): the shared lab adapter declares the WhatsApp path available and
   // writes, as the owner, the verification each demo request carries.
   const { bookingVerificationAdapter } = await import("./verify-adapter");

@@ -52,8 +52,7 @@ async function main() {
   const mk = async (name: string) => {
     const businessId = (await owner.business.create({ data: { name } })).id;
     const userId = (await owner.user.create({ data: { email: `${tag}-${businessId}@lab.test`, password: "x", businessId } })).id;
-    // notifications_engine: the kill switch the verification code needs (workstream F's gate), ON explicitly.
-    for (const featureKey of ["appointments", "public_booking", "notifications_engine"]) await owner.businessFeatureAccess.create({ data: { businessId, featureKey, state: "ENABLED", reason: "lab battery" } });
+    for (const featureKey of ["appointments", "public_booking"]) await owner.businessFeatureAccess.create({ data: { businessId, featureKey, state: "ENABLED", reason: "lab battery" } });
     return { businessId, principal: { kind: "OWNER" as const, businessId, userId } };
   };
   const X = await mk("Studio X — battery");

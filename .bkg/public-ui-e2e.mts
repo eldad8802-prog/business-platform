@@ -141,8 +141,7 @@ async function fill(p: Page, name: string, phone: string, note = "") {
  */
 async function prepare() {
   // The calendar's own e2e switches the flags ON and OFF; this suite starts from ON (lab only).
-  // notifications_engine: the kill switch the verification code needs (workstream F's gate).
-  for (const featureKey of ["appointments", "public_booking", "notifications_engine"]) {
+  for (const featureKey of ["appointments", "public_booking"]) {
     await owner.businessFeatureAccess.upsert({
       where: { businessId_featureKey: { businessId: BUSINESS_ID, featureKey } },
       create: { businessId: BUSINESS_ID, featureKey, state: "ENABLED", reason: "lab e2e" },
