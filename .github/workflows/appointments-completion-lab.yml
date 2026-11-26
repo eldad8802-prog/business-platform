@@ -70,6 +70,8 @@ jobs:
       MIGRATION: prisma/migrations/20261230090000_appointments_completion/migration.sql
       # The pending chain is built once (step 1) and every other lab database is cloned from it.
       APC_TEMPLATE: apc_tpl
+      # The lab chain runs on main's schema (before this package): .apc/lab.sh reads it from BASE_REF.
+      BASE_REF: FETCH_HEAD
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -78,6 +80,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
+      - name: main's schema for the lab chain (BASE_REF)
+        run: git fetch --no-tags --depth=1 origin main && git show FETCH_HEAD:prisma/schema.prisma | grep -c "^model "
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
 
       - name: 0. Evidence files — SELECT-only, selectable, checksum pinned
@@ -155,8 +159,7 @@ jobs:
       - name: 5. Old code on the new schema (R10) — main's Prisma Client against the migrated lab
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin main
-          BASE_REF=FETCH_HEAD bash .apc/old-code.sh apc_mig
+          bash .apc/old-code.sh apc_mig
 
       - name: 6. Locks and time (R9) — realistic row counts, lock_timeout behind a held lock, no table rewrite
         run: |

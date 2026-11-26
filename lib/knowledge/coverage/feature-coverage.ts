@@ -227,7 +227,9 @@ export const FEATURE_COVERAGE: readonly FeatureCoverage[] = [
     // Milestone A (migration 20261029090000): the calendar's configuration and journal belong to this feature. No new
     // rule reads them yet — the four rules above read CUSTOMER appointments only (loadAppointments).
     models: ["Appointment", "AppointmentEvent", "StaffMember", "StaffServiceAssignment", "AvailabilityRule", "AvailabilityException",
-      "ServiceBookingPolicy", "BookingSettings", "BookingRequest", "AppointmentManageToken"],
+      "ServiceBookingPolicy", "BookingSettings", "BookingRequest", "AppointmentManageToken",
+      // Appointments completion (migration 20261230090000): recurring rules and the public link's phone verification.
+      "AppointmentSeries", "BookingPhoneChallenge"],
     // Milestone C: the public booking doors (api/public/booking — no session; 404 until public_booking is open) and the
     // customer's pages (/book/<publicId>, /book/manage).
     sensors: ["APPOINTMENT_STATUS_CHANGED", "APPOINTMENT_RESCHEDULED"], legacyEvents: [], routes: ["api/appointments", "api/public", "page/calendar", "page/book"],

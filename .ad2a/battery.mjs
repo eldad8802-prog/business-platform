@@ -354,6 +354,9 @@ async function main() {
   // (SECURITY DEFINER, EXECUTE to the runtime alone) is created from the migration's own text.
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "StaffMember", "AvailabilityException", "BookingRequest", "AppointmentManageToken" TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "StaffMember", "AvailabilityException", "BookingRequest", "AppointmentManageToken" FROM ${RT_ROLE}`);
+  // Appointments completion (migration 20261230090000): the same shape on the two tables stage 2 now erases in place.
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "AppointmentSeries", "BookingPhoneChallenge" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE DELETE, TRUNCATE ON "AppointmentSeries", "BookingPhoneChallenge" FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT ON "AppointmentEvent" TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`REVOKE UPDATE, DELETE, TRUNCATE ON "AppointmentEvent" FROM ${RT_ROLE}`);
   {

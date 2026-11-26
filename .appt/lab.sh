@@ -27,6 +27,10 @@ OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${P
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 
 psql_owner <<'SQL'
+-- The appointments completion package (20261230090000), when schema.prisma models it: its two pushed tables reference
+-- the foundation's types and must go first (they are rebuilt by that migration where a lab applies it).
+DROP TABLE IF EXISTS "AppointmentSeries", "BookingPhoneChallenge" CASCADE;
+DROP TYPE IF EXISTS "AppointmentSeriesFrequency";
 DROP TABLE IF EXISTS "AppointmentEvent", "AppointmentManageToken", "BookingRequest", "BookingSettings",
   "ServiceBookingPolicy", "AvailabilityException", "AvailabilityRule", "StaffServiceAssignment" CASCADE;
 ALTER TABLE "Appointment"

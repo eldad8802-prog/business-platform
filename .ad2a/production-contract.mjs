@@ -621,6 +621,27 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "appointment_token_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
     ],
   },
+  // Appointments completion — migration 20261230090000_appointments_completion. Stage 2 erases in place with UPDATEs.
+  {
+    table: "AppointmentSeries",
+    migration: "20261230090000_appointments_completion",
+    why: "stage 2 clears every recurring rule's title and customer with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "appointment_series_tenant_select", command: "SELECT", using: TENANT },
+      { name: "appointment_series_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "appointment_series_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
+  {
+    table: "BookingPhoneChallenge",
+    migration: "20261230090000_appointments_completion",
+    why: "stage 2 clears every phone-verification challenge's hashes with an UPDATE; no DELETE policy",
+    policies: [
+      { name: "booking_phone_challenge_tenant_select", command: "SELECT", using: TENANT },
+      { name: "booking_phone_challenge_tenant_insert", command: "INSERT", check: TENANT },
+      { name: "booking_phone_challenge_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+    ],
+  },
 ];
 
 /**
@@ -870,6 +891,8 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   AvailabilityException: { verbs: SIU, basis: "migration 20261029090000_appointments_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
   BookingRequest: { verbs: SIU, basis: "migration 20261029090000_appointments_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
   AppointmentManageToken: { verbs: SIU, basis: "migration 20261029090000_appointments_foundation grants SELECT, INSERT, UPDATE — no DELETE" },
+  AppointmentSeries: { verbs: SIU, basis: "migration 20261230090000_appointments_completion grants SELECT, INSERT, UPDATE — no DELETE" },
+  BookingPhoneChallenge: { verbs: SIU, basis: "migration 20261230090000_appointments_completion grants SELECT, INSERT, UPDATE — no DELETE" },
   AppointmentEvent: {
     verbs: ["SELECT", "INSERT"],
     basis: "migration 20261029090000_appointments_foundation grants SELECT, INSERT — append-only",
