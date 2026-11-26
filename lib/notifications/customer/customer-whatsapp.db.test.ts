@@ -1,7 +1,7 @@
 /**
  * Customer WhatsApp through the notification engine (G1 / G13 / G14, appointments completion program, workstream F),
  * end to end on a real database AS THE RESTRICTED RUNTIME (app_runtime_prod: NOSUPERUSER NOBYPASSRLS) over every
- * migration including 20261226090000_appointments_completion. The transport is SIMULATED (never a network call: the
+ * migration including 20261230090000_appointments_completion. The transport is SIMULATED (never a network call: the
  * global fetch throws); the "live" path is exercised only with a FAKE sender.
  *
  *   A. producers     through the REAL appointment service + journal hook: an owner PROPOSED → nothing; confirm →

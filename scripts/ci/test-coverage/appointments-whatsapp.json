@@ -1,5 +1,5 @@
 {
-  "note": "Appointments completion, workstream F (G1 / G13 / G14): customer WhatsApp messages through the notification engine (customer categories, notifyCustomer, the journal-hooked producer, the worker's WHATSAPP lane, the platform transport — SIMULATED unless WHATSAPP_PLATFORM_SEND_MODE=live + credentials, the template send in graph.service, the verification send API for workstream G, metering and the null quota hook, phone retention), the owner's booking notices moved onto the engine (G13), and the status webhook's platform branch (G14). Needs migration 20261226090000_appointments_completion (Draft, not applied).",
+  "note": "Appointments completion, workstream F (G1 / G13 / G14): customer WhatsApp messages through the notification engine (customer categories, notifyCustomer, the journal-hooked producer, the worker's WHATSAPP lane, the platform transport — SIMULATED unless WHATSAPP_PLATFORM_SEND_MODE=live + credentials, the template send in graph.service, the verification send API for workstream G, metering and the null quota hook, phone retention), the owner's booking notices moved onto the engine (G13), and the status webhook's platform branch (G14). Needs migration 20261230090000_appointments_completion (Draft, not applied).",
   "tests": {
     "lib/notifications/customer/customer-messages.test.ts": {
       "class": "SECURITY_REQUIRED",

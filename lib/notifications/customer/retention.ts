@@ -3,7 +3,7 @@
  *
  * Documented retention: 30 DAYS after the message was created and is no longer owed. Run by the existing
  * notification worker cron (/api/notifications/worker) every pass. notification_customer_phone_purge() (SECURITY
- * DEFINER, migration 20261226090000) nulls recipientPhone on such rows — never one younger than 24 hours, whatever
+ * DEFINER, migration 20261230090000) nulls recipientPhone on such rows — never one younger than 24 hours, whatever
  * the cut-off passed — and returns a COUNT only; the row, its status and provider id stay (metering, audit).
  * Account deletion clears the phone earlier, in place (erasure registry).
  */
