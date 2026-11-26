@@ -1,0 +1,176 @@
+# Appointments completion / migration 20261230090000_appointments_completion — proof on PostgreSQL BEFORE it reaches
+# Production (ephemeral PG17). The ONE migration package of the appointments completion program (series, journal
+# labels, booking settings, phone verification, customer WhatsApp deliveries); the code that uses it is stacked on it.
+#
+# .apc/lab.sh builds Production's topology on top of the public booking lab (.bkg → .appt → .acct → .trp chain) plus
+# the notification engine foundation (.nte, NTE_ONTO=1): non-superuser CREATEROLE/BYPASSRLS owner, NOLOGIN app_runtime +
+# LOGIN app_runtime_prod, app_auth, FORCE RLS on the appointment and notification tables, and the ledger completed with
+# every migration that sorts before this one.
+#
+#   0. Evidence files are SELECT-only, registered in prod-readonly-evidence.yml; the proof pins migration.sql's sha256.
+#   1. Baseline (pending): the preflight passes whole; the proof refuses.
+#   2. `prisma migrate deploy` (the release-migrate mechanism) applies exactly this one: the proof passes whole; the
+#      preflight then fails exactly its "not there yet" checks. Re-run safety: a second deploy finds nothing pending,
+#      the file applied again by hand is refused whole, and the proof is still whole.
+#   3. Role battery (.apc/battery.ts) on a lab with rows that existed BEFORE the migration (.apc/pre.sql): objects,
+#      existing rows and the new-row defaults, isolation per new table, cross-business references, every CHECK, the
+#      new labels usable, the journal still append-only, the two doors, the erasure shapes.
+#   4. Atomicity: the migration failing on its last statement leaves nothing of it behind.
+#   5. R10: main's Prisma Client (the previous application) works on the migrated schema (.apc/old-code.sh).
+#   6. R9: realistic row counts — lock_timeout behind a held lock (atomic, recoverable), release time, no rewrite.
+#   7. Rollback floor: the client of this package reads every touched table beside rows of every new kind (8/8); old
+#      main's failing reads are listed — the evidence for "no code rollback below this release" (rollback.md).
+#
+# There is no rollback step: the release's rollback is a CODE rollback with the additive schema left in place (enum
+# labels cannot be dropped in place). See the PR body.
+# Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: appointments completion — migration lab (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20261230090000_appointments_completion/**"
+      - "ops/evidence/appointments-completion-*.sql"
+      - ".apc/**"
+      - ".github/workflows/appointments-completion-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: appointments completion (PG17, real migration via migrate deploy, Production role topology)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_super
+          POSTGRES_PASSWORD: apc_ci_synthetic_super_pw
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lab_super -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      SUPER: lab_super
+      PGPASSWORD: apc_ci_synthetic_super_pw
+      LAB_PASSWORD: apc_ci_synthetic_role_pw
+      PREFLIGHT: ops/evidence/appointments-completion-preflight.sql
+      PROOF: ops/evidence/appointments-completion-production-evidence.sql
+      MIGRATION: prisma/migrations/20261230090000_appointments_completion/migration.sql
+      # The pending chain is built once (step 1) and every other lab database is cloned from it.
+      APC_TEMPLATE: apc_tpl
+      # The lab chain runs on main's schema (before this package): .apc/lab.sh reads it from BASE_REF.
+      BASE_REF: FETCH_HEAD
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: main's schema for the lab chain (BASE_REF)
+        run: git fetch --no-tags --depth=1 origin main && git show FETCH_HEAD:prisma/schema.prisma | grep -c "^model "
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: 0. Evidence files — SELECT-only, selectable, checksum pinned
+        run: |
+          set -euo pipefail
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          for f in "$PREFLIGHT" "$PROOF"; do
+            if grep -inE "$FORBIDDEN" "$f"; then echo "write keyword in $f"; exit 1; fi
+            grep -q "'$f'" .github/workflows/prod-readonly-evidence.yml || { echo "$f not selectable"; exit 1; }
+          done
+          sum=$(sha256sum "$MIGRATION" | cut -d' ' -f1)
+          grep -q "'$sum'" "$PROOF" || { echo "the proof does not pin $sum"; exit 1; }
+          echo "evidence clean; checksum pinned $sum"
+
+      - name: 1. Baseline — pending; the preflight passes whole, the proof refuses
+        run: |
+          set -euo pipefail
+          bash .apc/lab.sh apc_tpl
+          q() { PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
+          q apc_tpl "$PREFLIGHT" | tee /tmp/pre.out
+          ! grep -q '|FAIL|' /tmp/pre.out || { echo "preflight not whole on the baseline"; exit 1; }
+          if PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d apc_tpl -v ON_ERROR_STOP=1 -f "$PROOF" > /tmp/proof0.out 2>&1; then
+            grep -q '^1|FAIL|' /tmp/proof0.out || { cat /tmp/proof0.out; echo "the proof should refuse before the migration"; exit 1; }
+          else
+            grep -q 'relation "AppointmentSeries" does not exist' /tmp/proof0.out || { cat /tmp/proof0.out; echo "the proof failed for another reason"; exit 1; }
+          fi
+          echo "the proof refuses before the migration"
+
+      - name: 2. Release — migrate deploy applies exactly this one; the proof passes whole; re-run is safe
+        run: |
+          set -euo pipefail
+          bash .apc/lab.sh apc_proof --with-apc
+          q() { PGPASSWORD="$LAB_PASSWORD" psql -X -A -t -F'|' -U lab_owner -d "$1" -v ON_ERROR_STOP=1 -f "$2" | grep -E '^[0-9]+\|' ; }
+          q apc_proof "$PROOF" | tee /tmp/proof.out
+          ! grep -q '|FAIL|' /tmp/proof.out || { echo "proof not whole after the release"; exit 1; }
+          q apc_proof "$PREFLIGHT" | tee /tmp/pre2.out
+          fails=$(grep '|FAIL|' /tmp/pre2.out | cut -d'|' -f1 | tr '\n' ' ')
+          test "$fails" = "2 5 6 7 8 9 10 15 " || { echo "after the release the preflight should fail exactly 2 5 6 7 8 9 10 15, got: $fails"; exit 1; }
+          # Re-run: a second deploy finds nothing pending; the file applied again by hand is refused whole.
+          bash .apc/lab.sh apc_proof --deploy-only | tee /tmp/redeploy.out
+          grep -q "No pending migrations" /tmp/redeploy.out || { echo "second deploy was not a no-op"; exit 1; }
+          if PGPASSWORD="$LAB_PASSWORD" psql -X -q -1 -U lab_owner -d apc_proof -v ON_ERROR_STOP=1 -f "$MIGRATION" 2>/tmp/again.err; then echo "second apply accepted"; exit 1; fi
+          grep -q "APPOINTMENTS_COMPLETION: already applied" /tmp/again.err || { cat /tmp/again.err; exit 1; }
+          q apc_proof "$PROOF" > /tmp/proof2.out
+          ! grep -q '|FAIL|' /tmp/proof2.out || { cat /tmp/proof2.out; echo "proof not whole after the refused re-run"; exit 1; }
+
+      - name: 3. Role battery — existing rows, isolation, checks, labels, journal, doors, erasure shapes
+        run: |
+          set -euo pipefail
+          bash .apc/lab.sh apc_mig
+          PGPASSWORD="$LAB_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -U lab_owner -d apc_mig -f .apc/pre.sql
+          bash .apc/lab.sh apc_mig --deploy-only
+          TZQ="options=-c%20TimeZone%3DAsia%2FJerusalem"
+          OWNER_URL="postgresql://lab_owner:$LAB_PASSWORD@localhost:5432/apc_mig?$TZQ" \
+          RUNTIME_URL="postgresql://app_runtime_prod:$LAB_PASSWORD@localhost:5432/apc_mig?$TZQ" \
+            npx tsx .apc/battery.ts
+
+      - name: 4. Atomicity — the migration failing on its last statement leaves nothing of it behind
+        run: |
+          set -euo pipefail
+          bash .apc/lab.sh apc_broken --broken-apc
+          lab() { PGPASSWORD="$LAB_PASSWORD" psql -X -At -U lab_owner -d apc_broken -v ON_ERROR_STOP=1 "$@"; }
+          left=$(lab -c "SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('AppointmentSeries','BookingPhoneChallenge'))
+            + (SELECT count(*) FROM information_schema.columns WHERE (table_name = 'Appointment' AND column_name IN ('seriesId','seriesIndex'))
+                 OR (table_name = 'BookingSettings' AND column_name IN ('selfRescheduleEnabled','selfRescheduleWindowHours','reminderOffsetsMinutes','bookingHorizonDays','showLogo'))
+                 OR (table_name = 'BookingRequest' AND column_name = 'phoneVerifiedAt')
+                 OR (table_name = 'NotificationDelivery' AND column_name IN ('recipientKind','recipientPhone','templateKey','messageClass','providerMessageId','providerStatus','providerUpdatedAt','appointmentId')))
+            + (SELECT count(*) FROM pg_type WHERE typname = 'AppointmentSeriesFrequency')
+            + (SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE (t.typname = 'NotificationChannel' AND e.enumlabel = 'WHATSAPP') OR (t.typname = 'AppointmentEventType' AND e.enumlabel = 'ARRIVED'))
+            + (SELECT count(*) FROM pg_proc WHERE proname IN ('notification_whatsapp_due','notification_delivery_by_provider_message','booking_otp_send_counts','booking_phone_challenge_purge','notification_customer_phone_purge','booking_phone_challenge_guard','notification_customer_delivery_guard'))
+            + (SELECT count(*) FROM information_schema.columns WHERE table_name = 'BookingSettings' AND column_name = 'defaultApprovalMode' AND column_default LIKE '''AUTO''%')")
+          echo "objects left=$left"
+          test "$left" = "0" || { echo "NOT atomic"; exit 1; }
+
+      - name: 5. Old code on the new schema (R10) — main's Prisma Client against the migrated lab
+        run: |
+          set -euo pipefail
+          bash .apc/old-code.sh apc_mig
+
+      - name: 6. Locks and time (R9) — realistic row counts, lock_timeout behind a held lock, no table rewrite
+        run: |
+          set -euo pipefail
+          bash .apc/timing.sh apc_perf | tee /tmp/timing.out
+          grep -q "^TIMING OK$" /tmp/timing.out
+
+      - name: 7. Rollback floor (release item 5) — this package's client reads every new kind; old main's reads are listed
+        run: |
+          set -euo pipefail
+          bash .apc/rollback-floor.sh apc_mig | tee /tmp/floor.out
+          grep -q "^floor: 8 readable, 0 failing" /tmp/floor.out

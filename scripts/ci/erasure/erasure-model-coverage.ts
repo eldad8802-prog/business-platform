@@ -142,6 +142,11 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   AvailabilityException: { disposition: "ERASURE_MANAGED" },
   BookingRequest: { disposition: "ERASURE_MANAGED" },
   AppointmentManageToken: { disposition: "ERASURE_MANAGED" },
+  // Appointments completion (migration 20261230090000): erased in place by the adapter — a series' title and customer,
+  // a challenge's three keyed hashes, a customer delivery's phone (account-erasure-manifest.ts).
+  AppointmentSeries: { disposition: "ERASURE_MANAGED" },
+  BookingPhoneChallenge: { disposition: "ERASURE_MANAGED" },
+  NotificationDelivery: { disposition: "ERASURE_MANAGED" },
   // Service Desk (migration 20261112090000). Erased in place by service_erase_business(), the SECURITY DEFINER
   // function the adapter calls in the purge transaction — declared in DB_FUNCTION_ERASURES (account-erasure-manifest.ts)
   // and proven by the contract (C24–C27): the call, the function and every text column, cleared or kept with a reason.
@@ -546,7 +551,6 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   ContentFeedback: operational("numeric feedback on generated content"),
   Party: operational("an empty identity anchor — id, businessId and timestamps only"),
   PaymentProviderRouting: operational("which provider a business routes to"),
-  NotificationDelivery: operational("delivery bookkeeping for one notification"),
   ImportRunRow: operational("per-row import status and hashes"),
   KnowledgeMeasure: operational(
     "a number, an observation count and a window describing the OWNER's own behaviour — " +
