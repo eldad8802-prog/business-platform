@@ -33,7 +33,7 @@ import { sensorWho, transitionWithinTx } from "./appointment.service";
 import { authorizeAppointmentAction, type AppointmentPrincipal } from "./appointment-authorization";
 import { AppointmentServiceError, invalid } from "./appointment-errors";
 import { appendAppointmentEvent, instantToken } from "./appointment-journal";
-import { isOverlapViolation, ownerWrite, type OwnerRequest, type WriteContext } from "./appointment-request";
+import { isOverlapViolation, lockBusinessAppointments, ownerWrite, type OwnerRequest, type WriteContext } from "./appointment-request";
 import {
   activeService,
   activeStaff,
@@ -293,6 +293,8 @@ export async function createSeries(principal: AppointmentPrincipal, req: OwnerRe
         continue;
       }
       const r = await guarded(tx, "apc_occurrence", async () => {
+        // Re-entrant (ownerWrite holds it already): a runtime no-op that keeps the lock visible inside the arrow (W1b).
+        await lockBusinessAppointments(tx, businessId);
         const row = await tx.appointment.create({
           data: {
             businessId, status: p.status, kind: p.kind, startsAt: o.startsAt, endsAt: o.endsAt, durationMinutes: plan.durationMinutes,
@@ -534,8 +536,10 @@ export async function changeSeries(principal: AppointmentPrincipal, req: OwnerRe
             },
           });
           // Re-point the following part (every occurrence from this index on, whatever its state) and re-index from 0.
-          await tx.$executeRaw`UPDATE "Appointment" SET "seriesId" = ${split.id}::int, "seriesIndex" = "seriesIndex" - ${from.seriesIndex}::int,
-            "updatedAt" = now() WHERE "businessId" = ${businessId}::int AND "seriesId" = ${series.id}::int AND "seriesIndex" >= ${from.seriesIndex}::int`;
+          await tx.appointment.updateMany({
+            where: { businessId, seriesId: series.id, seriesIndex: { gte: from.seriesIndex } },
+            data: { seriesId: split.id, seriesIndex: { decrement: from.seriesIndex } },
+          });
           seriesUpdate.endsOn = dayDate(last);
           seriesUpdate.occurrenceCount = null;
           toSeriesId = split.id;
@@ -589,8 +593,12 @@ async function moveOne(
     .filter((o) => overlaps(want, occupiedRange(o.startsAt, o.endsAt, o.bufferBeforeMinutes, o.bufferAfterMinutes)))
     .map((o) => o.id);
   if (clash.length) return { ok: false, conflicts: clash.slice(0, 10) };
-  const r = await guarded(tx, "apc_move", () =>
-    tx.appointment.update({ where: { id: current.id }, data: { startsAt, endsAt, durationMinutes, staffMemberId, version: { increment: 1 } } }));
+  const r = await guarded(tx, "apc_move", async () => {
+    // Re-entrant in this transaction (ownerWrite already holds it): a runtime no-op that keeps the lock structurally
+    // visible inside the SAVEPOINT arrow (the appointment write guard, rule W1b).
+    await lockBusinessAppointments(tx, ctx.businessId);
+    return tx.appointment.update({ where: { id: current.id }, data: { startsAt, endsAt, durationMinutes, staffMemberId, version: { increment: 1 } } });
+  });
   if (!r.ok) return { ok: false, conflicts: [] };
   const outside = current.kind !== "BLOCK" && (await outsideAvailability(tx, ctx.businessId, staffMemberId, startsAt, endsAt));
   const startChanged = (current.startsAt?.getTime() ?? null) !== startsAt.getTime();
