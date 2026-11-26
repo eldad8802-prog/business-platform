@@ -27,10 +27,10 @@ OWNER_URL="postgresql://lab_owner${LAB_PASSWORD:+:${LAB_PASSWORD}}@${PGHOST}:${P
 psql_owner() { PGOPTIONS="-c client_min_messages=warning" psql -X -v ON_ERROR_STOP=1 -q "$OWNER_URL" "$@"; }
 
 psql_owner <<'SQL'
--- The appointments completion package (20261230090000), when schema.prisma models it: its two pushed tables reference
--- the foundation's types and must go first (they are rebuilt by that migration where a lab applies it).
-DROP TABLE IF EXISTS "AppointmentSeries", "BookingPhoneChallenge" CASCADE;
-DROP TYPE IF EXISTS "AppointmentSeriesFrequency";
+-- db-push copies so app code runs on labs without 20261230090000; the real objects are proven by .apc.
+-- The pushed "AppointmentSeries" keeps its shape, but its "kind" column uses the foundation's "AppointmentKind", which is
+-- dropped and rebuilt below: the column goes first and is re-added after the foundation is applied (see the end).
+ALTER TABLE IF EXISTS "AppointmentSeries" DROP COLUMN IF EXISTS "kind";
 DROP TABLE IF EXISTS "AppointmentEvent", "AppointmentManageToken", "BookingRequest", "BookingSettings",
   "ServiceBookingPolicy", "AvailabilityException", "AvailabilityRule", "StaffServiceAssignment" CASCADE;
 ALTER TABLE "Appointment"
@@ -86,4 +86,23 @@ if [ "$MODE" = "--broken-appt" ]; then
   echo "LAB READY: $DB (appointments foundation FAILED on its last statement as intended)"; exit 0
 fi
 [ $rc -eq 0 ] || { echo "appointments foundation deploy failed"; exit 1; }
+
+# db-push copies so app code runs on labs without 20261230090000; the real objects are proven by .apc.
+# When schema.prisma models the appointments completion package, put back what the rebuild above took away from the
+# pushed shape: "AppointmentSeries"."kind" (dropped with the foundation's type), and the new nullable / defaulted
+# columns of the "BookingSettings" / "BookingRequest" the foundation migration recreated — types and defaults as
+# schema.prisma defines them. IF NOT EXISTS: harmless where the package migration runs later (.apc removes these
+# copies before it applies the real migration).
+if grep -q "selfRescheduleEnabled" "$ROOT/prisma/schema.prisma"; then
+  psql_owner <<'SQL'
+ALTER TABLE IF EXISTS "AppointmentSeries" ADD COLUMN IF NOT EXISTS "kind" "AppointmentKind" NOT NULL DEFAULT 'CUSTOMER';
+ALTER TABLE "BookingSettings"
+  ADD COLUMN IF NOT EXISTS "selfRescheduleEnabled" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS "selfRescheduleWindowHours" INTEGER NOT NULL DEFAULT 24,
+  ADD COLUMN IF NOT EXISTS "reminderOffsetsMinutes" INTEGER[] NOT NULL DEFAULT '{1440}',
+  ADD COLUMN IF NOT EXISTS "bookingHorizonDays" INTEGER NOT NULL DEFAULT 60,
+  ADD COLUMN IF NOT EXISTS "showLogo" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "BookingRequest" ADD COLUMN IF NOT EXISTS "phoneVerifiedAt" TIMESTAMP(3);
+SQL
+fi
 echo "LAB READY: $DB (appointments foundation applied)"
